@@ -22,6 +22,7 @@ import { collections, values as lowerDashValues } from '@salto-io/lowerdash'
 import { Values, StaticFile, InstanceElement } from '@salto-io/adapter-api'
 import { logger } from '@salto-io/logging'
 import { MapKeyFunc, mapKeysRecursive, TransformFunc, transformValues } from '@salto-io/adapter-utils'
+import * as fs from 'fs'
 import { API_VERSION } from '../client/client'
 import {
   INSTANCE_FULL_NAME_FIELD, IS_ATTRIBUTE, METADATA_CONTENT_FIELD, SALESFORCE, XML_ATTRIBUTE_PREFIX,
@@ -29,7 +30,6 @@ import {
   LIGHTNING_COMPONENT_BUNDLE_METADATA_TYPE, SETTINGS_METADATA_TYPE,
 } from '../constants'
 import { apiName, metadataType, MetadataValues, MetadataInstanceElement, MetadataObjectType, toDeployableInstance, assertMetadataObjectType } from './transformer'
-
 
 const { isDefined } = lowerDashValues
 const { makeArray } = collections.array
@@ -448,7 +448,11 @@ export const createDeployPackage = (deleteBeforeUpdate?: boolean): DeployPackage
       if (deleteManifest.size !== 0) {
         zip.file(`${PACKAGE}/${deletionsPackageName}`, toPackageXml(deleteManifest))
       }
-      return zip.generateAsync({ type: 'nodebuffer' })
+      const buffer = await zip.generateAsync({ type: 'nodebuffer' })
+      fs.writeFileSync('/tmp/out.zip', buffer, {
+        flag: 'w',
+      })
+      return buffer
     },
     getDeletionsPackageName: () => deletionsPackageName,
   }
