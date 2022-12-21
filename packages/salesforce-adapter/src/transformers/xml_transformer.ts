@@ -443,7 +443,7 @@ export const createDeployPackage = (deleteBeforeUpdate?: boolean): DeployPackage
       const typeName = getManifestTypeName(type)
       deleteManifest.get(typeName).push(name)
     },
-    getZip: () => {
+    getZip: async () => {
       zip.file(`${PACKAGE}/package.xml`, toPackageXml(addManifest))
       if (deleteManifest.size !== 0) {
         zip.file(`${PACKAGE}/${deletionsPackageName}`, toPackageXml(deleteManifest))
