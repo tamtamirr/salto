@@ -20,6 +20,14 @@ import { createInstanceElement } from '../../src/transformers/transformer'
 import { CUSTOM_OBJECT, CUSTOM_OBJECT_ID_FIELD } from '../../src/constants'
 import SalesforceClient from '../../src/client/client'
 import { SalesforceRecord } from '../../src/client/types'
+import * as filterUtilsModule from '../../src/filters/utils'
+
+jest.mock('../../src/filters/utils', () => ({
+  ...jest.requireActual('../../src/filters/utils'),
+  queryClient: jest.fn(),
+}))
+
+const mockedUtils = jest.mocked(filterUtilsModule)
 
 const setupClientMock = (client: SalesforceClient, userNames: string[]): void => {
   const mockQueryResult = userNames.map((userName): SalesforceRecord => ({
@@ -27,6 +35,8 @@ const setupClientMock = (client: SalesforceClient, userNames: string[]): void =>
     Username: userName,
   }))
 
+  mockedUtils.queryClient.mockResolvedValue(mockQueryResult)
+  return
   client.queryAll = async (_queryString: string): Promise<AsyncIterable<SalesforceRecord[]>> => (
     Promise.resolve({
       [Symbol.asyncIterator]: (): AsyncIterator<SalesforceRecord[]> => {
@@ -46,6 +56,7 @@ const setupClientMock = (client: SalesforceClient, userNames: string[]): void =>
 }
 
 describe('unknown user change validator', () => {
+  let queryClientSpy: jest.SpyInstance
   const caseSettingsType = new ObjectType({
     elemID: new ElemID('salesforce', 'CaseSettings'),
     annotations: { metadataType: CUSTOM_OBJECT, apiName: 'CaseSettings' },
@@ -61,6 +72,11 @@ describe('unknown user change validator', () => {
       },
     },
   })
+
+  beforeEach(() => {
+    queryClientSpy = jest.spyOn(filterUtilsModule, 'queryClient')
+  })
+
   describe('when an irrelevant instance changes', () => {
     const irrelevantType = new ObjectType({
       elemID: new ElemID('salesforce', 'SomeType'),
