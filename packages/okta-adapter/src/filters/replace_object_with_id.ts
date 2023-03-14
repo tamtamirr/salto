@@ -19,9 +19,8 @@ import { FilterCreator } from '../filter'
 
 const TYPE_TO_REFERENCES_TYPES: Record<string, string[]> = {
   Application: ['assignedGroups'],
-  Group: ['users', 'roles'],
-  IdentityProvider: ['users'],
-  Feature: ['featureDependents', 'featureDependencies'],
+  Group: ['roles'],
+  Feature: ['featureDependencies'],
 }
 
 const replaceObjectWithId = (instance: InstanceElement): void => {
@@ -46,6 +45,7 @@ const replaceObjectWithId = (instance: InstanceElement): void => {
  * the filter replaces the object with its id so we can use fieldReferences filter
  */
 const filter: FilterCreator = () => ({
+  name: 'replaceObjectWithIdFilter',
   onFetch: async (elements: Element[]) => {
     elements
       .filter(isInstanceElement)

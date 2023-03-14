@@ -119,7 +119,7 @@ salesforce {
 | [fetch](#fetch-configuration-options)          |                        | Fetch configuration                                                               |
 | [client](#client-configuration-options)        | {} (no overrides)      | Configuration relating to the client used to interact with salesforce             |
 | [validators](#validator-configuration-options) | {} (all enabled)       | Configuration for choosing which validators will be applied to deploy plans       |
-| enumFieldPermissions                           | false                  | Change the FieldPermission values to be enum instead of an Object with references |
+| enumFieldPermissions                           | true                  | Change the FieldPermission values to be enum instead of an Object with references |
 
 ## Fetch configuration options
 
@@ -239,7 +239,7 @@ For more details see the DeployOptions section in the [salesforce documentation 
 
 | Name              | Default when undefined                                  | Description                           |
 |-------------------|---------------------------------------------------------|---------------------------------------|
-| maxAttempts       | `3`                                                     | Max attempts to deploy data instances |
+| maxAttempts       | `5`                                                     | Max attempts to deploy data instances |
 | retryDelay        | `1000`                                                  | Delay (in millis) between each retry  |
 | retryableFailures | `FIELD_CUSTOM_VALIDATION_EXCEPTION, UNABLE_TO_LOCK_ROW` | Error messages for which to retry     |
 | 

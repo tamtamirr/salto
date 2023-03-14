@@ -13,7 +13,7 @@
 * See the License for the specific language governing permissions and
 * limitations under the License.
 */
-import { InstanceElement, ElemID, ObjectType } from '@salto-io/adapter-api'
+import { InstanceElement, ElemID, ObjectType, ReadOnlyElementsSource } from '@salto-io/adapter-api'
 import { buildElementsSourceFromElements, createDefaultInstanceFromType } from '@salto-io/adapter-utils'
 import { client as clientUtils, elements as elementUtils } from '@salto-io/adapter-components'
 import { mockFunction, MockInterface } from '@salto-io/test-utils'
@@ -23,7 +23,8 @@ import { JiraConfig, configType, getDefaultConfig } from '../src/config/config'
 import JiraClient from '../src/client/client'
 import { FilterCreator } from '../src/filter'
 import { paginate } from '../src/client/pagination'
-import { GetIdMapFunc, getIdMapFuncCreator } from '../src/users_map'
+import { GetUserMapFunc, getUserMapFuncCreator } from '../src/users'
+import { JIRA } from '../src/constants'
 
 
 export const createCredentialsInstance = (credentials: Credentials): InstanceElement => (
@@ -54,7 +55,7 @@ type ClientWithMockConnection = {
   client: JiraClient
   paginator: clientUtils.Paginator
   connection: MockInterface<clientUtils.APIConnection>
-  getIdMapFunc: GetIdMapFunc
+  getUserMapFunc: GetUserMapFunc
 }
 export const mockClient = (isDataCenter = false): ClientWithMockConnection => {
   const connection = mockConnection()
@@ -75,8 +76,8 @@ export const mockClient = (isDataCenter = false): ClientWithMockConnection => {
   const paginator = clientUtils.createPaginator(
     { paginationFuncCreator: paginate, client }
   )
-  const getIdMapFunc = getIdMapFuncCreator(paginator, client.isDataCenter)
-  return { client, paginator, connection, getIdMapFunc }
+  const getUserMapFunc = getUserMapFuncCreator(paginator, client.isDataCenter)
+  return { client, paginator, connection, getUserMapFunc }
 }
 
 export const getDefaultAdapterConfig = async (): Promise<JiraConfig> => {
@@ -84,12 +85,38 @@ export const getDefaultAdapterConfig = async (): Promise<JiraConfig> => {
   return defaultConfigInstance.value as JiraConfig
 }
 
-export const getFilterParams = (params?: Partial<Parameters<FilterCreator>[0]>)
+export const getFilterParams = (params?: Partial<Parameters<FilterCreator>[0]>, isDataCenter = false)
 : Parameters<FilterCreator>[0] => ({
-  ...mockClient(),
-  config: getDefaultConfig({ isDataCenter: false }),
+  ...mockClient(isDataCenter),
+  config: getDefaultConfig({ isDataCenter }),
   elementsSource: buildElementsSourceFromElements([]),
   fetchQuery: elementUtils.query.createMockQuery(),
   adapterContext: {},
   ...params ?? {},
+})
+
+export const getAccountInfoInstance = (isFree: boolean): InstanceElement => (
+  new InstanceElement(
+    '_config',
+    new ObjectType({
+      elemID: new ElemID(JIRA, 'AccountInfo'),
+    }),
+    {
+      license: {
+        applications: [
+          {
+            id: 'jira-software',
+            plan: isFree ? 'FREE' : 'BUSINESS',
+          },
+        ],
+      },
+    }
+  )
+)
+
+export const getLicenseElementSource = (isFree: boolean): ReadOnlyElementsSource =>
+  buildElementsSourceFromElements([getAccountInfoInstance(isFree)])
+
+export const createEmptyType = (type: string): ObjectType => new ObjectType({
+  elemID: new ElemID(JIRA, type),
 })

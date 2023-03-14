@@ -20,7 +20,7 @@ import _ from 'lodash'
 import Joi from 'joi'
 import { findObject } from '../../utils'
 import { FilterCreator } from '../../filter'
-import { WORKFLOW_RULES_TYPE_NAME, WORKFLOW_TYPE_NAME } from '../../constants'
+import { WORKFLOW_RULES_TYPE_NAME } from '../../constants'
 import { isWorkflowInstance, triggerSchema } from './types'
 import { triggerType } from './triggers_types'
 
@@ -38,6 +38,7 @@ response is Array<{key?: string; configuration?: Record<string, unknown>}> => {
 }
 
 const filter: FilterCreator = ({ client, config }) => ({
+  name: 'triggersFilter',
   onFetch: async elements => {
     if (!config.client.usePrivateAPI) {
       log.debug('Skipping triggers filter because private API is not enabled')
@@ -59,7 +60,6 @@ const filter: FilterCreator = ({ client, config }) => ({
     const failedWorkflowsIds = new Set<string>()
     await Promise.all(elements
       .filter(isInstanceElement)
-      .filter(instance => instance.elemID.typeName === WORKFLOW_TYPE_NAME)
       .filter(isWorkflowInstance)
       .filter(workflow => workflow.value.name !== undefined)
       .map(async instance => {

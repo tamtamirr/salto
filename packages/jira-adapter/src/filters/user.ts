@@ -15,14 +15,12 @@
 */
 import { Field, isInstanceElement, isListType, isObjectType, ListType } from '@salto-io/adapter-api'
 import { walkOnElement } from '@salto-io/adapter-utils'
-import { logger } from '@salto-io/logging'
 import { collections } from '@salto-io/lowerdash'
 import { FilterCreator } from '../filter'
 import { walkOnUsers, WalkOnUsersCallback } from './account_id/account_id_filter'
 import { accountIdInfoType } from './account_id/types'
 
 const { awu } = collections.asynciterable
-const log = logger(module)
 
 const USER_TYPE_NAMES = ['User', 'UserBean', 'Board_admins_users']
 
@@ -35,12 +33,13 @@ const simplifyUsers: WalkOnUsersCallback = ({ value, fieldName }): void => {
 /**
  * Replaces the user obj with only the account id
  */
-const filter: FilterCreator = () => ({
-  onFetch: async elements => log.time(async () => {
+const filter: FilterCreator = ({ config }) => ({
+  name: 'userFilter',
+  onFetch: async elements => {
     await awu(elements)
       .filter(isInstanceElement)
       .forEach(async element => {
-        walkOnElement({ element, func: walkOnUsers(simplifyUsers) })
+        walkOnElement({ element, func: walkOnUsers(simplifyUsers, config) })
       })
 
     await awu(elements)
@@ -64,7 +63,8 @@ const filter: FilterCreator = () => ({
             .toArray()
         )
       })
-  }, 'user_filter'),
+    elements.push(accountIdInfoType)
+  },
 })
 
 export default filter

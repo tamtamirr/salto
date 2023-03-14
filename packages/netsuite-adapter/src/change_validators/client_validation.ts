@@ -15,39 +15,66 @@
 */
 import _ from 'lodash'
 import { collections } from '@salto-io/lowerdash'
-import { Change, ChangeError, changeId, getChangeData, Element } from '@salto-io/adapter-api'
-import { getGroupItemFromRegex, objectValidationErrorRegex, OBJECT_ID } from '../client/sdf_client'
+import { Change, ChangeError, changeId, getChangeData, ChangeDataType, isField, isFieldChange, isInstanceChange, isObjectTypeChange, InstanceElement, ObjectType } from '@salto-io/adapter-api'
+import { AdditionalDependencies } from '../config'
+import { getGroupItemFromRegex } from '../client/sdf_client'
 import NetsuiteClient from '../client/client'
-import { AdditionalDependencies } from '../client/types'
 import { getChangeGroupIdsFunc } from '../group_changes'
-import { ManifestValidationError, ObjectsDeployError, SettingsDeployError } from '../errors'
+import { ManifestValidationError, ObjectsDeployError, SettingsDeployError } from '../client/errors'
+import { detectLanguage, multiLanguageErrorDetectors, OBJECT_ID } from '../client/language_utils'
 import { SCRIPT_ID } from '../constants'
 import { getElementValueOrAnnotations } from '../types'
 import { Filter } from '../filter'
-import { LazyElementsSourceIndexes } from '../elements_source_index/types'
-
+import { cloneChange } from './utils'
 
 const { awu } = collections.asynciterable
-const VALIDATION_FAIL = 'Validation failed.'
 
-const mapObjectDeployErrorToInstance = (error: Error): Record<string, string> => {
+type FailedChangeWithDependencies = {
+  change: Change<ChangeDataType>
+  dependencies: string[]
+}
+
+const mapObjectDeployErrorToInstance = (error: Error):
+{ get: (changeData: ChangeDataType) => string | undefined } => {
+  const detectedLanguage = detectLanguage(error.message)
+  const { validationFailed, objectValidationErrorRegex } = multiLanguageErrorDetectors[detectedLanguage]
   const scriptIdToErrorRecord: Record<string, string> = {}
-  const errorMessageChunks = error.message.split(VALIDATION_FAIL)[1]?.split('\n\n')
+  const errorMessageChunks = error.message.split(validationFailed)[1]?.split('\n\n') ?? []
   errorMessageChunks.forEach(chunk => {
     const objectErrorScriptId = getGroupItemFromRegex(
       chunk, objectValidationErrorRegex, OBJECT_ID
     )
     objectErrorScriptId.forEach(scriptId => { scriptIdToErrorRecord[scriptId] = chunk })
   })
-  return scriptIdToErrorRecord
+  return {
+    get: changeData => scriptIdToErrorRecord[getElementValueOrAnnotations(changeData)[SCRIPT_ID]] ?? (
+      isField(changeData)
+        ? scriptIdToErrorRecord[getElementValueOrAnnotations(changeData.parent)[SCRIPT_ID]]
+        : undefined
+    ),
+  }
 }
+
+const getFailedChangesWithDependencies = (
+  groupChanges:Change<ChangeDataType>[],
+  dependencyMap: Map<string, Set<string>>,
+  error: ManifestValidationError,
+): FailedChangeWithDependencies[] => groupChanges
+  .map(change => ({
+    change,
+    dependencies: error.missingDependencyScriptIds.filter(scriptid =>
+      dependencyMap.get(getChangeData(change).elemID.getFullName())?.has(scriptid)
+      || (isFieldChange(change)
+      && dependencyMap.get(getChangeData(change).parent.elemID.getFullName())?.has(scriptid))),
+  }))
+  .filter(({ dependencies }) => dependencies.length > 0)
+
 
 export type ClientChangeValidator = (
   changes: ReadonlyArray<Change>,
   client: NetsuiteClient,
   additionalDependencies: AdditionalDependencies,
-  filtersRunner: Required<Filter>,
-  elementsSourceIndex: LazyElementsSourceIndexes,
+  filtersRunner: (groupID: string) => Required<Filter>,
   deployReferencedElements?: boolean
 ) => Promise<ReadonlyArray<ChangeError>>
 
@@ -56,22 +83,14 @@ const changeValidator: ClientChangeValidator = async (
   client,
   additionalDependencies,
   filtersRunner,
-  elementsSourceIndex,
-  deployReferencedElements = false
 ) => {
-  const clonedChanges = changes.map(change => ({
-    action: change.action,
-    data: _.mapValues(change.data, (element: Element) => element.clone()),
-  })) as Change[]
-  await filtersRunner.preDeploy(clonedChanges)
-
   // SALTO-3016 we can validate only SDF elements because
   // we need FileCabinet references to be included in the SDF project
   const getChangeGroupIds = getChangeGroupIdsFunc(false)
   const { changeGroupIdMap } = await getChangeGroupIds(
-    new Map(clonedChanges.map(change => [changeId(change), change]))
+    new Map(changes.map(change => [changeId(change), change]))
   )
-  const changesByGroupId = _(clonedChanges)
+  const changesByGroupId = _(changes)
     .filter(change => changeGroupIdMap.has(changeId(change)))
     .groupBy(change => changeGroupIdMap.get(changeId(change)))
     .entries()
@@ -79,26 +98,28 @@ const changeValidator: ClientChangeValidator = async (
 
   return awu(changesByGroupId)
     .flatMap(async ([groupId, groupChanges]) => {
+      const clonedChanges = groupChanges.map(cloneChange)
+      await filtersRunner(groupId).preDeploy(clonedChanges)
       const errors = await client.validate(
-        groupChanges,
+        clonedChanges,
         groupId,
-        deployReferencedElements,
         additionalDependencies,
-        elementsSourceIndex,
       )
       if (errors.length > 0) {
-        return errors.flatMap(error => {
+        const topLevelChanges = groupChanges.filter(
+          change => isInstanceChange(change) || isObjectTypeChange(change)
+        ) as Change<InstanceElement | ObjectType>[]
+        const { dependencyMap } = await NetsuiteClient.createDependencyMapAndGraph(topLevelChanges)
+        return awu(errors).flatMap(async error => {
           if (error instanceof ObjectsDeployError) {
             const scriptIdToErrorMap = mapObjectDeployErrorToInstance(error)
             return groupChanges.map(getChangeData)
-              .filter(element =>
-                scriptIdToErrorMap[getElementValueOrAnnotations(element)[SCRIPT_ID]] !== undefined)
+              .filter(element => scriptIdToErrorMap.get(element) !== undefined)
               .map(element => ({
                 message: 'SDF Objects Validation Error',
                 severity: 'Error' as const,
                 elemID: element.elemID,
-                detailedMessage:
-                scriptIdToErrorMap[getElementValueOrAnnotations(element)[SCRIPT_ID]],
+                detailedMessage: scriptIdToErrorMap.get(element) ?? '',
               }))
           }
           if (error instanceof SettingsDeployError) {
@@ -112,15 +133,35 @@ const changeValidator: ClientChangeValidator = async (
                 detailedMessage: error.message,
               }))
           }
-          const message = error instanceof ManifestValidationError
-            ? 'SDF Manifest Validation Error'
-            : `Validation Error on ${groupId}`
-          return groupChanges.map(change => ({
-            message,
-            severity: 'Error' as const,
-            elemID: getChangeData(change).elemID,
-            detailedMessage: error.message,
-          }))
+          if (error instanceof ManifestValidationError) {
+            const failedChangesWithDependencies = getFailedChangesWithDependencies(
+              groupChanges, dependencyMap, error
+            )
+            const lockedElemsMessage = `The missing dependencies might be locked elements in the source environment which do not exist in the target environment. Moreover, the dependencies might be part of a 3rd party bundle or SuiteApp.
+If so, please make sure that all the bundles from the source account are installed and updated in the target account.`
+            if (failedChangesWithDependencies.length === 0) {
+              return groupChanges.map(change => ({
+                message: 'Some elements in this deployment have missing dependencies',
+                severity: 'Error' as const,
+                elemID: getChangeData(change).elemID,
+                detailedMessage: `Cannot deploy elements because of missing dependencies: (${error.missingDependencyScriptIds.join(', ')}).\n${lockedElemsMessage}`,
+              }))
+            }
+            return failedChangesWithDependencies
+              .map(changeAndMissingDependencies => ({
+                message: 'This element depends on missing elements',
+                severity: 'Error' as const,
+                elemID: getChangeData(changeAndMissingDependencies.change).elemID,
+                detailedMessage: `This element depends on the following missing elements: (${changeAndMissingDependencies.dependencies.join(', ')}).\n${lockedElemsMessage}`,
+              }))
+          }
+          return groupChanges
+            .map(change => ({
+              message: `Validation Error on ${groupId}`,
+              severity: 'Error' as const,
+              elemID: getChangeData(change).elemID,
+              detailedMessage: error.message,
+            }))
         })
       }
       return []

@@ -14,7 +14,7 @@
 * limitations under the License.
 */
 import { toChange, ObjectType, ElemID, InstanceElement } from '@salto-io/adapter-api'
-import { API_DEFINITIONS_CONFIG, DEFAULT_CONFIG } from '../src/config'
+import { API_DEFINITIONS_CONFIG, DEFAULT_CONFIG, DEPLOY_CONFIG, FETCH_CONFIG } from '../src/config'
 import createChangeValidator from '../src/change_validator'
 import { ZENDESK } from '../src/constants'
 import ZendeskClient from '../src/client/client'
@@ -26,6 +26,8 @@ describe('change validator creator', () => {
       expect(await createChangeValidator({
         client,
         apiConfig: DEFAULT_CONFIG[API_DEFINITIONS_CONFIG],
+        fetchConfig: DEFAULT_CONFIG[FETCH_CONFIG],
+        deployConfig: DEFAULT_CONFIG[DEPLOY_CONFIG],
         typesDeployedViaParent: [],
         typesWithNoDeploy: [],
       })([]))
@@ -36,6 +38,8 @@ describe('change validator creator', () => {
       expect(await createChangeValidator({
         client,
         apiConfig: DEFAULT_CONFIG[API_DEFINITIONS_CONFIG],
+        fetchConfig: DEFAULT_CONFIG[FETCH_CONFIG],
+        deployConfig: DEFAULT_CONFIG[DEPLOY_CONFIG],
         typesDeployedViaParent: [],
         typesWithNoDeploy: [],
       })([
@@ -46,13 +50,13 @@ describe('change validator creator', () => {
           elemID: new ElemID(ZENDESK, 'obj'),
           severity: 'Error',
           message: 'Deployment of non-instance elements is not supported in adapter zendesk',
-          detailedMessage: 'Deployment of non-instance elements is not supported in adapter zendesk. Please see your business app FAQ at https://docs.salto.io/docs/supported-bizapps for a list of supported elements.',
+          detailedMessage: 'Deployment of non-instance elements is not supported in adapter zendesk. Please see your business app FAQ at https://help.salto.io/en/articles/6927118-supported-business-applications for a list of supported elements.',
         },
         {
           elemID: new ElemID(ZENDESK, 'obj2'),
           severity: 'Error',
           message: 'Deployment of non-instance elements is not supported in adapter zendesk',
-          detailedMessage: 'Deployment of non-instance elements is not supported in adapter zendesk. Please see your business app FAQ at https://docs.salto.io/docs/supported-bizapps for a list of supported elements.',
+          detailedMessage: 'Deployment of non-instance elements is not supported in adapter zendesk. Please see your business app FAQ at https://help.salto.io/en/articles/6927118-supported-business-applications for a list of supported elements.',
         },
       ])
     })
@@ -63,6 +67,8 @@ describe('change validator creator', () => {
       expect(await createChangeValidator({
         client,
         apiConfig: DEFAULT_CONFIG[API_DEFINITIONS_CONFIG],
+        fetchConfig: DEFAULT_CONFIG[FETCH_CONFIG],
+        deployConfig: DEFAULT_CONFIG[DEPLOY_CONFIG],
         typesDeployedViaParent: [],
         typesWithNoDeploy: [],
       })([
@@ -73,13 +79,13 @@ describe('change validator creator', () => {
           elemID: new ElemID(ZENDESK, 'obj', 'instance', 'inst1'),
           severity: 'Error',
           message: 'Operation not supported',
-          detailedMessage: 'Salto does not support "add" of zendesk.obj.instance.inst1. Please see your business app FAQ at https://docs.salto.io/docs/supported-bizapps for a list of supported elements.',
+          detailedMessage: 'Salto does not support "add" of zendesk.obj.instance.inst1. Please see your business app FAQ at https://help.salto.io/en/articles/6927118-supported-business-applications for a list of supported elements.',
         },
         {
           elemID: new ElemID(ZENDESK, 'obj', 'instance', 'inst2'),
           severity: 'Error',
           message: 'Operation not supported',
-          detailedMessage: 'Salto does not support "remove" of zendesk.obj.instance.inst2. Please see your business app FAQ at https://docs.salto.io/docs/supported-bizapps for a list of supported elements.',
+          detailedMessage: 'Salto does not support "remove" of zendesk.obj.instance.inst2. Please see your business app FAQ at https://help.salto.io/en/articles/6927118-supported-business-applications for a list of supported elements.',
         },
       ])
     })

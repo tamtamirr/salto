@@ -71,7 +71,7 @@ describe('checkDeploymentAnnotationsValidator', () => {
       elemID: instance.elemID,
       severity: 'Error',
       message: 'Operation not supported',
-      detailedMessage: `Salto does not support "add" of ${instance.elemID.getFullName()}. Please see your business app FAQ at https://docs.salto.io/docs/supported-bizapps for a list of supported elements.`,
+      detailedMessage: `Salto does not support "add" of ${instance.elemID.getFullName()}. Please see your business app FAQ at https://help.salto.io/en/articles/6927118-supported-business-applications for a list of supported elements.`,
     }])
   })
 
@@ -82,7 +82,7 @@ describe('checkDeploymentAnnotationsValidator', () => {
       toChange({ before: instance, after: afterInstance }),
     ])
     expect(errors).toEqual([{
-      elemID: instance.elemID,
+      elemID: instance.elemID.createNestedID('notUpdatableField'),
       severity: 'Info',
       message: 'Operation not supported for specific value',
       detailedMessage: 'Deploying "notUpdatableField" in adapter.test.instance.instance is not supported. The current value in the target environment will not be modified',
@@ -97,7 +97,7 @@ describe('checkDeploymentAnnotationsValidator', () => {
       toChange({ after: afterInstance }),
     ])
     expect(errors).toEqual([{
-      elemID: instance.elemID,
+      elemID: instance.elemID.createNestedID('notUpdatableField'),
       severity: 'Info',
       message: 'Operation not supported for specific value',
       detailedMessage: 'Deploying "notUpdatableField" in adapter.test.instance.instance is not supported. The instance will be created with the default value of the target environment',

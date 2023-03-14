@@ -27,7 +27,7 @@ import {
   BuiltinTypes,
   CORE_ANNOTATIONS,
   isRemovalChange,
-  getChangeData,
+  getChangeData, TemplateExpression,
 } from '@salto-io/adapter-api'
 import { buildElementsSourceFromElements } from '@salto-io/adapter-utils'
 import { elements as elementsUtils } from '@salto-io/adapter-components'
@@ -192,12 +192,12 @@ describe('adapter', () => {
           'zendesk.article_attachment',
           'zendesk.article_attachment__article_attachments',
           'zendesk.article_order',
-          'zendesk.article_order.instance.Announcements_General_myBrand__',
-          'zendesk.article_order.instance.Apex_Development_myBrand__',
-          'zendesk.article_order.instance.Billing_and_Subscriptions_General_myBrand_ssuu__@uuuumuu',
-          'zendesk.article_order.instance.FAQ_General_myBrand__',
-          'zendesk.article_order.instance.Internal_KB_General_myBrand_suu__@uuumuu',
-          'zendesk.article_order.instance.greatSection_greatCategory_brandWithGuide__',
+          'zendesk.article_order.instance.Announcements_General_myBrand',
+          'zendesk.article_order.instance.Apex_Development_myBrand',
+          'zendesk.article_order.instance.Billing_and_Subscriptions_General_myBrand_ssuu@uuuum',
+          'zendesk.article_order.instance.FAQ_General_myBrand',
+          'zendesk.article_order.instance.Internal_KB_General_myBrand_suu@uuum',
+          'zendesk.article_order.instance.greatSection_greatCategory_brandWithGuide',
           'zendesk.article_translation',
           'zendesk.article_translation.instance.How_can_agents_leverage_knowledge_to_help_customers__Apex_Development_myBrand_sssssssauuu__myBrand_en_us_ub@uuuuuuuuuuumuuuum',
           'zendesk.article_translation.instance.Title_Yo___greatSection_greatCategory_brandWithGuide_ssauuu__brandWithGuide_en_us_ub@uuuuuumuuuum',
@@ -238,8 +238,8 @@ describe('adapter', () => {
           'zendesk.category.instance.General_myBrand',
           'zendesk.category.instance.greatCategory_brandWithGuide',
           'zendesk.category_order',
-          'zendesk.category_order.instance.brandWithGuide__',
-          'zendesk.category_order.instance.myBrand__',
+          'zendesk.category_order.instance.brandWithGuide',
+          'zendesk.category_order.instance.myBrand',
           'zendesk.category_translation',
           'zendesk.category_translation.instance.Development_myBrand__myBrand_en_us_ub@uuuuum',
           'zendesk.category_translation.instance.General_myBrand__myBrand_en_us_ub@uuuuum',
@@ -416,15 +416,15 @@ describe('adapter', () => {
           'zendesk.section.instance.Internal_KB_General_myBrand@suu',
           'zendesk.section.instance.greatSection_greatCategory_brandWithGuide',
           'zendesk.section_order',
-          'zendesk.section_order.instance.Announcements_General_myBrand__',
-          'zendesk.section_order.instance.Apex_Development_myBrand__',
-          'zendesk.section_order.instance.Billing_and_Subscriptions_General_myBrand_ssuu__@uuuumuu',
-          'zendesk.section_order.instance.Development_myBrand__',
-          'zendesk.section_order.instance.FAQ_General_myBrand__',
-          'zendesk.section_order.instance.General_myBrand__',
-          'zendesk.section_order.instance.Internal_KB_General_myBrand_suu__@uuumuu',
-          'zendesk.section_order.instance.greatCategory_brandWithGuide__',
-          'zendesk.section_order.instance.greatSection_greatCategory_brandWithGuide__',
+          'zendesk.section_order.instance.Announcements_General_myBrand',
+          'zendesk.section_order.instance.Apex_Development_myBrand',
+          'zendesk.section_order.instance.Billing_and_Subscriptions_General_myBrand_ssuu@uuuum',
+          'zendesk.section_order.instance.Development_myBrand',
+          'zendesk.section_order.instance.FAQ_General_myBrand',
+          'zendesk.section_order.instance.General_myBrand',
+          'zendesk.section_order.instance.Internal_KB_General_myBrand_suu@uuum',
+          'zendesk.section_order.instance.greatCategory_brandWithGuide',
+          'zendesk.section_order.instance.greatSection_greatCategory_brandWithGuide',
           'zendesk.section_translation',
           'zendesk.section_translation.instance.Announcements_General_myBrand__myBrand_en_us_ub@uuuuuum',
           'zendesk.section_translation.instance.Apex_Development_myBrand__myBrand_en_us_ub@uuuuuum',
@@ -443,12 +443,13 @@ describe('adapter', () => {
           'zendesk.sla_policy.instance.SLA_502@s',
           'zendesk.sla_policy__filter',
           'zendesk.sla_policy__filter__all',
+          'zendesk.sla_policy__filter__any',
           'zendesk.sla_policy__policy_metrics',
           'zendesk.sla_policy_definition',
           'zendesk.sla_policy_order',
           'zendesk.sla_policy_order.instance',
           'zendesk.support_address',
-          'zendesk.support_address.instance.myBrand',
+          'zendesk.support_address.instance.myBrand_support_myBrand_subdomain_zendesk_com@umvvv',
           'zendesk.support_addresses',
           'zendesk.tag',
           'zendesk.tag.instance.Social',
@@ -621,13 +622,24 @@ describe('adapter', () => {
           'zendesk.workspaces',
         ])
 
-        const supportAddress = elements.filter(isInstanceElement).find(e => e.elemID.getFullName().startsWith('zendesk.support_address.instance.myBrand'))
+        const supportAddress = elements.filter(isInstanceElement).find(e => e.elemID.getFullName().startsWith('zendesk.support_address.instance.myBrand_support_myBrand_subdomain_zendesk_com@umvvv'))
+        const brand = elements.filter(isInstanceElement).find(e => e.elemID.getFullName().startsWith('zendesk.brand.instance.myBrand'))
+        expect(brand).toBeDefined()
+        if (brand === undefined) {
+          return
+        }
         expect(supportAddress).toBeDefined()
         expect(supportAddress?.value).toMatchObject({
           id: 1500000743022,
           default: true,
           name: 'myBrand',
-          email: 'support@myBrand.zendesk.com',
+          email: new TemplateExpression({
+            parts: [
+              'support@',
+              new ReferenceExpression(brand.elemID.createNestedID('subdomain'), brand.value.subdomain),
+              '.zendesk.com',
+            ],
+          }),
           // eslint-disable-next-line camelcase
           brand_id: expect.any(ReferenceExpression),
         })
@@ -662,7 +674,7 @@ describe('adapter', () => {
         expect(errors).toEqual([
           {
             severity: 'Warning',
-            message: 'Salto was forbidden from accessing the custom_statuses resource. Elements from that type were not fetched. Please make sure that the supplied user credentials have sufficient permissions to access this data, and try again. Learn more at https://docs.salto.io/docs/fetch-error-forbidden-access',
+            message: "Salto could not access the custom_statuses resource. Elements from that type were not fetched. Please make sure that this type is enabled in your service, and that the supplied user credentials have sufficient permissions to access this data. You can also exclude this data from Salto's fetches by changing the environment configuration. Learn more at https://help.salto.io/en/articles/6947061-salto-could-not-access-the-resource",
           },
         ])
         const elementsNames = elements.map(e => e.elemID.getFullName())
@@ -1277,45 +1289,80 @@ describe('adapter', () => {
         toChange({ before: new InstanceElement('inst', groupType) }),
       ])
     })
-    it('should rate limit guide requests to 1, and not limit support requests', async () => {
+    describe('clients tests', () => {
       const { client } = createFilterCreatorParams({})
-      const brand1 = new InstanceElement('brand1', new ObjectType({ elemID: new ElemID(ZENDESK, BRAND_TYPE_NAME) }), { subdomain: 'domain1', id: 1 })
-      const brand2 = new InstanceElement('brand2', new ObjectType({ elemID: new ElemID(ZENDESK, BRAND_TYPE_NAME) }), { subdomain: 'domain2', id: 2 })
+      const brand1 = new InstanceElement('brand1', new ObjectType({ elemID: new ElemID(ZENDESK, BRAND_TYPE_NAME) }), {
+        subdomain: 'domain1',
+        id: 1,
+      })
+      const brand2 = new InstanceElement('brand2', new ObjectType({ elemID: new ElemID(ZENDESK, BRAND_TYPE_NAME) }), {
+        subdomain: 'domain2',
+        id: 2,
+      })
       const settings1 = new InstanceElement('guide_language_settings1', new ObjectType({ elemID: new ElemID(ZENDESK, GUIDE_LANGUAGE_SETTINGS_TYPE_NAME) }), { brand: 1 })
       const settings2 = new InstanceElement('guide_language_settings2', new ObjectType({ elemID: new ElemID(ZENDESK, GUIDE_LANGUAGE_SETTINGS_TYPE_NAME) }), { brand: 2 })
-      const zendeskAdapter = new ZendeskAdapter({
-        config: DEFAULT_CONFIG,
-        client,
-        credentials: { accessToken: '', subdomain: '' },
-        elementsSource: buildElementsSourceFromElements([brand1, brand2, settings1, settings2]),
-      })
-      // any is needed to be able to spy on private method
-      // eslint-disable-next-line
-      const createClientSpy = jest.spyOn(zendeskAdapter as any, 'createClientBySubdomain')
-      // eslint-disable-next-line
-      const createFiltersRunnerSpy = jest.spyOn(zendeskAdapter as any, 'createFiltersRunner')
-      await zendeskAdapter.deploy({
-        changeGroup: {
-          groupID: '1',
-          changes: [toChange({ after: settings1 }), toChange({ after: settings2 })],
-        },
-      })
-
-      const guideFilterRunnerCall = expect.objectContaining({
-        filterRunnerClient: expect.objectContaining({
-          config: {
-            rateLimit: {
-              deploy: 1,
-            },
+      it('should rate limit guide requests to 1, and not limit support requests', async () => {
+        const zendeskAdapter = new ZendeskAdapter({
+          config: DEFAULT_CONFIG,
+          client,
+          credentials: { accessToken: '', subdomain: '' },
+          elementsSource: buildElementsSourceFromElements([brand1, brand2, settings1, settings2]),
+        })
+        // any is needed to be able to spy on private method
+        // eslint-disable-next-line
+        const createClientSpy = jest.spyOn(zendeskAdapter as any, 'createClientBySubdomain')
+        // eslint-disable-next-line
+        const createFiltersRunnerSpy = jest.spyOn(zendeskAdapter as any, 'createFiltersRunner')
+        await zendeskAdapter.deploy({
+          changeGroup: {
+            groupID: '1',
+            changes: [toChange({ after: settings1 }), toChange({ after: settings2 })],
           },
-        }),
-      })
+        })
+        const guideFilterRunnerCall = expect.objectContaining({
+          filterRunnerClient: expect.objectContaining({
+            config: {
+              rateLimit: {
+                deploy: 1,
+              },
+            },
+          }),
+        })
 
-      expect(createClientSpy).toHaveBeenCalledTimes(2)
-      expect(createFiltersRunnerSpy).toHaveBeenCalledTimes(3)
-      expect(createFiltersRunnerSpy).toHaveBeenNthCalledWith(1, {}) // Regular deploy
-      expect(createFiltersRunnerSpy).toHaveBeenNthCalledWith(2, guideFilterRunnerCall) // guide deploy
-      expect(createFiltersRunnerSpy).toHaveBeenNthCalledWith(3, guideFilterRunnerCall) // guide deploy
+        expect(createClientSpy).toHaveBeenCalledTimes(2)
+        expect(createFiltersRunnerSpy).toHaveBeenCalledTimes(3)
+        expect(createFiltersRunnerSpy).toHaveBeenNthCalledWith(1, {}) // Regular deploy
+        expect(createFiltersRunnerSpy).toHaveBeenNthCalledWith(2, guideFilterRunnerCall) // guide deploy
+        expect(createFiltersRunnerSpy).toHaveBeenNthCalledWith(3, guideFilterRunnerCall) // guide deploy
+      })
+      it('should use the same client for all guide requests of the same subdomain', async () => {
+        const zendeskAdapter = new ZendeskAdapter({
+          config: DEFAULT_CONFIG,
+          client,
+          credentials: { accessToken: '', subdomain: '' },
+          elementsSource: buildElementsSourceFromElements([brand1, brand2, settings1, settings2]),
+        })
+        // any is needed to be able to spy on private method
+        // eslint-disable-next-line
+        const getClientSpy = jest.spyOn(zendeskAdapter as any, 'getClientBySubdomain')
+        // eslint-disable-next-line
+        const createClientSpy = jest.spyOn(zendeskAdapter as any, 'createClientBySubdomain')
+
+        await zendeskAdapter.deploy({
+          changeGroup: {
+            groupID: '1',
+            changes: [toChange({ after: settings1 })],
+          },
+        })
+        await zendeskAdapter.deploy({
+          changeGroup: {
+            groupID: '2',
+            changes: [toChange({ before: settings1 })],
+          },
+        })
+        expect(getClientSpy).toHaveBeenCalledTimes(2)
+        expect(createClientSpy).toHaveBeenCalledTimes(1)
+      })
     })
   })
 })

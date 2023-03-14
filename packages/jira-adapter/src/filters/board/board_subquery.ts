@@ -42,12 +42,14 @@ export const deploySubQuery = async (
 }
 
 const filter: FilterCreator = ({ config }) => ({
+  name: 'boardSubQueryFilter',
   onFetch: async (elements: Element[]) => {
     elements
       .filter(isInstanceElement)
       .filter(instance => instance.elemID.typeName === BOARD_TYPE_NAME)
+      .filter(instance => instance.value.config?.subQuery !== undefined)
       .forEach(instance => {
-        instance.value.subQuery = instance.value.config.subQuery?.query
+        instance.value.subQuery = instance.value.config.subQuery.query
         delete instance.value.config.subQuery
       })
 

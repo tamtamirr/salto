@@ -17,7 +17,6 @@ import _ from 'lodash'
 import { Element, isInstanceElement } from '@salto-io/adapter-api'
 import { references as referenceUtils } from '@salto-io/adapter-components'
 import { GetLookupNameFunc } from '@salto-io/adapter-utils'
-import { logger } from '@salto-io/logging'
 import { FilterCreator } from '../filter'
 import {
   BRAND_TYPE_NAME,
@@ -26,12 +25,16 @@ import {
   ORG_FIELD_TYPE_NAME,
   FIELD_TYPE_NAMES,
   TICKET_FORM_TYPE_NAME,
+  PENDING_CATEGORY,
+  DEFAULT_CUSTOM_STATUSES_TYPE_NAME,
+  CUSTOM_STATUS_TYPE_NAME,
+  OPEN_CATEGORY,
+  HOLD_CATEGORY, SOLVED_CATEGORY,
 } from '../constants'
 import { FETCH_CONFIG } from '../config'
 import { ZendeskMissingReferenceStrategyLookup } from './references/missing_references'
 
 const { neighborContextGetter } = referenceUtils
-const log = logger(module)
 
 const neighborContextFunc = (args: {
   contextFieldName: string
@@ -537,6 +540,7 @@ const firstIterationFieldNameToTypeMappingDefs: ZendeskFieldReferenceDefinition[
     },
     zendeskSerializationStrategy: 'ticketField',
     target: { type: TICKET_FIELD_TYPE_NAME },
+    zendeskMissingRefStrategy: 'startsWith',
   },
   {
     src: {
@@ -578,6 +582,7 @@ const firstIterationFieldNameToTypeMappingDefs: ZendeskFieldReferenceDefinition[
     },
     zendeskSerializationStrategy: 'orgField',
     target: { type: ORG_FIELD_TYPE_NAME },
+    zendeskMissingRefStrategy: 'startsWith',
   },
   {
     src: {
@@ -617,6 +622,7 @@ const firstIterationFieldNameToTypeMappingDefs: ZendeskFieldReferenceDefinition[
     },
     zendeskSerializationStrategy: 'userField',
     target: { type: USER_FIELD_TYPE_NAME },
+    zendeskMissingRefStrategy: 'startsWith',
   },
   {
     src: { field: 'id', parentTypes: ['view__execution__columns'] },
@@ -783,6 +789,26 @@ const firstIterationFieldNameToTypeMappingDefs: ZendeskFieldReferenceDefinition[
     target: { type: 'section' },
   },
   {
+    src: { field: PENDING_CATEGORY, parentTypes: [DEFAULT_CUSTOM_STATUSES_TYPE_NAME] },
+    serializationStrategy: 'id',
+    target: { type: CUSTOM_STATUS_TYPE_NAME },
+  },
+  {
+    src: { field: OPEN_CATEGORY, parentTypes: [DEFAULT_CUSTOM_STATUSES_TYPE_NAME] },
+    serializationStrategy: 'id',
+    target: { type: CUSTOM_STATUS_TYPE_NAME },
+  },
+  {
+    src: { field: HOLD_CATEGORY, parentTypes: [DEFAULT_CUSTOM_STATUSES_TYPE_NAME] },
+    serializationStrategy: 'id',
+    target: { type: CUSTOM_STATUS_TYPE_NAME },
+  },
+  {
+    src: { field: SOLVED_CATEGORY, parentTypes: [DEFAULT_CUSTOM_STATUSES_TYPE_NAME] },
+    serializationStrategy: 'id',
+    target: { type: CUSTOM_STATUS_TYPE_NAME },
+  },
+  {
     src: {
       field: 'direct_parent_id',
       parentTypes: [
@@ -791,6 +817,11 @@ const firstIterationFieldNameToTypeMappingDefs: ZendeskFieldReferenceDefinition[
     },
     serializationStrategy: 'id',
     target: { typeContext: 'neighborParentType' },
+  },
+  {
+    src: { field: 'installation_id', parentTypes: ['webhook__external_source__data'] },
+    serializationStrategy: 'id',
+    target: { type: 'app_installation' },
   },
 ]
 
@@ -959,6 +990,7 @@ const secondIterationFieldNameToTypeMappingDefs: ZendeskFieldReferenceDefinition
     },
     serializationStrategy: 'id',
     target: { typeContext: 'neighborReferenceTicketField' },
+    zendeskMissingRefStrategy: 'typeAndValue',
   },
   {
     src: {
@@ -970,6 +1002,7 @@ const secondIterationFieldNameToTypeMappingDefs: ZendeskFieldReferenceDefinition
     },
     serializationStrategy: 'id',
     target: { typeContext: 'neighborReferenceUserAndOrgField' },
+    zendeskMissingRefStrategy: 'typeAndValue',
   },
   {
     src: { field: 'group_ids', parentTypes: ['user_segment'] },
@@ -1004,6 +1037,7 @@ export const fieldNameToTypeMappingDefs: ZendeskFieldReferenceDefinition[] = [
 
 export const lookupFunc = referenceUtils.generateLookupFunc(
   fieldNameToTypeMappingDefs,
+  // This param is needed to resolve references by zendeskSerializationStrategy
   defs => new ZendeskFieldReferenceResolver(defs)
 )
 
@@ -1011,7 +1045,8 @@ export const lookupFunc = referenceUtils.generateLookupFunc(
  * Convert field values into references, based on predefined rules.
  */
 const filter: FilterCreator = ({ config }) => ({
-  onFetch: async (elements: Element[]) => log.time(async () => {
+  name: 'fieldReferencesFilter',
+  onFetch: async (elements: Element[]) => {
     const addReferences = async (refDefs: ZendeskFieldReferenceDefinition[]):
     Promise<void> => {
       const fixedDefs = refDefs
@@ -1031,7 +1066,7 @@ const filter: FilterCreator = ({ config }) => ({
       [...firstIterationFieldNameToTypeMappingDefs, ...commonFieldNameToTypeMappingDefs]
     )
     await addReferences(secondIterationFieldNameToTypeMappingDefs)
-  }, 'Field reference filter'),
+  },
 
 })
 export default filter

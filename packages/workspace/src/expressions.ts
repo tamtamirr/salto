@@ -16,7 +16,7 @@
 import wu from 'wu'
 import _ from 'lodash'
 import { logger } from '@salto-io/logging'
-import { ElemID, Element, ReferenceExpression, TemplateExpression, isReferenceExpression, isElement, ReadOnlyElementsSource, isVariable, isInstanceElement, isObjectType, isContainerType, BuiltinTypes, CoreAnnotationTypes, TypeReference, isType, PlaceholderObjectType, Expression, isTemplateExpression, isExpression, isField } from '@salto-io/adapter-api'
+import { ElemID, Element, ReferenceExpression, TemplateExpression, isReferenceExpression, isElement, ReadOnlyElementsSource, isVariable, isInstanceElement, isObjectType, isContainerType, BuiltinTypes, CoreAnnotationTypes, TypeReference, isType, PlaceholderObjectType, Expression, isTemplateExpression, isExpression, isField, UnresolvedReference } from '@salto-io/adapter-api'
 import { resolvePath, safeJsonStringify, walkOnElement, WALK_NEXT_STEP } from '@salto-io/adapter-utils'
 import { values, collections } from '@salto-io/lowerdash'
 import { DataNodeMap } from '@salto-io/dag'
@@ -24,11 +24,6 @@ import { buildContainerType } from './workspace/elements_source'
 
 const log = logger(module)
 const { awu } = collections.asynciterable
-
-export class UnresolvedReference {
-  constructor(public target: ElemID) {
-  }
-}
 
 export class CircularReference {
   constructor(public ref: string) {}
@@ -252,12 +247,44 @@ const getResolveFunctions = ({
   }
 }
 
+const getClonedElements = (elements: Element[]): Element[] => {
+  const [fields, restOfElements] = _.partition(elements, isField)
+  const clonedRestOfElements = restOfElements.map(e => e.clone())
+  const clonedTypesMap = new Map(
+    clonedRestOfElements.filter(isObjectType)
+      .map(type => [type.elemID.getFullName(), type]),
+  )
+  const clonedMissingParentsMap = new Map(
+    fields.map(field => field.parent)
+      .filter(parent => !clonedTypesMap.has(parent.elemID.getFullName()))
+      .map(parent => [parent.elemID.getFullName(), parent.clone()])
+  )
+  // We want to get the fields from the cloned parents so we keep them pointing the parents
+  // that will be resolved and we don't use an uncloned parent type.
+  const clonedFields = fields.map(field => {
+    const fieldFromClonedParent = clonedTypesMap.get(field.parent.elemID.getFullName())?.fields[field.name]
+      ?? clonedMissingParentsMap.get(field.parent.elemID.getFullName())?.fields[field.name]
+    if (fieldFromClonedParent === undefined) {
+      log.warn(
+        'field %s does not exists on its parent type %s (fields: %o)',
+        field.name,
+        field.parent.elemID.getFullName(),
+        Object.keys(field.parent.fields)
+      )
+      return field.clone()
+    }
+    return fieldFromClonedParent
+  })
+
+  return clonedRestOfElements.concat(clonedFields)
+}
+
 export const resolve = (
   elements: Element[],
   elementsSource: ReadOnlyElementsSource
 ): Promise<Element[]> => log.time(async () => {
   // Create a clone of the input elements to ensure we do not modify the input
-  const elementsToResolve = elements.map(e => e.clone())
+  const elementsToResolve = getClonedElements(elements)
 
   // Since fields technically reference their parent type with the .parent property
   // we need to make sure to resolve all field parents as well

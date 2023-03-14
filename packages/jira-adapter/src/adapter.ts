@@ -23,6 +23,7 @@ import JiraClient from './client/client'
 import changeValidator from './change_validators'
 import { JiraConfig, getApiDefinitions } from './config/config'
 import { FilterCreator, Filter, filtersRunner } from './filter'
+import localeFilter from './filters/locale'
 import fieldReferencesFilter from './filters/field_references'
 import referenceBySelfLinkFilter from './filters/references_by_self_link'
 import removeSelfFilter from './filters/remove_self'
@@ -37,6 +38,7 @@ import boardColumnsFilter from './filters/board/board_columns'
 import boardSubQueryFilter from './filters/board/board_subquery'
 import boardEstimationFilter from './filters/board/board_estimation'
 import boardDeploymentFilter from './filters/board/board_deployment'
+import automationBrokenReferenceFilter from './filters/automation/automation_project_broken_reference'
 import automationDeploymentFilter from './filters/automation/automation_deployment'
 import smartValueReferenceFilter from './filters/automation/smart_values/smart_value_reference_filter'
 import webhookFilter from './filters/webhook/webhook'
@@ -65,6 +67,7 @@ import workflowPropertiesFilter from './filters/workflow/workflow_properties_fil
 import transitionIdsFilter from './filters/workflow/transition_ids_filter'
 import workflowDeployFilter from './filters/workflow/workflow_deploy_filter'
 import workflowModificationFilter from './filters/workflow/workflow_modification_filter'
+import emptyValidatorWorkflowFilter from './filters/workflow/empty_validator_workflow'
 import workflowGroupsFilter from './filters/workflow/groups_filter'
 import triggersFilter from './filters/workflow/triggers_filter'
 import workflowSchemeFilter from './filters/workflow_scheme'
@@ -72,6 +75,7 @@ import duplicateIdsFilter from './filters/duplicate_ids'
 import unresolvedParentsFilter from './filters/unresolved_parents'
 import fieldNameFilter from './filters/fields/field_name_filter'
 import accountIdFilter from './filters/account_id/account_id_filter'
+import userFallbackFilter from './filters/account_id/user_fallback_filter'
 import userIdFilter from './filters/account_id/user_id_filter'
 import fieldStructureFilter from './filters/fields/field_structure_filter'
 import fieldDeploymentFilter from './filters/fields/field_deployment_filter'
@@ -93,6 +97,7 @@ import wrongUserPermissionSchemeFilter from './filters/permission_scheme/wrong_u
 import maskingFilter from './filters/masking'
 import avatarsFilter from './filters/avatars'
 import iconUrlFilter from './filters/icon_url'
+import filtersFilter from './filters/filter'
 import removeEmptyValuesFilter from './filters/remove_empty_values'
 import jqlReferencesFilter from './filters/jql/jql_references'
 import userFilter from './filters/user'
@@ -109,8 +114,15 @@ import deployDcIssueEventsFilter from './filters/data_center/issue_events'
 import prioritySchemeFetchFilter from './filters/data_center/priority_scheme/priority_scheme_fetch'
 import prioritySchemeDeployFilter from './filters/data_center/priority_scheme/priority_scheme_deploy'
 import prioritySchemeProjectAssociationFilter from './filters/data_center/priority_scheme/priority_scheme_project_association'
-import { GetIdMapFunc, getIdMapFuncCreator } from './users_map'
+import { GetUserMapFunc, getUserMapFuncCreator } from './users'
 import commonFilters from './filters/common'
+import accountInfoFilter from './filters/account_info'
+import deployPermissionSchemeFilter from './filters/permission_scheme/deploy_permission_scheme_filter'
+import scriptRunnerWorkflowFilter from './filters/script_runner/workflow_filter'
+import pluginVersionFliter from './filters/data_center/plugin_version'
+import scriptRunnerWorkflowListsFilter from './filters/script_runner/workflow_lists_parsing'
+import scriptRunnerWorkflowReferencesFilter from './filters/script_runner/workflow_references'
+import storeUsersFilter from './filters/store_users'
 
 const {
   generateTypes,
@@ -122,14 +134,21 @@ const { createPaginator } = clientUtils
 const log = logger(module)
 
 export const DEFAULT_FILTERS = [
+  accountInfoFilter,
+  storeUsersFilter,
   automationLabelFetchFilter,
   automationLabelDeployFilter,
   automationFetchFilter,
   automationStructureFilter,
+  // Should run before automationDeploymentFilter
+  automationBrokenReferenceFilter,
   automationDeploymentFilter,
   webhookFilter,
   // Should run before duplicateIdsFilter
   fieldNameFilter,
+  workflowStructureFilter,
+  // This should happen after workflowStructureFilter and before fieldStructureFilter
+  queryFilter,
   // This should happen before any filter that creates references
   duplicateIdsFilter,
   fieldStructureFilter,
@@ -137,19 +156,20 @@ export const DEFAULT_FILTERS = [
   duplicateIdsFilter,
   // This must run after duplicateIdsFilter
   unresolvedParentsFilter,
+  localeFilter,
   contextReferencesFilter,
   fieldTypeReferencesFilter,
   fieldDeploymentFilter,
   contextDeploymentFilter,
   avatarsFilter,
   iconUrlFilter,
-  workflowStructureFilter,
   triggersFilter,
   transitionIdsFilter,
   resolutionPropertyFilter,
   workflowPropertiesFilter,
   workflowDeployFilter,
   workflowModificationFilter,
+  emptyValidatorWorkflowFilter,
   groupNameFilter,
   workflowGroupsFilter,
   workflowSchemeFilter,
@@ -181,11 +201,17 @@ export const DEFAULT_FILTERS = [
   fieldConfigurationFilter,
   fieldConfigurationItemsFilter,
   fieldConfigurationSchemeFilter,
+  scriptRunnerWorkflowFilter,
+  // must run after scriptRunnerWorkflowFilter
+  scriptRunnerWorkflowListsFilter,
+  // must run after scriptRunnerWorkflowListsFilter
+  scriptRunnerWorkflowReferencesFilter,
   userFilter,
   forbiddenPermissionSchemeFilter,
   jqlReferencesFilter,
   removeEmptyValuesFilter,
   maskingFilter,
+  pluginVersionFliter,
   referenceBySelfLinkFilter,
   // Must run after referenceBySelfLinkFilter
   removeSelfFilter,
@@ -202,16 +228,19 @@ export const DEFAULT_FILTERS = [
   sortListsFilter,
   serviceUrlInformationFilter,
   serviceUrlFilter,
+  filtersFilter,
   hiddenValuesInListsFilter,
-  queryFilter,
   missingDescriptionsFilter,
   smartValueReferenceFilter,
   permissionSchemeFilter,
   allowedPermissionsSchemeFilter,
+  deployPermissionSchemeFilter,
   // Must run after user filter
   accountIdFilter,
   // Must run after accountIdFilter
   userIdFilter,
+  // Must run after accountIdFilter
+  userFallbackFilter,
   // Must run after accountIdFilter
   wrongUserPermissionSchemeFilter,
   deployDcIssueEventsFilter,
@@ -240,7 +269,7 @@ export default class JiraAdapter implements AdapterOperations {
   private paginator: clientUtils.Paginator
   private getElemIdFunc?: ElemIdGetter
   private fetchQuery: elementUtils.query.ElementQuery
-  private getIdMapFunc: GetIdMapFunc
+  private getUserMapFunc: GetUserMapFunc
 
   public constructor({
     filterCreators = DEFAULT_FILTERS,
@@ -264,7 +293,7 @@ export default class JiraAdapter implements AdapterOperations {
     )
 
     this.paginator = paginator
-    this.getIdMapFunc = getIdMapFuncCreator(paginator, client.isDataCenter)
+    this.getUserMapFunc = getUserMapFuncCreator(paginator, client.isDataCenter)
 
     const filterContext = {}
     this.createFiltersRunner = () => (
@@ -277,7 +306,7 @@ export default class JiraAdapter implements AdapterOperations {
           elementsSource,
           fetchQuery: this.fetchQuery,
           adapterContext: filterContext,
-          getIdMapFunc: this.getIdMapFunc,
+          getUserMapFunc: this.getUserMapFunc,
         },
         filterCreators,
         objects.concatObjects
@@ -398,7 +427,7 @@ export default class JiraAdapter implements AdapterOperations {
 
   get deployModifiers(): AdapterOperations['deployModifiers'] {
     return {
-      changeValidator: changeValidator(this.client, this.userConfig, this.getIdMapFunc),
+      changeValidator: changeValidator(this.client, this.userConfig, this.paginator),
       dependencyChanger,
       getChangeGroupIds,
     }

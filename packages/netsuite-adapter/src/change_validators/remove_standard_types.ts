@@ -13,11 +13,13 @@
 * See the License for the specific language governing permissions and
 * limitations under the License.
 */
-import { ChangeValidator, isRemovalChange, getChangeData } from '@salto-io/adapter-api'
+import { isRemovalChange, getChangeData } from '@salto-io/adapter-api'
 import { isStandardTypeName } from '../autogen/types'
 import { isStandardInstanceOrCustomRecordType } from '../types'
+import { NetsuiteChangeValidator } from './types'
 
-const changeValidator: ChangeValidator = async changes => (
+
+const changeValidator: NetsuiteChangeValidator = async changes => (
   changes
     .filter(isRemovalChange)
     .map(getChangeData)
@@ -25,7 +27,7 @@ const changeValidator: ChangeValidator = async changes => (
     .map(({ elemID }) => ({
       elemID,
       severity: 'Error',
-      message: `Removal of ${isStandardTypeName(elemID.typeName) ? 'standard' : 'custom record'} type ${elemID.idType}s is not supported via Salto`,
+      message: `Removal of ${isStandardTypeName(elemID.typeName) ? 'standard' : 'custom record'} type ${elemID.idType}s is only supported when Salto SuiteApp is configured`,
       detailedMessage: `${elemID.name} cannot be removed`,
     }))
 )

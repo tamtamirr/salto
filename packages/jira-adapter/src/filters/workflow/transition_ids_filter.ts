@@ -15,7 +15,6 @@
 */
 import { Element, isInstanceElement } from '@salto-io/adapter-api'
 import { FilterCreator } from '../../filter'
-import { WORKFLOW_TYPE_NAME } from '../../constants'
 import { isWorkflowInstance } from './types'
 
 /**
@@ -24,10 +23,10 @@ import { isWorkflowInstance } from './types'
  * (since we implement modification of a workflow with addition and removal)
  */
 const filter: FilterCreator = () => ({
+  name: 'transitionIdsFilter',
   onFetch: async (elements: Element[]) => {
     elements
       .filter(isInstanceElement)
-      .filter(instance => instance.elemID.typeName === WORKFLOW_TYPE_NAME)
       .filter(isWorkflowInstance)
       .forEach(instance => {
         instance.value.transitions?.forEach(transition => {

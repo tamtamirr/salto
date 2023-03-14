@@ -88,11 +88,12 @@ export const deployEstimation = async (
 }
 
 const filter: FilterCreator = ({ config, client }) => ({
+  name: 'boardEstimationFilter',
   onFetch: async (elements: Element[]) => {
     const boardInstances = elements
       .filter(isInstanceElement)
       .filter(instance => instance.elemID.typeName === BOARD_TYPE_NAME)
-      .filter(instance => instance.value.config.estimation !== undefined)
+      .filter(instance => instance.value.config?.estimation !== undefined)
 
     boardInstances.forEach(instance => {
       instance.value.estimation = instance.value.config.estimation

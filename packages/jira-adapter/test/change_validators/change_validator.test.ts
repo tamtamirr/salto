@@ -21,19 +21,19 @@ import { getDefaultConfig } from '../../src/config/config'
 
 describe('change validator creator', () => {
   describe('checkDeploymentAnnotationsValidator', () => {
-    const { client, getIdMapFunc } = mockClient()
+    const { client, paginator } = mockClient()
 
     it('should not fail if there are no deploy changes', async () => {
       expect(
         await changeValidator(
-          client, getDefaultConfig({ isDataCenter: false }), getIdMapFunc
+          client, getDefaultConfig({ isDataCenter: false }), paginator
         )([])
       ).toEqual([])
     })
 
     it('should fail each change individually', async () => {
       expect(await changeValidator(
-        client, getDefaultConfig({ isDataCenter: false }), getIdMapFunc
+        client, getDefaultConfig({ isDataCenter: false }), paginator
       )([
         toChange({ after: new ObjectType({ elemID: new ElemID(JIRA, 'obj') }) }),
         toChange({ before: new ObjectType({ elemID: new ElemID(JIRA, 'obj2') }) }),
@@ -42,13 +42,13 @@ describe('change validator creator', () => {
           elemID: new ElemID(JIRA, 'obj'),
           severity: 'Error',
           message: 'Deployment of non-instance elements is not supported in adapter jira',
-          detailedMessage: 'Deployment of non-instance elements is not supported in adapter jira. Please see your business app FAQ at https://docs.salto.io/docs/supported-bizapps for a list of supported elements.',
+          detailedMessage: 'Deployment of non-instance elements is not supported in adapter jira. Please see your business app FAQ at https://help.salto.io/en/articles/6927118-supported-business-applications for a list of supported elements.',
         },
         {
           elemID: new ElemID(JIRA, 'obj2'),
           severity: 'Error',
           message: 'Deployment of non-instance elements is not supported in adapter jira',
-          detailedMessage: 'Deployment of non-instance elements is not supported in adapter jira. Please see your business app FAQ at https://docs.salto.io/docs/supported-bizapps for a list of supported elements.',
+          detailedMessage: 'Deployment of non-instance elements is not supported in adapter jira. Please see your business app FAQ at https://help.salto.io/en/articles/6927118-supported-business-applications for a list of supported elements.',
         },
       ])
     })

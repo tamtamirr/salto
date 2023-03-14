@@ -52,27 +52,43 @@ import {
   orderChildrenParentValidator,
   macroActionsTicketFieldDeactivationValidator,
   sideConversationsValidator,
+  externalSourceWebhook,
+  usersValidator,
+  customStatusUniqueAgentLabelValidator,
+  customStatusCategoryChangeValidator,
+  customStatusCategoryValidator,
+  defaultCustomStatusesValidator,
+  customStatusActiveDefaultValidator,
+  defaultGroupChangeValidator,
+  organizationExistenceValidator,
 } from './change_validators'
 import ZendeskClient from './client/client'
+import { ZedneskDeployConfig, ZendeskFetchConfig } from './config'
 
 const {
   deployTypesNotSupportedValidator,
   createCheckDeploymentBasedOnConfigValidator,
   createSkipParentsOfSkippedInstancesValidator,
+  getDefaultChangeValidators,
 } = deployment.changeValidators
 
 export default ({
   client,
   apiConfig,
+  fetchConfig,
+  deployConfig,
   typesDeployedViaParent,
   typesWithNoDeploy,
 }: {
   client: ZendeskClient
   apiConfig: configUtils.AdapterDuckTypeApiConfig
+  fetchConfig: ZendeskFetchConfig
+  deployConfig?: ZedneskDeployConfig
   typesDeployedViaParent: string[]
   typesWithNoDeploy: string[]
 }): ChangeValidator => {
   const validators: ChangeValidator[] = [
+    ...getDefaultChangeValidators(),
     deployTypesNotSupportedValidator,
     createCheckDeploymentBasedOnConfigValidator(
       { apiConfig, typesDeployedViaParent, typesWithNoDeploy }
@@ -97,8 +113,14 @@ export default ({
     phoneNumbersValidator,
     automationAllConditionsValidator,
     macroActionsTicketFieldDeactivationValidator,
+    customStatusUniqueAgentLabelValidator,
+    customStatusCategoryChangeValidator,
+    customStatusCategoryValidator,
+    customStatusActiveDefaultValidator,
+    defaultCustomStatusesValidator,
     customRoleRemovalValidator(client),
     sideConversationsValidator,
+    usersValidator(client, deployConfig),
     requiredAppOwnedParametersValidator,
     oneTranslationPerLocaleValidator,
     articleRemovalValidator,
@@ -109,6 +131,9 @@ export default ({
     translationForDefaultLocaleValidator,
     helpCenterActivationValidator,
     helpCenterCreationOrRemovalValidator(client, apiConfig),
+    externalSourceWebhook,
+    defaultGroupChangeValidator,
+    organizationExistenceValidator(client, fetchConfig),
     // *** Guide Order Validators ***
     childInOrderValidator,
     childrenReferencesValidator,

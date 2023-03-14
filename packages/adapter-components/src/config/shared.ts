@@ -15,15 +15,17 @@
 */
 import _ from 'lodash'
 import {
-  ElemID, ObjectType, BuiltinTypes, FieldDefinition, ListType, MapType, Field, CORE_ANNOTATIONS,
+  ElemID, ObjectType, BuiltinTypes, FieldDefinition, ListType, MapType, Field, CORE_ANNOTATIONS, ActionName,
 } from '@salto-io/adapter-api'
 import { createMatchingObjectType } from '@salto-io/adapter-utils'
 import type { TransformationConfig, TransformationDefaultConfig } from './transformation'
-import { DeploymentRequestsByAction, FetchRequestConfig, FetchRequestDefaultConfig } from './request'
+import { createRequestConfigs, DeploymentRequestsByAction, FetchRequestConfig, FetchRequestDefaultConfig } from './request'
 
-export type TypeConfig<T extends TransformationConfig = TransformationConfig> = {
+export const DEPLOYER_FALLBACK_VALUE = '##DEPLOYER##'
+
+export type TypeConfig<T extends TransformationConfig = TransformationConfig, A extends string = ActionName> = {
   request?: FetchRequestConfig
-  deployRequests?: DeploymentRequestsByAction
+  deployRequests?: DeploymentRequestsByAction<A>
   transformation?: T
 }
 
@@ -37,10 +39,11 @@ export type TypeDefaultsConfig<
 export type AdapterApiConfig<
   T extends TransformationConfig = TransformationConfig,
   TD extends TransformationDefaultConfig = TransformationDefaultConfig,
+  A extends string = ActionName,
 > = {
   apiVersion?: string
   typeDefaults: TypeDefaultsConfig<TD>
-  types: Record<string, TypeConfig<T>>
+  types: Record<string, TypeConfig<T, A>>
   supportedTypes: Record<string, string[]>
 }
 
@@ -55,25 +58,27 @@ export type UserFetchConfig<T extends Record<string, unknown> | undefined = unde
   hideTypes?: boolean
 }
 
+export type UserDeployConfig = {
+  // Replace references for missing users during deploy with defaultMissingUserFallback value
+  defaultMissingUserFallback?: string
+}
+
 export const createAdapterApiConfigType = ({
   adapter,
   additionalFields,
   additionalTypeFields,
-  requestTypes,
   transformationTypes,
+  additionalRequestFields,
+  additionalActions,
 }: {
   adapter: string
   additionalFields?: Record<string, FieldDefinition>
   additionalTypeFields?: Record<string, FieldDefinition>
-  requestTypes: {
-    fetch: {
-      request: ObjectType
-      requestDefault: ObjectType
-    }
-    deployRequests: ObjectType
-  }
   transformationTypes: { transformation: ObjectType; transformationDefault: ObjectType }
+  additionalRequestFields?: Record<string, FieldDefinition>
+  additionalActions?: string[]
 }): ObjectType => {
+  const requestTypes = createRequestConfigs(adapter, additionalRequestFields, additionalActions)
   const typeDefaultsConfigType = createMatchingObjectType<Partial<TypeDefaultsConfig>>({
     elemID: new ElemID(adapter, 'typeDefaultsConfig'),
     fields: {
@@ -169,6 +174,22 @@ export const createUserFetchConfigType = (
   })
 }
 
+export const createUserDeployConfigType = (
+  adapter: string,
+  additionalFields?: Record<string, FieldDefinition>,
+): ObjectType => (
+  createMatchingObjectType<UserDeployConfig>({
+    elemID: new ElemID(adapter, 'userDeployConfig'),
+    fields: {
+      defaultMissingUserFallback: { refType: BuiltinTypes.STRING },
+      ...additionalFields,
+    },
+    annotations: {
+      [CORE_ANNOTATIONS.ADDITIONAL_PROPERTIES]: false,
+    },
+  })
+)
+
 export const getConfigWithDefault = <
   T extends TransformationConfig | FetchRequestConfig | undefined,
   S extends TransformationDefaultConfig | FetchRequestDefaultConfig
@@ -196,5 +217,22 @@ export const validateSupportedTypes = (
   ).map(({ type }) => type)
   if (invalidIncludedTypes.length > 0) {
     throw Error(`Invalid type names in ${fetchConfigPath}: ${invalidIncludedTypes} does not match any of the supported types.`)
+  }
+}
+
+/**
+ * Verify defaultMissingUserFallback value in deployConfig is valid
+ */
+export const validateDeployConfig = (
+  deployConfigPath: string,
+  userDeployConfig: UserDeployConfig,
+  userValidationFunc: (userValue: string) => boolean
+): void => {
+  const { defaultMissingUserFallback } = userDeployConfig
+  if (defaultMissingUserFallback !== undefined && defaultMissingUserFallback !== DEPLOYER_FALLBACK_VALUE) {
+    const isValidUserValue = userValidationFunc(defaultMissingUserFallback)
+    if (!isValidUserValue) {
+      throw Error(`Invalid user value in ${deployConfigPath}.defaultMissingUserFallback: ${defaultMissingUserFallback}. Value can be either ${DEPLOYER_FALLBACK_VALUE} or a valid user name`)
+    }
   }
 }

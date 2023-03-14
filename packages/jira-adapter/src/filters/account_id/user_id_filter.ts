@@ -16,29 +16,36 @@
 */
 import { getChangeData, isAdditionOrModificationChange, isInstanceChange, isInstanceElement } from '@salto-io/adapter-api'
 import { walkOnElement } from '@salto-io/adapter-utils'
-import { logger } from '@salto-io/logging'
 import { collections } from '@salto-io/lowerdash'
+import _ from 'lodash'
 import { FilterCreator } from '../../filter'
 import { walkOnUsers, WalkOnUsersCallback } from './account_id_filter'
-import { IdMap } from '../../users_map'
+import { UserMap, getUsersMap } from '../../users'
 import { PROJECT_TYPE } from '../../constants'
 
 const { awu } = collections.asynciterable
-const log = logger(module)
 
-const addDisplayName = (idMap: IdMap): WalkOnUsersCallback => (
+const addDisplayName = (userMap: UserMap): WalkOnUsersCallback => (
   { value, fieldName }
 ): void => {
-  if (Object.prototype.hasOwnProperty.call(idMap, value[fieldName].id)) {
-    value[fieldName].displayName = idMap[value[fieldName].id]
+  if (Object.prototype.hasOwnProperty.call(userMap, value[fieldName].id)) {
+    value[fieldName].displayName = userMap[value[fieldName].id].displayName
   }
 }
 
-const convertId = (idMap: IdMap): WalkOnUsersCallback => (
+const convertIdToUsername = (userMap: UserMap): WalkOnUsersCallback => (
   { value, fieldName }
 ): void => {
-  if (Object.prototype.hasOwnProperty.call(idMap, value[fieldName].id)) {
-    value[fieldName].id = idMap[value[fieldName].id]
+  if (Object.prototype.hasOwnProperty.call(userMap, value[fieldName].id)) {
+    value[fieldName].id = userMap[value[fieldName].id].username ?? value[fieldName].id
+  }
+}
+
+const convertUserNameToId = (userMap: UserMap): WalkOnUsersCallback => (
+  { value, fieldName }
+): void => {
+  if (Object.prototype.hasOwnProperty.call(userMap, value[fieldName].id)) {
+    value[fieldName].id = userMap[value[fieldName].id].userId ?? value[fieldName].id
   }
 }
 
@@ -46,51 +53,65 @@ const convertId = (idMap: IdMap): WalkOnUsersCallback => (
  * A filter to add display names beside account ids. The source is a JIRA query.
  * While using Jira DC the filter convert user id to user key
  */
-const filter: FilterCreator = ({ client, config, getIdMapFunc }) => ({
-  onFetch: async elements => log.time(async () => {
+const filter: FilterCreator = ({ client, config, getUserMapFunc, elementsSource }) => ({
+  name: 'userIdFilter',
+  onFetch: async elements => {
     if (!(config.fetch.convertUsersIds ?? true)) {
       return
     }
-    const idMap = await getIdMapFunc()
+    const userMap = await getUserMapFunc()
+    if (userMap === undefined) {
+      return
+    }
     await awu(elements)
       .filter(isInstanceElement)
       .forEach(async element => {
         if (client.isDataCenter) {
-          walkOnElement({ element, func: walkOnUsers(convertId(idMap)) })
+          walkOnElement({ element, func: walkOnUsers(convertIdToUsername(userMap), config) })
         } else {
-          walkOnElement({ element, func: walkOnUsers(addDisplayName(idMap)) })
+          walkOnElement({ element, func: walkOnUsers(addDisplayName(userMap), config) })
         }
       })
-  }, 'user_id_filter fetch'),
+  },
   preDeploy: async changes => {
-    if (!(config.fetch.convertUsersIds ?? true)
-        || !client.isDataCenter) {
+    if (!(config.fetch.convertUsersIds ?? true) || !client.isDataCenter) {
       return
     }
-    const idMap = await getIdMapFunc()
-    const reversedIdMap: IdMap = Object.fromEntries(Object.entries(idMap).map(([key, mapValue]) => [mapValue, key]))
+
+    const userMap = await getUsersMap(elementsSource)
+    if (userMap === undefined) {
+      return
+    }
+    const preDeployUserMap = _.keyBy(
+      Object.values(userMap).filter(userInfo => _.isString(userInfo.username)),
+      userInfo => userInfo.username as string
+    )
+
     changes
       .filter(isInstanceChange)
       .filter(isAdditionOrModificationChange)
       .map(getChangeData)
       .filter(instance => instance.elemID.typeName !== PROJECT_TYPE)
       .forEach(element =>
-        walkOnElement({ element, func: walkOnUsers(convertId(reversedIdMap)) }))
+        walkOnElement({ element, func: walkOnUsers(convertUserNameToId(preDeployUserMap), config) }))
   },
-  onDeploy: async changes => log.time(async () => {
+  onDeploy: async changes => {
     if (!(config.fetch.convertUsersIds ?? true)
        || !client.isDataCenter) {
       return
     }
-    const idMap = await getIdMapFunc()
+    const userMap = await getUsersMap(elementsSource)
+    if (userMap === undefined) {
+      return
+    }
     changes
       .filter(isInstanceChange)
       .filter(isAdditionOrModificationChange)
       .map(getChangeData)
       .filter(instance => instance.elemID.typeName !== PROJECT_TYPE)
       .forEach(element =>
-        walkOnElement({ element, func: walkOnUsers(convertId(idMap)) }))
-  }, 'user_id_filter deploy'),
+        walkOnElement({ element, func: walkOnUsers(convertIdToUsername(userMap), config) }))
+  },
 })
 
 export default filter

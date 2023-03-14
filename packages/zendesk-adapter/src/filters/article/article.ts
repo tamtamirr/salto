@@ -248,7 +248,8 @@ const getInline = (attachment: InstanceElement | undefined): boolean => attachme
 const filterCreator: FilterCreator = ({ config, client, elementsSource, brandIdToClient = {} }) => {
   const articleNameToAttachments: Record<string, number[]> = {}
   return {
-    onFetch: async (elements: Element[]) => log.time(async () => {
+    name: 'articleFilter',
+    onFetch: async (elements: Element[]) => {
       const articleInstances = elements
         .filter(isInstanceElement)
         .filter(instance => instance.elemID.typeName === ARTICLE_TYPE_NAME)
@@ -275,6 +276,7 @@ const filterCreator: FilterCreator = ({ config, client, elementsSource, brandIdT
         articleById,
         apiDefinitions: config[API_DEFINITIONS_CONFIG],
         attachments: isAttachments(attachments) ? attachments : [],
+        config,
       })
       articleInstances.forEach(article => {
         const sortedAttachments = _.sortBy(article.value.attachments, [
@@ -284,7 +286,7 @@ const filterCreator: FilterCreator = ({ config, client, elementsSource, brandIdT
         ])
         article.value.attachments = sortedAttachments
       })
-    }, 'articlesFilter'),
+    },
     preDeploy: async (changes: Change<InstanceElement>[]): Promise<void> => {
       const addedArticleAttachments = await handleArticleAttachmentsPreDeploy(
         { changes, client, elementsSource, articleNameToAttachments }

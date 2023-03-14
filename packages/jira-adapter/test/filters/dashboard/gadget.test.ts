@@ -25,7 +25,6 @@ import { DASHBOARD_GADGET_TYPE, DASHBOARD_TYPE, JIRA } from '../../../src/consta
 import JiraClient from '../../../src/client/client'
 import { getLookUpName } from '../../../src/reference_mapping'
 
-jest.setTimeout(10000000)
 
 jest.mock('@salto-io/adapter-components', () => {
   const actual = jest.requireActual('@salto-io/adapter-components')
@@ -304,6 +303,7 @@ describe('gadgetFilter', () => {
             'Content-Type': 'application/json',
           },
         },
+
       )
 
       expect(connection.put).toHaveBeenCalledWith(
@@ -314,6 +314,7 @@ describe('gadgetFilter', () => {
             'Content-Type': 'application/json',
           },
         },
+
       )
     })
 

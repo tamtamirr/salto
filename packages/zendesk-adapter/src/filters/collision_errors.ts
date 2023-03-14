@@ -16,18 +16,17 @@
 import { isInstanceElement, Element } from '@salto-io/adapter-api'
 import { config as configUtils } from '@salto-io/adapter-components'
 import { getAndLogCollisionWarnings, getInstancesWithCollidingElemID } from '@salto-io/adapter-utils'
-import { logger } from '@salto-io/logging'
 import { FilterCreator } from '../filter'
 import { ZENDESK } from '../constants'
 import { API_DEFINITIONS_CONFIG, FETCH_CONFIG, isGuideEnabled } from '../config'
 
-const log = logger(module)
 
 /**
  * Adds collision warnings
  */
 const filterCreator: FilterCreator = ({ config }) => ({
-  onFetch: async (elements: Element[]) => log.time(async () => {
+  name: 'collisionErrorsFilter',
+  onFetch: async (elements: Element[]) => {
     const collistionWarnings = await getAndLogCollisionWarnings({
       adapterName: ZENDESK,
       configurationName: 'service',
@@ -42,10 +41,10 @@ const filterCreator: FilterCreator = ({ config }) => ({
       idFieldsName: 'idFields',
       // Needed because 'safeJsonStringify' is really slow, which causes problems with articles stress test (SALTO-3059)
       skipLogCollisionStringify: isGuideEnabled(config[FETCH_CONFIG]),
-      docsUrl: 'https://docs.salto.io/docs/zendesk#zendesk-duplicate-names',
+      docsUrl: 'https://help.salto.io/en/articles/6927157-salto-id-collisions',
     })
     return { errors: collistionWarnings }
-  }, 'collisionErrorsFilter'),
+  },
 })
 
 export default filterCreator

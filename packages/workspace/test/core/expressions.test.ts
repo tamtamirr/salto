@@ -14,10 +14,10 @@
 * limitations under the License.
 */
 import _ from 'lodash'
-import { ElemID, ObjectType, BuiltinTypes, InstanceElement, Element, ReferenceExpression, VariableExpression, TemplateExpression, ListType, Variable, isVariableExpression, isReferenceExpression, StaticFile, PrimitiveType, PrimitiveTypes, TypeReference, MapType, TypeElement, Field, PlaceholderObjectType } from '@salto-io/adapter-api'
+import { ElemID, ObjectType, BuiltinTypes, InstanceElement, Element, ReferenceExpression, VariableExpression, TemplateExpression, ListType, Variable, isVariableExpression, isReferenceExpression, StaticFile, PrimitiveType, PrimitiveTypes, TypeReference, MapType, TypeElement, Field, PlaceholderObjectType, UnresolvedReference } from '@salto-io/adapter-api'
 import { collections } from '@salto-io/lowerdash'
 import { TestFuncImpl, getFieldsAndAnnoTypes } from '../utils'
-import { resolve, UnresolvedReference, CircularReference } from '../../src/expressions'
+import { resolve, CircularReference } from '../../src/expressions'
 import { createInMemoryElementSource } from '../../src/workspace/elements_source'
 
 const { awu } = collections.asynciterable
@@ -509,6 +509,59 @@ describe('Test Salto Expressions', () => {
     it('should resolve the fields parent', () => {
       expect(resolvedField.parent.annotations.ref).toBeInstanceOf(ReferenceExpression)
       expect(resolvedField.parent.annotations.ref.value).toEqual(referencedType)
+    })
+  })
+
+  describe('with field and type input', () => {
+    let objectType: ObjectType
+    let fieldType: ObjectType
+    let referencedType: ObjectType
+    let resolvedField: Field
+    let resolvedType: ObjectType
+    beforeEach(async () => {
+      fieldType = new ObjectType({ elemID: new ElemID('salto', 'field') })
+      referencedType = new ObjectType({
+        elemID: new ElemID('salto', 'referenced'),
+        annotations: { value: 'value' },
+      })
+      objectType = new ObjectType({
+        elemID: new ElemID('salto', 'obj'),
+        fields: {
+          field: {
+            refType: fieldType,
+            annotations: { ref: refTo(referencedType, 'attr', 'value') },
+          },
+        },
+        annotations: {
+          ref: refTo(referencedType),
+        },
+      })
+      const fieldToResolve = objectType.fields.field
+      const resolved = await resolve(
+        [objectType, fieldToResolve],
+        createInMemoryElementSource(
+          [fieldType, referencedType, objectType]
+        )
+      )
+      expect(resolved).toHaveLength(2)
+      expect(resolved[0]).toBeInstanceOf(ObjectType)
+      expect(resolved[1]).toBeInstanceOf(Field)
+      resolvedType = resolved[0] as ObjectType
+      resolvedField = resolved[1] as Field
+    })
+    it('should resolve field type', () => {
+      // We can compare to the unresolved field type because there is nothing to resolve in it
+      expect(resolvedField.refType.type).toEqual(fieldType)
+    })
+    it('should resolve references in the field', () => {
+      expect(resolvedField.annotations.ref.value).toEqual(referencedType.annotations.value)
+    })
+    it('should resolve the fields parent', () => {
+      expect(resolvedField.parent.annotations.ref).toBeInstanceOf(ReferenceExpression)
+      expect(resolvedField.parent.annotations.ref.value).toEqual(referencedType)
+    })
+    it('resolve field parent should be the resolved type', () => {
+      expect(resolvedField.parent).toBe(resolvedType)
     })
   })
 

@@ -20,7 +20,6 @@ import _ from 'lodash'
 import { logger } from '@salto-io/logging'
 import { FilterCreator } from '../../filter'
 import { isWorkflowInstance, WorkflowInstance } from './types'
-import { WORKFLOW_TYPE_NAME } from '../../constants'
 import { RESOLUTION_KEY_PATTERN } from '../../references/workflow_properties'
 
 const { awu } = collections.asynciterable
@@ -47,10 +46,10 @@ const splitResolutionProperties = (instance: WorkflowInstance): void => {
  * of 'id1,id2,id3' to a list [id1, id2, id3] so we can convert it to references later
  */
 const filter: FilterCreator = () => ({
+  name: 'resolutionPropertyFilter',
   onFetch: async (elements: Element[]) => {
     elements
       .filter(isInstanceElement)
-      .filter(instance => instance.elemID.typeName === WORKFLOW_TYPE_NAME)
       .filter(isWorkflowInstance)
       .forEach(splitResolutionProperties)
   },
@@ -58,7 +57,6 @@ const filter: FilterCreator = () => ({
   preDeploy: async changes => {
     await awu(changes)
       .filter(isInstanceChange)
-      .filter(change => getChangeData(change).elemID.typeName === WORKFLOW_TYPE_NAME)
       .filter(change => isWorkflowInstance(getChangeData(change)))
       .forEach(async change => {
         await applyFunctionToChangeData<Change<WorkflowInstance>>(
@@ -90,7 +88,6 @@ const filter: FilterCreator = () => ({
   onDeploy: async changes => {
     await awu(changes)
       .filter(isInstanceChange)
-      .filter(change => getChangeData(change).elemID.typeName === WORKFLOW_TYPE_NAME)
       .filter(change => isWorkflowInstance(getChangeData(change)))
       .forEach(async change => {
         await applyFunctionToChangeData<Change<WorkflowInstance>>(

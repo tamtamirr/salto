@@ -19,6 +19,20 @@ import { ObjectType, ElemID, ListType, TypeElement, BuiltinTypes, MapType } from
 import { generateTypes, toPrimitiveType } from '../../../src/elements/swagger'
 import { RequestableTypeSwaggerConfig } from '../../../src/config'
 
+jest.mock('@salto-io/lowerdash', () => {
+  const actual = jest.requireActual('@salto-io/lowerdash')
+  return {
+    ...actual,
+    promises: {
+      ...actual.promises,
+      timeout: {
+        ...actual.promises.timeout,
+        sleep: () => undefined,
+      },
+    },
+  }
+})
+
 const ADAPTER_NAME = 'myAdapter'
 const BASE_DIR = __dirname.replace('/dist', '')
 
@@ -218,6 +232,7 @@ describe('swagger_type_elements', () => {
                     { fieldName: 'quantity', fieldType: 'map<Category>' },
                     { fieldName: 'newField', fieldType: 'map<Category>' },
                     { fieldName: 'newHiddenField', fieldType: 'Category' },
+                    { fieldName: 'additionalTypes', fieldType: 'list<AdditionalType>' },
                   ],
                   fieldsToHide: [
                     { fieldName: 'petId' },
@@ -259,7 +274,7 @@ describe('swagger_type_elements', () => {
         parsedConfigs = res.parsedConfigs
       })
       it('should generate the right types', () => {
-        const updatedExpectedTypes = ['Category', 'Food', 'FoodAndCategory', 'Order', 'Pet2', 'Pet3', 'PetByTag', 'Pet__new', 'Tag', 'User', 'foodDetails', 'pet__findByStatus', 'store__inventory']
+        const updatedExpectedTypes = ['AdditionalType', 'Category', 'Food', 'FoodAndCategory', 'NestedType', 'Order', 'Pet2', 'Pet3', 'PetByTag', 'Pet__new', 'Tag', 'User', 'foodDetails', 'pet__findByStatus', 'store__inventory']
         expect(Object.keys(allTypes).sort()).toEqual(updatedExpectedTypes)
         // no Pet2 because it does not have a request config
         const updatedExpectedParsedConfigs = {
@@ -275,6 +290,7 @@ describe('swagger_type_elements', () => {
           User: { request: { url: '/user/{username}' } },
           Food: { request: { url: '/food/{foodId}' } },
           foodDetails: { request: { url: '/foodDetails' } },
+          AdditionalType: { request: { url: 'AdditionalType' } },
         }
         expect(parsedConfigs).toEqual(updatedExpectedParsedConfigs)
         // regular response type with reference
@@ -307,6 +323,11 @@ describe('swagger_type_elements', () => {
           .getInnerType()).toEqual(allTypes.Category)
         expect(order.fields.newHiddenField).toBeDefined()
         expect(await order.fields.newHiddenField.getType()).toEqual(allTypes.Category)
+        const additionalType = allTypes.AdditionalType as ObjectType
+        expect(additionalType).toBeInstanceOf(ObjectType)
+        expect(await order.fields.additionalTypes.getType()).toBeInstanceOf(ListType)
+        expect(await (await order.fields.additionalTypes.getType() as ListType)
+          .getInnerType()).toEqual(additionalType)
       })
       it('should annotate fields from fieldsToHide with _hidden_value=true', () => {
         const order = allTypes.Order as ObjectType

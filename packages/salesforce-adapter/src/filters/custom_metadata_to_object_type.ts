@@ -27,7 +27,8 @@ import { logger } from '@salto-io/logging'
 import { FilterWith, LocalFilterCreator } from '../filter'
 import {
   CUSTOM_METADATA,
-  CUSTOM_METADATA_SUFFIX, CUSTOM_OBJECT,
+  CUSTOM_METADATA_SUFFIX,
+  CUSTOM_OBJECT,
 } from '../constants'
 import { createCustomObjectChange, createCustomTypeFromCustomObjectInstance } from './custom_objects_to_object_type'
 import { apiName } from '../transformers/transformer'
@@ -68,6 +69,7 @@ const getApiNameOfRelatedChange = async (change: Change<ObjectType | Field>): Pr
 const filterCreator: LocalFilterCreator = ({ config }) : FilterWith<'onFetch' | 'preDeploy' | 'onDeploy'> => {
   let groupedOriginalChangesByApiName: Record<string, Change[]>
   return {
+    name: 'customMetadataToObjectTypeFilter',
     onFetch: async elements => {
       const customMetadataType = await awu(elements)
         .filter(isObjectType)

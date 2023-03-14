@@ -46,7 +46,7 @@ type JiraApiConfig = Omit<configUtils.AdapterSwaggerApiConfig, 'swagger'> & {
   typesToFallbackToInternalId: string[]
 }
 
-type JiraDeployConfig = {
+type JiraDeployConfig = configUtils.UserDeployConfig & {
   forceDelete: boolean
 }
 
@@ -59,6 +59,7 @@ type JiraFetchConfig = configUtils.UserFetchConfig<JiraFetchFilters> & {
   addTypeToFieldName?: boolean
   convertUsersIds?: boolean
   parseTemplateExpressions?: boolean
+  enableScriptRunnerAddon?: boolean
 }
 
 export type MaskingConfig = {
@@ -143,7 +144,7 @@ export const PARTIAL_DEFAULT_CONFIG: Omit<JiraConfig, 'apiDefinitions'> = {
   },
   masking: {
     automationHeaders: [],
-    secretRegexps: [],
+    secretRegexps: ['xoxb-.*'], // xoxb-.* is Slack token, used by script runner
   },
 }
 
@@ -167,15 +168,12 @@ const createClientConfigType = (): ObjectType => {
   return configType
 }
 
-const jiraDeployConfigType = new ObjectType({
-  elemID: new ElemID(JIRA, 'DeployConfig'),
-  fields: {
+const jiraDeployConfigType = configUtils.createUserDeployConfigType(
+  JIRA,
+  {
     forceDelete: { refType: BuiltinTypes.BOOLEAN },
-  },
-  annotations: {
-    [CORE_ANNOTATIONS.ADDITIONAL_PROPERTIES]: false,
-  },
-})
+  }
+)
 
 const fetchFiltersType = createMatchingObjectType<JiraFetchFilters>({
   elemID: new ElemID(JIRA, 'FetchFilters'),
@@ -193,6 +191,7 @@ const fetchConfigType = createUserFetchConfigType(
     fallbackToInternalId: { refType: BuiltinTypes.BOOLEAN },
     addTypeToFieldName: { refType: BuiltinTypes.BOOLEAN },
     showUserDisplayNames: { refType: BuiltinTypes.BOOLEAN },
+    enableScriptRunnerAddon: { refType: BuiltinTypes.BOOLEAN },
     // Default is true
     parseTemplateExpressions: { refType: BuiltinTypes.BOOLEAN },
   },

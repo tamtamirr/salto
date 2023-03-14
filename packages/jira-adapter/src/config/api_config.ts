@@ -446,7 +446,7 @@ const DEFAULT_TYPE_CUSTOMIZATIONS: JiraApiConfig['types'] = {
     request: {
       url: '/rest/api/3/filter/search',
       queryParams: {
-        expand: 'description,owner,jql,sharePermissions',
+        expand: 'description,owner,jql,sharePermissions,editPermissions',
       },
       paginationField: 'startAt',
       recurseInto: [
@@ -1497,7 +1497,6 @@ const DEFAULT_TYPE_CUSTOMIZATIONS: JiraApiConfig['types'] = {
   ApplicationRole: {
     transformation: {
       fieldsToOmit: [
-        { fieldName: 'userCount' },
         { fieldName: 'remainingSeats' },
         { fieldName: 'groupDetails' },
         { fieldName: 'defaultGroupsDetails' },

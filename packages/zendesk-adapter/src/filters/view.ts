@@ -24,12 +24,13 @@ import { applyforInstanceChangesOfType } from './utils'
 
 export const VIEW_TYPE_NAME = 'view'
 
-const valToString = (val: Value): string | string[] => (_.isArray(val) ? val.map(String) : val.toString())
+const valToString = (val: Value): string | string[] => (_.isArray(val) ? val.map(String) : val?.toString())
 
 /**
  * Deploys views
  */
 const filterCreator: FilterCreator = ({ config, client }) => ({
+  name: 'viewFilter',
   preDeploy: async changes => {
     await applyforInstanceChangesOfType(
       changes,

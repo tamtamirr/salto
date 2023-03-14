@@ -55,6 +55,7 @@ const isChannels = (values: unknown): values is Channel[] => {
  * Adds the hardcoded channel instances in order to add references to them
  */
 const filterCreator: FilterCreator = () => ({
+  name: 'hardcodedChannelFilter',
   onFetch: async elements => {
     // We are ok with picking the first instance because triggerDefinition is a singleton
     const triggerDefinitionInstance = elements
@@ -89,7 +90,7 @@ const filterCreator: FilterCreator = () => ({
       return new InstanceElement(
         instanceName,
         channelType,
-        { id: channel.value, name: instanceName },
+        { id: channel.value, name: channel.title },
         [ZENDESK, RECORDS_PATH, CHANNEL_TYPE_NAME, instanceName],
       )
     })

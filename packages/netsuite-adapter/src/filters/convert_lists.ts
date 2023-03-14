@@ -22,7 +22,8 @@ import { collections } from '@salto-io/lowerdash'
 import _ from 'lodash'
 import { FilterWith } from '../filter'
 import { datasetType } from '../autogen/types/standard_types/dataset'
-import { isCustomRecordType } from '../types'
+import { isCustomRecordType, isFileCabinetInstance } from '../types'
+import { typeNameToParser } from '../change_validators/report_types_move_environment'
 
 const { awu } = collections.asynciterable
 
@@ -49,6 +50,7 @@ const castAndOrderLists: TransformFunc = async ({ value, field }) => {
 }
 
 const filterCreator = (): FilterWith<'onFetch'> => ({
+  name: 'convertLists',
   /**
    * Upon fetch, mark values of list type as list and order lists that are fetched unordered
    *
@@ -57,6 +59,9 @@ const filterCreator = (): FilterWith<'onFetch'> => ({
   onFetch: async elements => {
     await awu(elements)
       .filter(isInstanceElement)
+      // lists in report types instances are handled in parseReportTypes filter
+      // file&folder instances have no list fields so we can skip them
+      .filter(inst => !(inst.elemID.typeName in typeNameToParser) && !isFileCabinetInstance(inst))
       .forEach(async inst => {
         inst.value = await transformValues({
           values: inst.value,

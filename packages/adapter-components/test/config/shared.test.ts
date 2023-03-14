@@ -13,7 +13,7 @@
 * See the License for the specific language governing permissions and
 * limitations under the License.
 */
-import { createUserFetchConfigType, getConfigWithDefault } from '../../src/config'
+import { createUserDeployConfigType, createUserFetchConfigType, getConfigWithDefault, validateDeployConfig } from '../../src/config'
 
 describe('config_shared', () => {
   describe('createUserFetchConfigType', () => {
@@ -23,6 +23,13 @@ describe('config_shared', () => {
       expect(type.fields.include).toBeDefined()
       expect(type.fields.exclude).toBeDefined()
       expect(type.fields.hideTypes).toBeDefined()
+    })
+  })
+  describe('createUserDeployConfigType', () => {
+    it('should return default type when no custom fields were added', () => {
+      const type = createUserDeployConfigType('myAdapter')
+      expect(Object.keys(type.fields)).toHaveLength(1)
+      expect(type.fields.defaultMissingUserFallback).toBeDefined()
     })
   })
   describe('getConfigWithDefault', () => {
@@ -45,6 +52,23 @@ describe('config_shared', () => {
         undefined,
         { idFields: ['a', 'b'], standaloneFields: [{ fieldName: 'default' }] },
       )).toEqual({ idFields: ['a', 'b'], standaloneFields: [{ fieldName: 'default' }] })
+    })
+  })
+  describe('validateDeployConfig', () => {
+    it('should not throw if defaultMissingUserFallback is ##DEPLOYER##', () => {
+      expect(() => validateDeployConfig(
+        'deploy',
+        { defaultMissingUserFallback: '##DEPLOYER##' },
+        (): boolean => true,
+      )).not.toThrow()
+    })
+
+    it('should throw if validateUserFunc returns false', async () => {
+      expect(() => validateDeployConfig(
+        'deploy',
+        { defaultMissingUserFallback: 'invalid@user.name' },
+        (): boolean => false,
+      )).toThrow(new Error('Invalid user value in deploy.defaultMissingUserFallback: invalid@user.name. Value can be either ##DEPLOYER## or a valid user name'))
     })
   })
 })

@@ -15,12 +15,10 @@
 */
 import _ from 'lodash'
 import { Element, isInstanceElement, isReferenceExpression, ReferenceExpression } from '@salto-io/adapter-api'
-import { logger } from '@salto-io/logging'
 import { FETCH_CONFIG } from '../../config'
 import { FilterCreator } from '../../filter'
 import { createMissingInstance, VALUES_TO_SKIP_BY_TYPE } from './missing_references'
 
-const log = logger(module)
 
 type FieldMissingReferenceDefinition = {
   instanceType: string
@@ -63,7 +61,8 @@ const potentiallyMissingListValues: FieldMissingReferenceDefinition[] = [
  * Convert field list values into references, based on predefined configuration.
  */
 const filter: FilterCreator = ({ config }) => ({
-  onFetch: async (elements: Element[]) => log.time(async () => {
+  name: 'listValuesMissingReferencesFilter',
+  onFetch: async (elements: Element[]) => {
     if (!config[FETCH_CONFIG].enableMissingReferences) {
       return
     }
@@ -83,6 +82,7 @@ const filter: FilterCreator = ({ config }) => ({
           if (fieldRefTypes.includes(obj.field)
             && !isReferenceExpression(valueToRedefine)
             && !VALUES_TO_SKIP_BY_TYPE[valueType]?.includes(valueToRedefine)
+            && _.isArray(obj.value) // INCIDENT-3157, Handle cases when for some reason the value is a string
             && (isNumberStr(valueToRedefine)
               || NON_NUMERIC_MISSING_VALUES_TYPES.includes(valueType)
             )) {
@@ -99,7 +99,7 @@ const filter: FilterCreator = ({ config }) => ({
         })
       })
     })
-  }, 'List values missing references filter'),
+  },
 })
 
 export default filter

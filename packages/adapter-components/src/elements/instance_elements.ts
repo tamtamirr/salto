@@ -13,7 +13,7 @@
 * See the License for the specific language governing permissions and
 * limitations under the License.
 */
-import _ from 'lodash'
+import _, { isEmpty } from 'lodash'
 import {
   InstanceElement, Values, ObjectType, ReferenceExpression, CORE_ANNOTATIONS, ElemID,
   ElemIdGetter, OBJECT_SERVICE_ID, OBJECT_NAME, toServiceIdsString, ServiceIds,
@@ -58,11 +58,12 @@ export const joinInstanceNameParts = (
 export const getInstanceName = (
   instanceValues: Values,
   idFields: string[],
+  typeName: string,
 ): string | undefined => {
   const nameParts = idFields
     .map(fieldName => _.get(instanceValues, dereferenceFieldName(fieldName)))
   if (nameParts.includes(undefined)) {
-    log.warn(`could not find id for entry - expected id fields ${idFields}, available fields ${Object.keys(instanceValues)}`)
+    log.warn(`could not find id for entry in type ${typeName} - expected id fields ${idFields}, available fields ${Object.keys(instanceValues)}`)
   }
   return joinInstanceNameParts(nameParts)
 }
@@ -116,7 +117,7 @@ export const generateInstanceNameFromConfig = (
     apiDefinitions.types[typeName]?.transformation ?? {},
     apiDefinitions.typeDefaults.transformation
   )
-  const instanceName = getInstanceName(values, idFields)
+  const instanceName = getInstanceName(values, idFields, typeName)
   return instanceName !== undefined
     ? getNameMapping(instanceName, nameMapping) : instanceName
 }
@@ -162,9 +163,11 @@ export const getInstanceNaclName = ({
   typeElemId: ElemID
   nameMapping?: NameMappingOptions
 }): string => {
-  const naclName = naclCase(
-    parentName ? `${parentName}${ID_SEPARATOR}${name}` : String(name)
-  )
+  // If the name is empty, there is no reason to add the ID_SEPARATOR
+  const parentNameSuffix = !isEmpty(name) ? `${ID_SEPARATOR}${name}` : ''
+  const newName = parentName ? `${parentName}${parentNameSuffix}` : String(name)
+  const naclName = naclCase(newName)
+
   const desiredName = nameMapping
     ? getNameMapping(naclName, nameMapping)
     : naclName
@@ -223,7 +226,7 @@ export const toBasicInstance = async ({
     transformationDefaultConfig,
   )
 
-  const name = getInstanceName(entry, idFields) ?? defaultName
+  const name = getInstanceName(entry, idFields, type.elemID.typeName) ?? defaultName
   const parentName = parent && nestName ? parent.elemID.name : undefined
   const adapterName = type.elemID.adapter
   const naclName = getInstanceNaclName({

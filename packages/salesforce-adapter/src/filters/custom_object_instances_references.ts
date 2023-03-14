@@ -84,7 +84,7 @@ const createWarnings = async (
     getTypeName: async instance => apiName(await instance.getType(), true),
     idFieldsName: 'saltoIDSettings',
     getInstanceName: instance => apiName(instance),
-    docsUrl: 'https://docs.salto.io/docs/salesforce-cpq',
+    docsUrl: 'https://help.salto.io/en/articles/6927217-salto-for-salesforce-cpq-support',
   })
 
   const typeToInstanceIdToMissingRefs = _.mapValues(
@@ -259,6 +259,7 @@ const buildCustomObjectPrefixKeyMap = async (
 }
 
 const filter: RemoteFilterCreator = ({ client, config }) => ({
+  name: 'customObjectInstanceReferencesFilter',
   onFetch: async (elements: Element[]): Promise<FilterResult> => {
     const { dataManagement } = config.fetchProfile
     if (dataManagement === undefined) {

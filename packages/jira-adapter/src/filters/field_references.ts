@@ -22,10 +22,11 @@ import { FilterCreator } from '../filter'
  * Convert field values into references, based on predefined rules.
  */
 const filter: FilterCreator = () => ({
+  name: 'fieldReferencesFilter',
   onFetch: async (elements: Element[]) => {
     await referenceUtils.addReferences({
       elements,
-      fieldsToGroupBy: ['id', 'name', 'originalName'],
+      fieldsToGroupBy: ['id', 'name', 'originalName', 'groupId', 'key'],
       defs: referencesRules,
       contextStrategyLookup,
       fieldReferenceResolverCreator: defs => new JiraFieldReferenceResolver(defs),

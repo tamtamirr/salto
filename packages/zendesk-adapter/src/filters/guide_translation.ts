@@ -22,13 +22,12 @@ import _ from 'lodash'
 import { getParents } from '@salto-io/adapter-utils'
 import { FilterCreator } from '../filter'
 import { removedTranslationParentId } from './guide_section_and_category'
-
-export const TRANSLATIONS_TYPE_NAME = ['section_translation', 'category_translation', 'article_translation']
+import { TRANSLATION_TYPE_NAMES } from '../constants'
 
 const isDefaultTranslationAddition = (change: Change<InstanceElement>): boolean => {
   if (
     !isAdditionChange(change)
-    || (!TRANSLATIONS_TYPE_NAME.includes(getChangeData(change).elemID.typeName))
+    || (!TRANSLATION_TYPE_NAMES.includes(getChangeData(change).elemID.typeName))
   ) {
     return false
   }
@@ -39,7 +38,7 @@ const isDefaultTranslationAddition = (change: Change<InstanceElement>): boolean 
 }
 
 const parentRemoved = (change: Change<InstanceElement>): boolean => {
-  if (!TRANSLATIONS_TYPE_NAME.includes(getChangeData(change).elemID.typeName)) {
+  if (!TRANSLATION_TYPE_NAMES.includes(getChangeData(change).elemID.typeName)) {
     return false
   }
   // the parent is not a reference expression
@@ -56,6 +55,7 @@ const needToOmit = (change: Change<InstanceElement>): boolean =>
  * The rest of the translations will be deployed in the default deploy filter.
  */
 const filterCreator: FilterCreator = () => ({
+  name: 'guideTranslationFilter',
   deploy: async (changes: Change<InstanceElement>[]) => {
     const [translationChangesToIgnore, leftoverChanges] = _.partition(
       changes,

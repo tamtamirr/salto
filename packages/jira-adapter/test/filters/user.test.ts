@@ -14,11 +14,11 @@
 * limitations under the License.
 */
 import { ElemID, InstanceElement, ListType, ObjectType } from '@salto-io/adapter-api'
-import { getFilterParams } from '../utils'
+import { createEmptyType, getFilterParams } from '../utils'
 import userFilter from '../../src/filters/user'
 import { Filter } from '../../src/filter'
 import { ACCOUNT_ID_INFO_TYPE, JIRA } from '../../src/constants'
-import { createBoardType, createDashboardType, createEmptyType, createFilterType } from './account_id/account_id_common'
+import { createBoardType, createDashboardType, createFilterType } from './account_id/account_id_common'
 
 describe('userFilter', () => {
   let filter: Filter
@@ -53,6 +53,9 @@ describe('userFilter', () => {
           admins: {
             users: [{
               accountId: 'John Doe',
+            },
+            {
+              accountId: 'John Doe4',
             }],
           },
         }
@@ -64,32 +67,47 @@ describe('userFilter', () => {
           owner: {
             accountId: 'John Doe2',
           },
+          editPermissions: [
+            {
+              type: 'user',
+              user: {
+                displayName: 'No One',
+                accountId: {
+                  id: 'noOne',
+                },
+              },
+            },
+          ],
         }
       )
       const instanceDashboard = new InstanceElement(
         'instance3',
         dashboardType,
         {
-          inner: {
-            owner: {
-              accountId: 'John Doe3',
-            },
+          owner: {
+            accountId: 'John Doe3',
           },
         }
       )
       await filter.onFetch?.([instance, instanceFilter, instanceDashboard])
       expect(instance.value).toEqual({
         admins: {
-          users: ['John Doe'],
+          users: ['John Doe', 'John Doe4'],
         },
       })
       expect(instanceFilter.value).toEqual({
         owner: 'John Doe2',
+        editPermissions: [
+          {
+            type: 'user',
+            user: {
+              id: 'noOne',
+            },
+          },
+        ],
       })
       expect(instanceDashboard.value).toEqual({
-        inner: {
-          owner: 'John Doe3',
-        },
+        owner: 'John Doe3',
       })
     })
 

@@ -33,7 +33,7 @@ const detailedNestedElementErrorMessage = (
 }
 
 const detailedTopLevelErrorMessage = (action: Change['action'], path: ElemID): string =>
-  `Salto does not support "${action}" of ${path.getFullName()}. Please see your business app FAQ at https://docs.salto.io/docs/supported-bizapps for a list of supported elements.`
+  `Salto does not support "${action}" of ${path.getFullName()}. Please see your business app FAQ at https://help.salto.io/en/articles/6927118-supported-business-applications for a list of supported elements.`
 
 const isDeploymentSupported = (element: Element, action: Change['action']): boolean =>
   element.annotations[OPERATION_TO_ANNOTATION[action]]
@@ -86,7 +86,7 @@ export const checkDeploymentAnnotationsValidator: ChangeValidator = async change
       const unsupportedPaths = await getUnsupportedPaths(change)
 
       return unsupportedPaths.map(({ path }) => ({
-        elemID: instance.elemID,
+        elemID: path,
         severity: 'Info',
         message: 'Operation not supported for specific value',
         detailedMessage: detailedNestedElementErrorMessage(path, change.action),
