@@ -31,7 +31,7 @@ type ExtendedTypeConfig = configUtils.TypeConfig & {
   jspRequests?: JspUrls
 }
 
-export type JiraApiConfig = Omit<configUtils.AdapterSwaggerApiConfig, 'swagger'> & {
+export type JiraApiConfig = Omit<configUtils.AdapterSwaggerApiConfig, 'swagger' | 'types'> & {
   types: Record<string, ExtendedTypeConfig>
   platformSwagger: configUtils.AdapterSwaggerApiConfig['swagger']
   jiraSwagger: configUtils.AdapterSwaggerApiConfig['swagger']
