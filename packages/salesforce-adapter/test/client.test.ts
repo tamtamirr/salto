@@ -160,8 +160,8 @@ describe('salesforce client', () => {
         await client.listMetadataTypes()
         throw new Error('client should have failed')
       } catch (e) {
-        expect(e.message).toBe('something awful happened')
-        expect(e.attempts).toBe(3)
+        expect((e as Error).message).toBe('something awful happened')
+        expect((e as Error & { attempts : number }).attempts).toBe(3)
       }
       expect(dodoScope.isDone()).toBeTruthy()
     })
@@ -202,8 +202,8 @@ describe('salesforce client', () => {
         await client.listMetadataTypes()
         throw new Error('client should have failed')
       } catch (e) {
-        expect(e.message).toBe('server error')
-        expect(e.attempts).toBeUndefined()
+        expect((e as Error).message).toBe('server error')
+        expect((e as Error & { attempts:number}).attempts).toBeUndefined()
       }
       expect(dodoScope.isDone()).toBeFalsy()
     })

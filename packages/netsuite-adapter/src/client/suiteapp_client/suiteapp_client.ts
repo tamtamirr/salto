@@ -345,7 +345,7 @@ export default class SuiteAppClient {
         return { configType, data, fieldsDef: validatedFields }
       }).filter(isDefined)
     } catch (e) {
-      log.error('getConfigRecords failed. received error: %s', e.message)
+      log.error('getConfigRecords failed. received error: %s', (e as Error).message)
       return []
     }
   }
@@ -370,8 +370,8 @@ export default class SuiteAppClient {
       }
       return result
     } catch (e) {
-      log.error('setConfigRecordsValues failed. received error: %s', e.message)
-      return { errorMessage: e.message }
+      log.error('setConfigRecordsValues failed. received error: %s', (e as Error).message)
+      return { errorMessage: (e as Error).message }
     }
   }
 
@@ -403,7 +403,7 @@ export default class SuiteAppClient {
       }
       return result
     } catch (e) {
-      const errorMessage = `${operation} operation failed. Received the following error: ${e.message}`
+      const errorMessage = `${operation} operation failed. Received the following error: ${(e as Error).message}`
       log.error(errorMessage)
       throw Error(errorMessage)
     }
@@ -439,7 +439,8 @@ export default class SuiteAppClient {
           },
         },
       ))
-    } catch (e) {
+    } catch (E) {
+      const e = E as AxiosError
       log.warn(
         'Received error from SuiteApp request to %s (postParams: %s) with status %s: %s',
         href,
@@ -447,7 +448,7 @@ export default class SuiteAppClient {
         e.response?.status ?? e.code,
         safeJsonStringify(e.response?.data ?? e.message, undefined, 2)
       )
-      if (UNAUTHORIZED_STATUSES.includes(e.response?.status)) {
+      if (UNAUTHORIZED_STATUSES.includes(e.response?.status || 0)) {
         throw new InvalidSuiteAppCredentialsError(getAxiosErrorDetailedMessage(e))
       }
       throw e

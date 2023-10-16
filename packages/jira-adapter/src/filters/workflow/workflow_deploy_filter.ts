@@ -268,7 +268,7 @@ export const deployWorkflow = async (
     try {
       await deployWorkflowDiagram({ instance, client })
     } catch (e) {
-      log.error(`Fail to deploy Workflow ${instance.value.name} diagram with the error: ${e.message}`)
+      log.error(`Fail to deploy Workflow ${instance.value.name} diagram with the error: ${(e as Error).message}`)
     }
   }
 

@@ -36,6 +36,7 @@ import { client as clientUtils, config as configUtils, elements as elementUtils 
 import {
   getElemIdFuncWrapper,
   inspectValue,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   logDuration,
   resolveChangeElement,
   resolveValues,
@@ -43,6 +44,7 @@ import {
 } from '@salto-io/adapter-utils'
 import { collections, objects } from '@salto-io/lowerdash'
 import { logger } from '@salto-io/logging'
+import { HTTPError } from '@salto-io/adapter-components/src/client'
 import ZendeskClient from './client/client'
 import { BrandIdToClient, Filter, FilterCreator, FilterResult, filtersRunner } from './filter'
 import {
@@ -628,7 +630,7 @@ export default class ZendeskAdapter implements AdapterOperations {
       }
     // This log is not crucial for the fetch to succeed, so we don't want to fail the fetch if it fails
     } catch (e) {
-      if (e.response?.status === 422) {
+      if ((e as HTTPError).response?.status === 422) {
         log.info('Account subscription data unavailable because this is a sandbox environment')
       } else {
         log.info(`Account subscription data unavailable because of an error ${inspectValue(e)}`)
