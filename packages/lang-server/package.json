@@ -39,7 +39,7 @@
   },
   "devDependencies": {
     "@salto-io/test-utils": "0.3.47",
-    "@types/jest": "^27.4.0",
+    "@types/jest": "*",
     "@types/node": "^12.7.1",
     "@typescript-eslint/eslint-plugin": "4.22.1",
     "@typescript-eslint/parser": "4.22.1",
@@ -52,7 +52,7 @@
     "eslint-plugin-react": "^7.14.3",
     "eslint-plugin-react-hooks": "^1.7.0",
     "jest": "*",
-    "jest-circus": "^27.4.5",
+    "jest-circus": "*",
     "jest-each": "^26.6.2",
     "ts-jest": "*",
     "typescript": "^4.3"
