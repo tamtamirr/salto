@@ -602,4 +602,5 @@ export const isSalesforceError = (error: Error): error is SalesforceError => {
 export const SalesforceArtifacts = {
   DeployPackageXml: 'package.xml',
   PostDeployRetrieveZip: 'post-deploy-retrieve.zip',
+  DeployZip: 'deploy.zip'
 } as const

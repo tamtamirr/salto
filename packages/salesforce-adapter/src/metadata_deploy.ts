@@ -465,6 +465,7 @@ export const deployMetadata = async (
     postDeployRetrieveZipContent
       ? { name: SalesforceArtifacts.PostDeployRetrieveZip, content: Buffer.from(postDeployRetrieveZipContent, 'base64') }
       : undefined,
+    { name: SalesforceArtifacts.DeployZip, content: pkgData },
   ].filter(isDefined)
   return {
     appliedChanges: validChanges.filter(isSuccessfulChange),
