@@ -1,22 +1,37 @@
 /*
-*                      Copyright 2024 Salto Labs Ltd.
-*
-* Licensed under the Apache License, Version 2.0 (the "License");
-* you may not use this file except in compliance with
-* the License.  You may obtain a copy of the License at
-*
-*     http://www.apache.org/licenses/LICENSE-2.0
-*
-* Unless required by applicable law or agreed to in writing, software
-* distributed under the License is distributed on an "AS IS" BASIS,
-* WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-* See the License for the specific language governing permissions and
-* limitations under the License.
-*/
-import { AdditionChange, CORE_ANNOTATIONS, getChangeData, InstanceElement, isAdditionChange, isAdditionOrModificationChange, isInstanceChange, isModificationChange, isRemovalOrModificationChange, ModificationChange, ReferenceExpression, Values } from '@salto-io/adapter-api'
+ *                      Copyright 2024 Salto Labs Ltd.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+import {
+  AdditionChange,
+  CORE_ANNOTATIONS,
+  getChangeData,
+  InstanceElement,
+  isAdditionChange,
+  isAdditionOrModificationChange,
+  isInstanceChange,
+  isModificationChange,
+  isRemovalOrModificationChange,
+  ModificationChange,
+  ReferenceExpression,
+  Values,
+} from '@salto-io/adapter-api'
 import { logger } from '@salto-io/logging'
 import _ from 'lodash'
-import { createSchemeGuard, getParent, resolveValues } from '@salto-io/adapter-utils'
+import { createSchemeGuard } from '@salto-io/adapter-utils'
+import { resolveValues } from '@salto-io/adapter-components'
+
 import Joi from 'joi'
 import { collections } from '@salto-io/lowerdash'
 import { getDiffIds } from '../../diff'
@@ -42,7 +57,10 @@ const IMPORT_RESPONSE_SCHEME = Joi.object({
   id: Joi.string().required(),
 }).unknown(true)
 
-const isImportResponse = createSchemeGuard<ImportResponse>(IMPORT_RESPONSE_SCHEME, 'Received an invalid automation import response')
+const isImportResponse = createSchemeGuard<ImportResponse>(
+  IMPORT_RESPONSE_SCHEME,
+  'Received an invalid automation import response',
+)
 
 type ProgressResponse = {
   taskState: string
@@ -52,7 +70,10 @@ const PROGRESS_RESPONSE_SCHEME = Joi.object({
   taskState: Joi.string().required(),
 }).unknown(true)
 
-const isProgressResponse = createSchemeGuard<ProgressResponse>(PROGRESS_RESPONSE_SCHEME, 'Received an invalid automation progress response')
+const isProgressResponse = createSchemeGuard<ProgressResponse>(
+  PROGRESS_RESPONSE_SCHEME,
+  'Received an invalid automation progress response',
+)
 
 type AutomationResponse = {
   id: number
@@ -68,38 +89,40 @@ const AUTOMATION_RESPONSE_SCHEME = Joi.array().items(
     id: Joi.number().required(),
     name: Joi.string().required(),
     created: Joi.number().required(),
-    projects: Joi.array().items(
-      Joi.object({
-        projectId: Joi.string().allow(null),
-      }).unknown(true),
-    ).required(),
+    projects: Joi.array()
+      .items(
+        Joi.object({
+          projectId: Joi.string().allow(null),
+        }).unknown(true),
+      )
+      .required(),
   }).unknown(true),
 )
 
-const isAutomationsResponse = createSchemeGuard<AutomationResponse[]>(AUTOMATION_RESPONSE_SCHEME, 'Received an invalid automation import response')
+const isAutomationsResponse = createSchemeGuard<AutomationResponse[]>(
+  AUTOMATION_RESPONSE_SCHEME,
+  'Received an invalid automation import response',
+)
 
 export type Component = {
   value: {
-      workspaceId?: string
-      schemaId?: string
-      objectTypeId: ReferenceExpression
-      schemaLabel?: string
-      objectTypeLabel?: string
+    workspaceId?: string
+    schemaId: ReferenceExpression
+    objectTypeId?: ReferenceExpression
+    schemaLabel?: string
+    objectTypeLabel?: string
   }
 }
 
 const ASSET_COMPONENT_SCHEME = Joi.object({
   value: Joi.object({
-    objectTypeId: Joi.required(),
+    schemaId: Joi.required(),
   }).unknown(true),
 }).unknown(true)
 
 export const isAssetComponent = createSchemeGuard<Component>(ASSET_COMPONENT_SCHEME)
 
-const generateRuleScopesResources = (
-  instance: InstanceElement,
-  cloudId: string
-): string[] => {
+const generateRuleScopesResources = (instance: InstanceElement, cloudId: string): string[] => {
   if ((instance.value.projects ?? []).length === 0) {
     return [`ari:cloud:jira::site/${cloudId}`]
   }
@@ -115,26 +138,24 @@ const generateRuleScopesResources = (
 
 const generateRuleScopes = (
   instance: InstanceElement,
-  cloudId: string | undefined
+  cloudId: string | undefined,
 ): {
   ruleScope?: {
     resources: string[]
   }
-} => (
+} =>
   cloudId !== undefined
     ? {
-      ruleScope: {
-        resources: generateRuleScopesResources(instance, cloudId),
-      },
-    }
+        ruleScope: {
+          resources: generateRuleScopesResources(instance, cloudId),
+        },
+      }
     : {}
-)
 
-const getUrlPrefix = (cloudId: string | undefined): string => (
+const getUrlPrefix = (cloudId: string | undefined): string =>
   cloudId === undefined
     ? '/rest/cb-automation/latest/project'
     : `/gateway/api/automation/internal-api/jira/${cloudId}/pro/rest`
-)
 
 const awaitSuccessfulImport = async ({
   client,
@@ -142,7 +163,7 @@ const awaitSuccessfulImport = async ({
   importId,
   retries,
   delay,
-} : {
+}: {
   client: JiraClient
   cloudId: string | undefined
   importId: string
@@ -150,9 +171,11 @@ const awaitSuccessfulImport = async ({
   delay: number
 }): Promise<boolean> => {
   await new Promise(resolve => setTimeout(resolve, delay))
-  const progressResponse = (await client.getPrivate({
-    url: `${getUrlPrefix(cloudId)}/task/${importId}/progress`,
-  })).data
+  const progressResponse = (
+    await client.getPrivate({
+      url: `${getUrlPrefix(cloudId)}/task/${importId}/progress`,
+    })
+  ).data
   if (!isProgressResponse(progressResponse)) {
     log.error('Received an invalid automation progress response')
     return false
@@ -178,23 +201,27 @@ const importAutomation = async (
   instance: InstanceElement,
   client: JiraClient,
   cloudId: string | undefined,
-  config: JiraConfig
+  config: JiraConfig,
 ): Promise<boolean> => {
   const resolvedInstance = await resolveValues(instance, getLookUpName, undefined, true)
 
   const ruleScopes = generateRuleScopes(resolvedInstance, cloudId)
 
   const data = {
-    rules: [{
-      ...resolvedInstance.value,
-      ...ruleScopes,
-    }],
+    rules: [
+      {
+        ...resolvedInstance.value,
+        ...ruleScopes,
+      },
+    ],
   }
   log.trace('Importing automation %o', data)
-  const importResponse = (await client.postPrivate({
-    url: `${getUrlPrefix(cloudId)}/GLOBAL/rule/import`,
-    data,
-  })).data
+  const importResponse = (
+    await client.postPrivate({
+      url: `${getUrlPrefix(cloudId)}/GLOBAL/rule/import`,
+      data,
+    })
+  ).data
 
   // DC call import in a sync manner, cloud in an async
   if (cloudId === undefined) {
@@ -215,7 +242,7 @@ const importAutomation = async (
 }
 
 const getAutomationIdentifier = (values: Values): string =>
-  [values.name, ...(_.sortBy((values.projects ?? []).map((project: Values) => project.projectId)))].join('_')
+  [values.name, ..._.sortBy((values.projects ?? []).map((project: Values) => project.projectId))].join('_')
 
 const getAutomationIdentifierFromService = async ({
   instance,
@@ -233,9 +260,7 @@ const getAutomationIdentifierFromService = async ({
   }
   const automationById = _.groupBy(automations, automation => getAutomationIdentifier(automation))
 
-  const instanceIdentifier = getAutomationIdentifier(
-    (await resolveValues(instance, getLookUpName)).value
-  )
+  const instanceIdentifier = getAutomationIdentifier((await resolveValues(instance, getLookUpName)).value)
 
   log.info('Automations identifiers: %o', Object.keys(automationById))
   log.info('Deployed Automation identifier: %o', instanceIdentifier)
@@ -245,7 +270,9 @@ const getAutomationIdentifierFromService = async ({
   }
 
   if (automationById[instanceIdentifier].length > 1) {
-    throw new Error(`Cannot find id of automation after the deployment, there is more than one automation with the same name ${instance.value.name}`)
+    throw new Error(
+      `Cannot find id of automation after the deployment, there is more than one automation with the same name ${instance.value.name}`,
+    )
   }
   return automationById[instanceIdentifier][0]
 }
@@ -261,15 +288,10 @@ const removeAutomation = async (
   })
 }
 
-const getLabelsUrl = (
-  cloudId: string | undefined,
-  instance: InstanceElement,
-  labelID: string
-): string => (
+const getLabelsUrl = (cloudId: string | undefined, instance: InstanceElement, labelID: string): string =>
   cloudId === undefined
     ? `${getUrlPrefix(cloudId)}/GLOBAL/rule/${instance.value.id}/label/${labelID}`
     : `${getUrlPrefix(cloudId)}/GLOBAL/rules/${instance.value.id}/labels/${labelID}`
-)
 
 const addAutomationLabels = async (
   instance: InstanceElement,
@@ -277,11 +299,15 @@ const addAutomationLabels = async (
   client: JiraClient,
   cloudId: string | undefined,
 ): Promise<void> => {
-  await Promise.all(labelsID.map(async labelID => client.put({
-    url: getLabelsUrl(cloudId, instance, labelID),
-    data: null,
-    headers: { 'Content-Type': 'application/json' },
-  })))
+  await Promise.all(
+    labelsID.map(async labelID =>
+      client.put({
+        url: getLabelsUrl(cloudId, instance, labelID),
+        data: null,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    ),
+  )
 }
 
 const removeAutomationLabels = async (
@@ -290,9 +316,13 @@ const removeAutomationLabels = async (
   client: JiraClient,
   cloudId: string | undefined,
 ): Promise<void> => {
-  await Promise.all(labelsID.map(async labelID => client.delete({
-    url: getLabelsUrl(cloudId, instance, labelID),
-  })))
+  await Promise.all(
+    labelsID.map(async labelID =>
+      client.delete({
+        url: getLabelsUrl(cloudId, instance, labelID),
+      }),
+    ),
+  )
 }
 
 const updateAutomationLabels = async (
@@ -315,16 +345,16 @@ const addDetailedAssetsComponents = (instance: InstanceElement): void => {
   if (!instance.value.components) {
     return
   }
-  const assetsComponents: Component[] = instance.value.components
-    .filter(isAssetComponent)
+  const assetsComponents: Component[] = instance.value.components.filter(isAssetComponent)
   assetsComponents.forEach(component => {
     try {
-      const objectType = component.value.objectTypeId.value
-      const schema = getParent(objectType)
-      component.value.schemaId = schema.value.id
+      const schema = component.value.schemaId.value
       component.value.schemaLabel = schema.value.name
-      component.value.objectTypeLabel = objectType.value.name
       component.value.workspaceId = schema.value.workspaceId
+      if (component.value.objectTypeId !== undefined) {
+        const objectType = component.value.objectTypeId.value
+        component.value.objectTypeLabel = objectType.value.name
+      }
     } catch (e) {
       log.warn(`Failed to update detailed assets components for ${instance.elemID.getFullName()}`)
     }
@@ -335,10 +365,8 @@ const deleteDetailedAssetsComponents = (instance: InstanceElement): void => {
   if (!instance.value.components) {
     return
   }
-  const assetsComponents: Component[] = instance.value.components
-    .filter(isAssetComponent)
+  const assetsComponents: Component[] = instance.value.components.filter(isAssetComponent)
   assetsComponents.forEach(component => {
-    delete component.value.schemaId
     delete component.value.schemaLabel
     delete component.value.objectTypeLabel
     delete component.value.workspaceId
@@ -356,11 +384,11 @@ const updateAutomation = async (
 
   const data = !client.isDataCenter
     ? {
-      ruleConfigBean: {
-        ...resolvedInstance.value,
-        ...ruleScopes,
-      },
-    }
+        ruleConfigBean: {
+          ...resolvedInstance.value,
+          ...ruleScopes,
+        },
+      }
     : resolvedInstance.value
 
   await client.putPrivate({
@@ -410,7 +438,7 @@ const filter: FilterCreator = ({ client, config }) => ({
     setTypeDeploymentAnnotations(automationType)
   },
   preDeploy: async changes => {
-    if (!config.fetch.enableJSM || !config.fetch.enableJsmExperimental) {
+    if (!config.fetch.enableJSM || !(config.fetch.enableJsmExperimental || config.fetch.enableJSMPremium)) {
       return
     }
 
@@ -424,25 +452,21 @@ const filter: FilterCreator = ({ client, config }) => ({
   deploy: async changes => {
     const [relevantChanges, leftoverChanges] = _.partition(
       changes,
-      change => isInstanceChange(change)
-        && getChangeData(change).elemID.typeName === AUTOMATION_TYPE
+      change => isInstanceChange(change) && getChangeData(change).elemID.typeName === AUTOMATION_TYPE,
     )
 
-    const deployResult = await deployChanges(
-      relevantChanges.filter(isInstanceChange),
-      async change => {
-        const cloudId = !client.isDataCenter ? await getCloudId(client) : undefined
-        if (isAdditionChange(change)) {
-          await createAutomation(getChangeData(change), client, cloudId, config)
-          await updateAutomationLabels(change, client, cloudId)
-        } else if (isModificationChange(change)) {
-          await updateAutomation(getChangeData(change), client, cloudId)
-          await updateAutomationLabels(change, client, cloudId)
-        } else {
-          await removeAutomation(getChangeData(change), client, cloudId)
-        }
+    const deployResult = await deployChanges(relevantChanges.filter(isInstanceChange), async change => {
+      const cloudId = !client.isDataCenter ? await getCloudId(client) : undefined
+      if (isAdditionChange(change)) {
+        await createAutomation(getChangeData(change), client, cloudId, config)
+        await updateAutomationLabels(change, client, cloudId)
+      } else if (isModificationChange(change)) {
+        await updateAutomation(getChangeData(change), client, cloudId)
+        await updateAutomationLabels(change, client, cloudId)
+      } else {
+        await removeAutomation(getChangeData(change), client, cloudId)
       }
-    )
+    })
 
     return {
       leftoverChanges,
@@ -450,7 +474,7 @@ const filter: FilterCreator = ({ client, config }) => ({
     }
   },
   onDeploy: async changes => {
-    if (!config.fetch.enableJSM || !config.fetch.enableJsmExperimental) {
+    if (!config.fetch.enableJSM || !(config.fetch.enableJsmExperimental || config.fetch.enableJSMPremium)) {
       return
     }
 

@@ -1,21 +1,31 @@
 /*
-*                      Copyright 2024 Salto Labs Ltd.
-*
-* Licensed under the Apache License, Version 2.0 (the "License");
-* you may not use this file except in compliance with
-* the License.  You may obtain a copy of the License at
-*
-*     http://www.apache.org/licenses/LICENSE-2.0
-*
-* Unless required by applicable law or agreed to in writing, software
-* distributed under the License is distributed on an "AS IS" BASIS,
-* WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-* See the License for the specific language governing permissions and
-* limitations under the License.
-*/
+ *                      Copyright 2024 Salto Labs Ltd.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 import {
-  Change, Element, getChangeData, InstanceElement, isInstanceElement, isReferenceExpression, isTemplateExpression,
-  ReferenceExpression, TemplateExpression, TemplatePart, UnresolvedReference, Values,
+  Change,
+  Element,
+  getChangeData,
+  InstanceElement,
+  isInstanceElement,
+  isReferenceExpression,
+  isTemplateExpression,
+  ReferenceExpression,
+  TemplateExpression,
+  TemplatePart,
+  UnresolvedReference,
+  Values,
 } from '@salto-io/adapter-api'
 import {
   extractTemplate,
@@ -46,9 +56,13 @@ import { ELEMENTS_REGEXES, transformReferenceUrls } from './utils'
 
 const { createMissingInstance } = referencesUtils
 const log = logger(module)
-const BRACKETS = [['{{', '}}'], ['{%', '%}']]
-const REFERENCE_MARKER_REGEX = /\$\{(.+?)}/
+const BRACKETS = [
+  ['{{', '}}'],
+  ['{%', '%}'],
+]
+const REFERENCE_MARKER_REGEX = /\$\{({{.+?}})\}/
 const DYNAMIC_CONTENT_REGEX = /(dc\.[\w-]+)/g
+const DYNAMIC_CONTENT_REGEX_WITH_BRACKETS = /({{dc\.[\w-]+}})/g
 const TICKET_FIELD_SPLIT = '(?:(ticket.ticket_field|ticket.ticket_field_option_title)_([\\d]+))'
 const KEY_SPLIT = '(?:([^ ]+\\.custom_fields)\\.)'
 const TITLE_SPLIT = '(?:([^ ]+)\\.(title))'
@@ -74,30 +88,44 @@ const ZENDESK_TYPE_TO_FIELD: Record<string, string> = {
   [USER_FIELD_TYPE_NAME]: KEY,
 }
 
-const KEY_FIELDS = Object.keys(ZENDESK_REFERENCE_TYPE_TO_SALTO_TYPE)
-  .filter(zendeskReference =>
-    ZENDESK_TYPE_TO_FIELD[ZENDESK_REFERENCE_TYPE_TO_SALTO_TYPE[zendeskReference]] === KEY)
+const KEY_FIELDS = Object.keys(ZENDESK_REFERENCE_TYPE_TO_SALTO_TYPE).filter(
+  zendeskReference => ZENDESK_TYPE_TO_FIELD[ZENDESK_REFERENCE_TYPE_TO_SALTO_TYPE[zendeskReference]] === KEY,
+)
 
 const POTENTIAL_REFERENCE_TYPES = Object.keys(ZENDESK_REFERENCE_TYPE_TO_SALTO_TYPE)
 const typeSearchRegexes: RegExp[] = []
 BRACKETS.forEach(([opener, closer]) => {
   POTENTIAL_REFERENCE_TYPES.forEach(type => {
-    typeSearchRegexes.push(new RegExp(`(${opener})([^\\$}]*${type}_[\\d]+[^}]*)(${closer})`, 'g'))
+    typeSearchRegexes.push(new RegExp(`(?<!\\$})(${opener})([\\w]*${type}_[\\d]+[^}]*)(${closer})`, 'g'))
   })
   // dynamic content references look different, but can still be part of template
-  typeSearchRegexes.push(new RegExp(`(${opener})([^\\$}]*dc\\.[\\w]+[^}]*)(${closer})`, 'g'))
+  typeSearchRegexes.push(new RegExp(`(?<!\\$})(${opener})([\\w]*dc\\.[\\w]+[^}]*)(${closer})`, 'g'))
 })
 
 // the potential references will start with one of the POTENTIAL_REFERENCE_TYPES, following either '_<number>' or
-// '.<some values that do not include space or '}'> for example:
+// '.<some values that do not include space, '}' or '='> for example:
 // ticket.ticket_field_123 and ticket.organization.custom_fields.name_123.title
-const potentialReferenceTypeRegex = new RegExp(`((?:${POTENTIAL_REFERENCE_TYPES.join('|')})(?:_[\\d]+|\\.[^ \\}]+))`, 'g')
+const potentialReferenceTypeRegex = new RegExp(
+  `((?:${POTENTIAL_REFERENCE_TYPES.join('|')})(?:_[\\d]+|\\.[^ \\}\\=]+))`,
+  'g',
+)
 const potentialMacroFields = [
-  'comment_value', 'comment_value_html', 'side_conversation', 'side_conversation_ticket', 'subject', 'side_conversation_slack',
+  'comment_value',
+  'comment_value_html',
+  'side_conversation',
+  'side_conversation_ticket',
+  'subject',
+  'side_conversation_slack',
 ]
 // triggers and automations notify users, webhooks
 // groups or targets with text that can include templates.
-const notificationTypes = ['notification_webhook', 'notification_user', 'notification_group', 'notification_target', DEFLECTION_ACTION]
+const notificationTypes = [
+  'notification_webhook',
+  'notification_user',
+  'notification_group',
+  'notification_target',
+  DEFLECTION_ACTION,
+]
 
 const potentialTriggerFields = [...notificationTypes, 'side_conversation_ticket', 'follower']
 
@@ -114,8 +142,7 @@ const potentialTemplates: PotentialTemplateField[] = [
     instanceType: 'macro',
     pathToContainer: ['actions'],
     fieldName: 'value',
-    containerValidator: (container: Values): boolean =>
-      potentialMacroFields.includes(container.field),
+    containerValidator: (container: Values): boolean => potentialMacroFields.includes(container.field),
   },
   {
     instanceType: 'target',
@@ -136,8 +163,7 @@ const potentialTemplates: PotentialTemplateField[] = [
     instanceType: 'trigger',
     pathToContainer: ['actions'],
     fieldName: 'value',
-    containerValidator: (container: Values): boolean =>
-      potentialTriggerFields.includes(container.field),
+    containerValidator: (container: Values): boolean => potentialTriggerFields.includes(container.field),
   },
   {
     instanceType: 'trigger',
@@ -155,8 +181,7 @@ const potentialTemplates: PotentialTemplateField[] = [
     instanceType: 'automation',
     pathToContainer: ['actions'],
     fieldName: 'value',
-    containerValidator: (container: Values): boolean =>
-      notificationTypes.includes(container.field),
+    containerValidator: (container: Values): boolean => notificationTypes.includes(container.field),
   },
   {
     instanceType: 'dynamic_content_item__variants',
@@ -173,8 +198,7 @@ const potentialTemplates: PotentialTemplateField[] = [
     instanceType: 'app_installation',
     pathToContainer: ['settings_objects'],
     fieldName: 'value',
-    containerValidator: (container: Values): boolean =>
-      container.name === 'uri_templates',
+    containerValidator: (container: Values): boolean => container.name === 'uri_templates',
   },
   {
     instanceType: ARTICLE_TRANSLATION_TYPE_NAME,
@@ -195,24 +219,21 @@ const potentialTemplates: PotentialTemplateField[] = [
       containerValidator: NoValidator,
     },
   ]),
-  ...[
-    ORG_FIELD_TYPE_NAME,
-    USER_FIELD_TYPE_NAME,
-    TICKET_FIELD_TYPE_NAME,
-    CUSTOM_OBJECT_FIELD_TYPE_NAME,
-  ].flatMap(instanceType => [
-    {
-      instanceType: `${instanceType}__${CUSTOM_FIELD_OPTIONS_FIELD_NAME}`,
-      fieldName: 'raw_name',
-      containerValidator: NoValidator,
-    },
-    {
-      instanceType,
-      pathToContainer: [CUSTOM_FIELD_OPTIONS_FIELD_NAME],
-      fieldName: 'raw_name',
-      containerValidator: NoValidator,
-    },
-  ]),
+  ...[ORG_FIELD_TYPE_NAME, USER_FIELD_TYPE_NAME, TICKET_FIELD_TYPE_NAME, CUSTOM_OBJECT_FIELD_TYPE_NAME].flatMap(
+    instanceType => [
+      {
+        instanceType: `${instanceType}__${CUSTOM_FIELD_OPTIONS_FIELD_NAME}`,
+        fieldName: 'raw_name',
+        containerValidator: NoValidator,
+      },
+      {
+        instanceType,
+        pathToContainer: [CUSTOM_FIELD_OPTIONS_FIELD_NAME],
+        fieldName: 'raw_name',
+        containerValidator: NoValidator,
+      },
+    ],
+  ),
 ]
 
 const seekAndMarkPotentialReferences = (formula: string): string => {
@@ -222,7 +243,7 @@ const seekAndMarkPotentialReferences = (formula: string): string => {
     // The replace flags the pattern with a reference-like string to avoid the later code from
     // detecting ids in numbers that are not marked as ids.
     // eslint-disable-next-line no-template-curly-in-string
-    formulaWithDetectedParts = formulaWithDetectedParts.replace(regex, '$1$${$2}$3')
+    formulaWithDetectedParts = formulaWithDetectedParts.replace(regex, '${$1$2$3}')
   })
   return formulaWithDetectedParts
 }
@@ -243,39 +264,30 @@ const formulaToTemplate = ({
   extractReferencesFromFreeText?: boolean
 }): TemplateExpression | string => {
   const handleZendeskReference = (expression: string, ref: RegExpMatchArray): TemplatePart[] => {
-    const reference = ref.pop() ?? ''
+    const rawReference = ref.pop() ?? ''
+    const reference = rawReference.startsWith('{{') ? rawReference.substring(2, rawReference.length - 2) : rawReference
     const splitReference = reference.split(new RegExp(SPLIT_REGEX)).filter(v => !_.isEmpty(v))
     // should be exactly of the form TYPE_INNERID, or TYPE.name.title so should contain exactly 2 or 3 parts
     if (splitReference.length !== 2 && splitReference.length !== 3) {
       return [expression]
     }
     const [type, innerId, title] = splitReference
-    const elem = (instancesByType[ZENDESK_REFERENCE_TYPE_TO_SALTO_TYPE[type]] ?? [])
-      .find(instance =>
-        instance.value[ZENDESK_TYPE_TO_FIELD[ZENDESK_REFERENCE_TYPE_TO_SALTO_TYPE[type]]]?.toString() === innerId)
+    const elem = (instancesByType[ZENDESK_REFERENCE_TYPE_TO_SALTO_TYPE[type]] ?? []).find(
+      instance =>
+        instance.value[ZENDESK_TYPE_TO_FIELD[ZENDESK_REFERENCE_TYPE_TO_SALTO_TYPE[type]]]?.toString() === innerId,
+    )
     if (elem) {
       if (KEY_FIELDS.includes(type)) {
-        return [
-          `${type}.`,
-          new ReferenceExpression(elem.elemID, elem),
-          title !== undefined ? `.${title}` : '',
-        ]
+        return [`${type}.`, new ReferenceExpression(elem.elemID, elem), title !== undefined ? `.${title}` : '']
       }
-      return [
-        `${type}_`,
-        new ReferenceExpression(elem.elemID, elem),
-      ]
+      return [`${type}_`, new ReferenceExpression(elem.elemID, elem)]
     }
     // if no id was detected we return the original expression.
     if (!enableMissingReferences) {
       return [expression]
     }
     // if no id was detected and enableMissingReferences we return a missing reference expression.
-    const missingInstance = createMissingInstance(
-      ZENDESK,
-      ZENDESK_REFERENCE_TYPE_TO_SALTO_TYPE[type],
-      innerId
-    )
+    const missingInstance = createMissingInstance(ZENDESK, ZENDESK_REFERENCE_TYPE_TO_SALTO_TYPE[type], innerId)
     missingInstance.value[ZENDESK_TYPE_TO_FIELD[ZENDESK_REFERENCE_TYPE_TO_SALTO_TYPE[type]]] = innerId
     if (KEY_FIELDS.includes(type)) {
       return [
@@ -284,33 +296,33 @@ const formulaToTemplate = ({
         title !== undefined ? `.${title}` : '',
       ]
     }
-    return [
-      `${type}_`,
-      new ReferenceExpression(missingInstance.elemID, missingInstance),
-    ]
+    return [`${type}_`, new ReferenceExpression(missingInstance.elemID, missingInstance)]
   }
 
-  const handleDynamicContentReference = (expression: string, ref: RegExpMatchArray):
-    TemplatePart => {
+  const handleDynamicContentReference = (expression: string, ref: RegExpMatchArray): TemplatePart | TemplatePart[] => {
     const dcPlaceholder = ref.pop() ?? ''
-    const elem = (instancesByType[DYNAMIC_CONTENT_ITEM_TYPE_NAME] ?? []).find(instance =>
-      instance.value.placeholder === `{{${dcPlaceholder}}}`)
+    const elem = (instancesByType[DYNAMIC_CONTENT_ITEM_TYPE_NAME] ?? []).find(
+      instance => instance.value.placeholder === dcPlaceholder,
+    )
+    const placeholderNoBrackets = dcPlaceholder.substring(2, dcPlaceholder.length - 2)
+
     if (elem) {
-      return new ReferenceExpression(elem.elemID, elem)
+      return ['{{', new ReferenceExpression(elem.elemID, elem), '}}']
     }
+
     if (!_.isEmpty(dcPlaceholder) && enableMissingReferences) {
       const missingInstance = createMissingInstance(
         ZENDESK,
         DYNAMIC_CONTENT_ITEM_TYPE_NAME,
-        dcPlaceholder.startsWith('dc.') ? dcPlaceholder.slice(3) : dcPlaceholder
+        placeholderNoBrackets.startsWith('dc.') ? placeholderNoBrackets.slice(3) : placeholderNoBrackets,
       )
-      missingInstance.value.placeholder = `{{${dcPlaceholder}}}`
-      return new ReferenceExpression(missingInstance.elemID, missingInstance)
+      missingInstance.value.placeholder = dcPlaceholder
+      return ['{{', new ReferenceExpression(missingInstance.elemID, missingInstance), '}}']
     }
     return expression
   }
 
-  const potentialRegexes = [REFERENCE_MARKER_REGEX, potentialReferenceTypeRegex, DYNAMIC_CONTENT_REGEX]
+  const potentialRegexes = [REFERENCE_MARKER_REGEX, potentialReferenceTypeRegex, DYNAMIC_CONTENT_REGEX_WITH_BRACKETS]
   if (extractReferencesFromFreeText) {
     potentialRegexes.push(...ELEMENTS_REGEXES.map(s => s.urlRegex))
   }
@@ -318,52 +330,52 @@ const formulaToTemplate = ({
   // The second part is a split that separates the now-marked ids, so they could be replaced
   // with ReferenceExpression in the loop code.
   // we continuously split the expression to find all kinds of potential references
-  return extractTemplate(seekAndMarkPotentialReferences(formula),
-    potentialRegexes,
-    expression => {
-      const zendeskReference = expression.match(potentialReferenceTypeRegex)
-      if (zendeskReference) {
-        return handleZendeskReference(expression, zendeskReference)
+  return extractTemplate(seekAndMarkPotentialReferences(formula), potentialRegexes, expression => {
+    const zendeskReference = expression.match(potentialReferenceTypeRegex)
+    if (zendeskReference) {
+      return handleZendeskReference(expression, zendeskReference)
+    }
+    const dynamicContentReference = expression.match(DYNAMIC_CONTENT_REGEX_WITH_BRACKETS)
+    if (dynamicContentReference) {
+      return handleDynamicContentReference(expression, dynamicContentReference)
+    }
+    if (extractReferencesFromFreeText) {
+      // Check if the expression is a link to a zendesk page without a subdomain
+      // href="/hc/en-us/../articles/123123
+      const isZendeskLink = new RegExp(`"/?hc/\\S*${_.escapeRegExp(expression)}`).test(formula)
+      if (isZendeskLink) {
+        return transformReferenceUrls({
+          urlPart: expression,
+          instancesById,
+          enableMissingReferences,
+        })
       }
-      const dynamicContentReference = expression.match(DYNAMIC_CONTENT_REGEX)
-      if (dynamicContentReference) {
-        return handleDynamicContentReference(expression, dynamicContentReference)
-      }
-      if (extractReferencesFromFreeText) {
-        // Check if the expression is a link to a zendesk page without a subdomain
-        // href="/hc/en-us/../articles/123123
-        const isZendeskLink = new RegExp(`"/?hc/\\S*${_.escapeRegExp(expression)}`).test(formula)
-        if (isZendeskLink) {
-          return transformReferenceUrls({
-            urlPart: expression,
-            instancesById,
-            enableMissingReferences,
-          })
-        }
-      }
-      return expression
-    })
+    }
+    return expression
+  })
 }
 
 const getContainers = (instances: InstanceElement[]): TemplateContainer[] =>
-  instances.map(instance =>
-    potentialTemplates.filter(
-      t => instance.elemID.typeName === t.instanceType
-    ).map(template => ({
-      fieldName: template.fieldName,
-      values: [
-        template.pathToContainer
-          ? _.get(instance.value, template.pathToContainer, [])
-          : instance.value,
-      ].flat().filter(template.containerValidator).filter(v => !_.isEmpty(v)),
-    }))).flat()
+  instances
+    .map(instance =>
+      potentialTemplates
+        .filter(t => instance.elemID.typeName === t.instanceType)
+        .map(template => ({
+          fieldName: template.fieldName,
+          values: [template.pathToContainer ? _.get(instance.value, template.pathToContainer, []) : instance.value]
+            .flat()
+            .filter(template.containerValidator)
+            .filter(v => !_.isEmpty(v)),
+        })),
+    )
+    .flat()
 
 const replaceFormulasWithTemplates = ({
   instances,
   enableMissingReferences,
   extractReferencesFromFreeText,
   convertJsonIdsToReferences,
-} :{
+}: {
   instances: InstanceElement[]
   enableMissingReferences?: boolean
   extractReferencesFromFreeText?: boolean
@@ -372,7 +384,7 @@ const replaceFormulasWithTemplates = ({
   const instancesByType = _.groupBy(instances, i => i.elemID.typeName)
   const instancesById = _.keyBy(
     instances.filter(i => _.isNumber(i.value.id)),
-    i => _.toString(i.value.id)
+    i => _.toString(i.value.id),
   )
 
   // On deployment, we might want to run the logic to create missing references that weren't created on fetch
@@ -408,30 +420,26 @@ const replaceFormulasWithTemplates = ({
     } catch {
       return value
     }
-    return extractTemplate(
-      value,
-      [ID_KEY_IN_JSON_REGEX],
-      expression => {
-        if (!ID_KEY_IN_JSON_REGEX.test(expression)) {
-          return expression
-        }
-        const idRegex = /\d+/
-        const id = expression.match(idRegex)?.[0]
-        // should always be false, used for type check
-        if (id === undefined) {
-          log.error(`Error parsing id in expression: ${expression}`)
-          return expression
-        }
-        const instance = instancesById[id]
-        if (instance === undefined && !enableMissingReferences) {
-          return expression
-        }
-
-        const expressionWithoutId = expression.replace(idRegex, '')
-        const idInstance = instance ?? createMissingInstance(ZENDESK, 'unknown', id)
-        return [expressionWithoutId, new ReferenceExpression(idInstance.elemID, idInstance)]
+    return extractTemplate(value, [ID_KEY_IN_JSON_REGEX], expression => {
+      if (!ID_KEY_IN_JSON_REGEX.test(expression)) {
+        return expression
       }
-    )
+      const idRegex = /\d+/
+      const id = expression.match(idRegex)?.[0]
+      // should always be false, used for type check
+      if (id === undefined) {
+        log.error(`Error parsing id in expression: ${expression}`)
+        return expression
+      }
+      const instance = instancesById[id]
+      if (instance === undefined && !enableMissingReferences) {
+        return expression
+      }
+
+      const expressionWithoutId = expression.replace(idRegex, '')
+      const idInstance = instance ?? createMissingInstance(ZENDESK, 'unknown', id)
+      return [expressionWithoutId, new ReferenceExpression(idInstance.elemID, idInstance)]
+    })
   }
 
   const formulaToTemplateValue = (value: unknown): unknown => {
@@ -441,13 +449,15 @@ const replaceFormulasWithTemplates = ({
     if (isTemplateExpression(value)) {
       return handleTemplateExpressionParts(value.parts)
     }
-    return _.isString(value) ? formulaToTemplate({
-      formula: value,
-      instancesByType,
-      instancesById,
-      enableMissingReferences,
-      extractReferencesFromFreeText,
-    }) : value
+    return _.isString(value)
+      ? formulaToTemplate({
+          formula: value,
+          instancesByType,
+          instancesById,
+          enableMissingReferences,
+          extractReferencesFromFreeText,
+        })
+      : value
   }
 
   try {
@@ -472,22 +482,26 @@ export const prepRef = (part: ReferenceExpression): TemplatePart => {
   // This case should be handled more generic but at the moment this is a quick fix to avoid crashing (SALTO-3988)
   // This fix is enough since the .before value is not used in the deployment process
   if (part.value instanceof UnresolvedReference) {
-    log.debug('prepRef received a part as unresolved reference, returning an empty string, instance fullName: %s ', part.elemID.getFullName())
+    log.debug(
+      'prepRef received a part as unresolved reference, returning an empty string, instance fullName: %s ',
+      part.elemID.getFullName(),
+    )
     return ''
   }
   if (Object.values(ZENDESK_REFERENCE_TYPE_TO_SALTO_TYPE).includes(part.elemID.typeName)) {
     return `${part.value.value[ZENDESK_TYPE_TO_FIELD[part.elemID.typeName]]}`
   }
-  if (part.elemID.typeName === DYNAMIC_CONTENT_ITEM_TYPE_NAME
-    && _.isString(part.value.value.placeholder)) {
+  if (part.elemID.typeName === DYNAMIC_CONTENT_ITEM_TYPE_NAME && _.isString(part.value.value.placeholder)) {
     const placeholder = part.value.value.placeholder.match(DYNAMIC_CONTENT_REGEX)
     return placeholder?.pop() ?? part
   }
   if (part.elemID.typeName === GROUP_TYPE_NAME && part.value?.value?.id) {
     return part.value.value.id.toString()
   }
-  if ([CUSTOM_OBJECT_TYPE_NAME, CUSTOM_OBJECT_FIELD_TYPE_NAME].includes(part.elemID.typeName)
-    && part.value?.value?.key) {
+  if (
+    [CUSTOM_OBJECT_TYPE_NAME, CUSTOM_OBJECT_FIELD_TYPE_NAME].includes(part.elemID.typeName) &&
+    part.value?.value?.key
+  ) {
     return part.value.value.key
   }
   if (part.elemID.isTopLevel() && part.value?.value?.id) {
@@ -508,27 +522,22 @@ export const handleTemplateExpressionsOnFetch = (elements: Element[], config: Ze
  */
 const filterCreator: FilterCreator = ({ config }) => {
   const deployTemplateMapping: Record<string, TemplateExpression> = {}
-  return ({
+  return {
     name: 'handleTemplateExpressionFilter',
     onFetch: async (elements: Element[]) => handleTemplateExpressionsOnFetch(elements, config),
     preDeploy: async (changes: Change<InstanceElement>[]) => {
       try {
-        getContainers(changes.map(getChangeData)).forEach(
-          async container => replaceTemplatesWithValues(
-            container,
-            deployTemplateMapping,
-            prepRef,
-          )
+        getContainers(changes.map(getChangeData)).forEach(async container =>
+          replaceTemplatesWithValues(container, deployTemplateMapping, prepRef),
         )
       } catch (e) {
         log.error(`Error parsing templates in deployment: ${e.message}`)
       }
     },
     onDeploy: async (changes: Change<InstanceElement>[]) => {
-      getContainers(changes.map(getChangeData))
-        .forEach(container => resolveTemplates(container, deployTemplateMapping))
+      getContainers(changes.map(getChangeData)).forEach(container => resolveTemplates(container, deployTemplateMapping))
     },
-  })
+  }
 }
 
 export default filterCreator

@@ -1,5 +1,7 @@
 # Okta system configuration
+
 ## Default Configuration
+
 ```hcl
 okta {
   apiDefinitions = {
@@ -31,6 +33,10 @@ okta {
           cloneFrom = "api__v1__policies"
         },
         {
+          typeName = "Automations"
+          cloneFrom = "api__v1__policies"
+        },
+        {
           typeName = "AccessPolicyRules"
           cloneFrom = "api__v1__policies___policyId___rules@uuuuuu_00123_00125uu"
         },
@@ -55,6 +61,10 @@ okta {
           cloneFrom = "api__v1__policies___policyId___rules@uuuuuu_00123_00125uu"
         },
         {
+          typeName = "AutomationRules"
+          cloneFrom = "api__v1__policies___policyId___rules@uuuuuu_00123_00125uu"
+        },
+        {
           typeName = "IdentityProviderPolicyRule"
           cloneFrom = "PolicyRule"
         },
@@ -62,11 +72,43 @@ okta {
           typeName = "MultifactorEnrollmentPolicyRule"
           cloneFrom = "PolicyRule"
         },
+        {
+          typeName = "Automation"
+          cloneFrom = "AccessPolicy"
+        },
+        {
+          typeName = "AutomationRule"
+          cloneFrom = "PolicyRule"
+        },
+        {
+          typeName = "AppUserSchema"
+          cloneFrom = "UserSchema"
+        },
+        {
+          typeName = "Group__source"
+          cloneFrom = "AppAndInstanceConditionEvaluatorAppOrInstance"
+        },
+        {
+          typeName = "DeviceCondition"
+          cloneFrom = "PolicyNetworkCondition"
+        },
       ]
       typeNameOverrides = [
         {
           originalName = "DomainResponse"
           newName = "Domain"
+        },
+        {
+          originalName = "EmailDomainResponse"
+          newName = "EmailDomain"
+        },
+        {
+          originalName = "ThemeResponse"
+          newName = "BrandTheme"
+        },
+        {
+          originalName = "Role"
+          newName = "RoleAssignment"
         },
         {
           originalName = "IamRole"
@@ -100,30 +142,18 @@ okta {
       api__v1__groups = {
         request = {
           url = "/api/v1/groups"
-          recurseInto = [
-            {
-              type = "api__v1__groups___groupId___roles@uuuuuu_00123_00125uu"
-              toField = "roles"
-              context = [
-                {
-                  name = "groupId"
-                  fromField = "id"
-                },
-              ]
-            },
-          ]
         }
       }
       Group = {
         transformation = {
           fieldTypeOverrides = [
             {
-              fieldName = "apps"
-              fieldType = "list<Application>"
+              fieldName = "roles"
+              fieldType = "list<RoleAssignment>"
             },
             {
-              fieldName = "roles"
-              fieldType = "list<Role>"
+              fieldName = "source"
+              fieldType = "Group__source"
             },
           ]
           fieldsToHide = [
@@ -139,6 +169,12 @@ okta {
               fieldName = "lastUpdated"
             },
             {
+              fieldName = "createdBy"
+            },
+            {
+              fieldName = "lastUpdatedBy"
+            },
+            {
               fieldName = "lastMembershipUpdated"
             },
             {
@@ -149,6 +185,13 @@ okta {
             "profile.name",
           ]
           serviceIdField = "id"
+          serviceUrl = "/admin/group/{id}"
+          standaloneFields = [
+            {
+              fieldName = "roles"
+            },
+          ]
+          nestStandaloneInstances = false
         }
         deployRequests = {
           add = {
@@ -168,24 +211,13 @@ okta {
             urlParamsToFields = {
               groupId = "id"
             }
+            omitRequestBody = true
           }
         }
       }
       api__v1__groups___groupId___roles@uuuuuu_00123_00125uu = {
         request = {
           url = "/api/v1/groups/{groupId}/roles"
-          recurseInto = [
-            {
-              type = "api__v1__groups___groupId___roles___roleId___targets__groups@uuuuuu_00123_00125uuuu_00123_00125uuuu"
-              toField = "targetGroups"
-              context = [
-                {
-                  name = "roleId"
-                  fromField = "id"
-                },
-              ]
-            },
-          ]
         }
       }
       Role = {
@@ -227,10 +259,23 @@ okta {
       api__v1__apps = {
         request = {
           url = "/api/v1/apps"
+          queryParams = {
+            limit = "200"
+          }
           recurseInto = [
             {
               type = "api__v1__apps___appId___groups@uuuuuu_00123_00125uu"
-              toField = "assignedGroups"
+              toField = "Groups"
+              context = [
+                {
+                  name = "appId"
+                  fromField = "id"
+                },
+              ]
+            },
+            {
+              type = "AppUserSchema"
+              toField = "appUserSchema"
               context = [
                 {
                   name = "appId"
@@ -261,7 +306,7 @@ okta {
               fieldType = "unknown"
             },
             {
-              fieldName = "assignedGroups"
+              fieldName = "Groups"
               fieldType = "list<ApplicationGroupAssignment>"
             },
             {
@@ -271,6 +316,10 @@ okta {
             {
               fieldName = "accessPolicy"
               fieldType = "string"
+            },
+            {
+              fieldName = "appUserSchema"
+              fieldType = "list<AppUserSchema>"
             },
           ]
           idFields = [
@@ -305,6 +354,15 @@ okta {
               fieldName = "_embedded"
             },
           ]
+          serviceUrl = "/admin/app/{name}/instance/{id}/#tab-general"
+          standaloneFields = [
+            {
+              fieldName = "appUserSchema"
+            },
+            {
+              fieldName = "Groups"
+            },
+          ]
         }
         deployRequests = {
           add = {
@@ -324,6 +382,7 @@ okta {
             urlParamsToFields = {
               applicationId = "id"
             }
+            omitRequestBody = true
           }
           activate = {
             url = "/api/v1/apps/{applicationId}/lifecycle/activate"
@@ -337,6 +396,155 @@ okta {
             method = "post"
             urlParamsToFields = {
               applicationId = "id"
+            }
+          }
+        }
+      }
+      api__v1__apps___appId___groups@uuuuuu_00123_00125uu = {
+        request = {
+          url = "api/v1/apps/{appId}/groups"
+          queryParams = {
+            limit = "200"
+          }
+        }
+      }
+      ApplicationGroupAssignment = {
+        transformation = {
+          idFields = [
+            "&id",
+          ]
+          extendsParentId = true
+          fieldsToOmit = [
+            {
+              fieldName = "created"
+            },
+            {
+              fieldName = "lastUpdated"
+            },
+            {
+              fieldName = "createdBy"
+            },
+            {
+              fieldName = "lastUpdatedBy"
+            },
+            {
+              fieldName = "_links"
+            },
+          ]
+        }
+        deployRequests = {
+          add = {
+            url = "/api/v1/apps/{appId}/groups/{groupId}"
+            method = "put"
+            urlParamsToFields = {
+              appId = "_parent.0.id"
+              groupId = "id"
+            }
+          }
+          modify = {
+            url = "/api/v1/apps/{appId}/groups/{groupId}"
+            method = "put"
+            urlParamsToFields = {
+              appId = "_parent.0.id"
+              groupId = "id"
+            }
+          }
+          remove = {
+            url = "/api/v1/apps/{appId}/groups/{groupId}"
+            method = "delete"
+            urlParamsToFields = {
+              appId = "_parent.0.id"
+              groupId = "id"
+            }
+            omitRequestBody = true
+          }
+        }
+      }
+      AppUserSchema = {
+        request = {
+          url = "/api/v1/meta/schemas/apps/{appId}/default"
+        }
+        transformation = {
+          idFields = [
+          ]
+          extendsParentId = true
+          dataField = "."
+          fieldsToOmit = [
+            {
+              fieldName = "created"
+            },
+            {
+              fieldName = "lastUpdated"
+            },
+            {
+              fieldName = "createdBy"
+            },
+            {
+              fieldName = "lastUpdatedBy"
+            },
+            {
+              fieldName = "$schema"
+            },
+            {
+              fieldName = "type"
+            },
+            {
+              fieldName = "properties"
+            },
+          ]
+          fieldsToHide = [
+            {
+              fieldName = "id"
+            },
+            {
+              fieldName = "name"
+            },
+          ]
+        }
+        deployRequests = {
+          modify = {
+            url = "/api/v1/meta/schemas/apps/{applicationId}/default"
+            method = "post"
+            urlParamsToFields = {
+              applicationId = "_parent.0.id"
+            }
+          }
+        }
+      }
+      UserSchemaPublic = {
+        transformation = {
+          fieldTypeOverrides = [
+            {
+              fieldName = "properties"
+              fieldType = "Map<okta.UserSchemaAttribute>"
+            },
+          ]
+        }
+      }
+      GroupSchemaCustom = {
+        transformation = {
+          fieldTypeOverrides = [
+            {
+              fieldName = "properties"
+              fieldType = "Map<okta.GroupSchemaAttribute>"
+            },
+          ]
+        }
+      }
+      AppLogo = {
+        deployRequests = {
+          add = {
+            url = "/api/v1/apps/{appId}/logo"
+            method = "post"
+            urlParamsToFields = {
+              appId = "_parent.0.id"
+            }
+          }
+          modify = {
+            url = "/api/v1/apps/{appId}/logo"
+            method = "post"
+            urlParamsToFields = {
+              appId = "_parent.0.id"
             }
           }
         }
@@ -365,10 +573,19 @@ okta {
               fieldType = "string"
             },
           ]
-          fieldsToHide = [
+          fieldsToOmit = [
             {
               fieldName = "signing"
               fieldType = "ApplicationCredentialsSigning"
+            },
+          ]
+        }
+      }
+      ApplicationVisibility = {
+        transformation = {
+          fieldsToOmit = [
+            {
+              fieldName = "appLinks"
             },
           ]
         }
@@ -426,6 +643,7 @@ okta {
               fieldName = "id"
             },
           ]
+          serviceUrl = "/admin/access/identity-providers/edit/{id}"
         }
       }
       Feature = {
@@ -531,6 +749,14 @@ okta {
               "id",
               "name",
             ]
+          }
+          remove = {
+            url = "/api/v1/meta/types/user/{typeId}"
+            method = "delete"
+            urlParamsToFields = {
+              typeId = "_parent.0.id"
+            }
+            omitRequestBody = true
           }
         }
       }
@@ -668,6 +894,9 @@ okta {
             {
               fieldName = "id"
             },
+            {
+              fieldName = "issuer"
+            },
           ]
           serviceIdField = "id"
           standaloneFields = [
@@ -679,6 +908,22 @@ okta {
             },
             {
               fieldName = "claims"
+            },
+          ]
+          serviceUrl = "/admin/oauth2/as/{id}"
+        }
+      }
+      AuthorizationServerCredentialsSigningConfig = {
+        transformation = {
+          fieldsToHide = [
+            {
+              fieldName = "kid"
+            },
+            {
+              fieldName = "lastRotated"
+            },
+            {
+              fieldName = "nextRotation"
             },
           ]
         }
@@ -743,6 +988,7 @@ okta {
               authorizationServerId = "_parent.0.id"
               policyId = "id"
             }
+            omitRequestBody = true
           }
           activate = {
             url = "/api/v1/authorizationServers/{authorizationServerId}/policies/{policyId}/lifecycle/activate"
@@ -820,6 +1066,7 @@ okta {
               policyId = "_parent.0.id"
               ruleId = "id"
             }
+            omitRequestBody = true
           }
           activate = {
             url = "/api/v1/authorizationServers/{authorizationServerId}/policies/{policyId}/rules/{ruleId}/lifecycle/activate"
@@ -846,18 +1093,8 @@ okta {
           url = "/api/v1/brands"
           recurseInto = [
             {
-              type = "api__v1__brands___brandId___templates__email@uuuuuu_00123_00125uuuu"
-              toField = "emailTemplates"
-              context = [
-                {
-                  name = "brandId"
-                  fromField = "id"
-                },
-              ]
-            },
-            {
               type = "api__v1__brands___brandId___themes@uuuuuu_00123_00125uu"
-              toField = "themes"
+              toField = "theme"
               context = [
                 {
                   name = "brandId"
@@ -872,11 +1109,9 @@ okta {
         }
       }
       api__v1__brands___brandId___themes@uuuuuu_00123_00125uu = {
-        transformation = {
-          dataField = "."
+        request = {
+          url = "/api/v1/brands/{brandId}/themes"
         }
-      }
-      api__v1__brands___brandId___templates__email@uuuuuu_00123_00125uuuu = {
         transformation = {
           dataField = "."
         }
@@ -903,6 +1138,9 @@ okta {
             {
               fieldName = "_links"
             },
+            {
+              fieldName = "$schema"
+            },
           ]
           fieldsToHide = [
             {
@@ -910,10 +1148,18 @@ okta {
             },
           ]
         }
+        deployRequests = {
+          modify = {
+            url = "/api/v1/meta/schemas/group/default"
+            method = "post"
+          }
+        }
       }
       Domain = {
         transformation = {
-          isSingleton = true
+          idFields = [
+            "domain",
+          ]
           serviceIdField = "id"
           fieldsToHide = [
             {
@@ -935,6 +1181,27 @@ okta {
             },
             {
               fieldName = "_links"
+            },
+          ]
+        }
+      }
+      api__v1__email_domains@uuuub = {
+        request = {
+          url = "/api/v1/email-domains"
+        }
+        transformation = {
+          dataField = "."
+        }
+      }
+      EmailDomain = {
+        transformation = {
+          idFields = [
+            "displayName",
+          ]
+          serviceIdField = "id"
+          fieldsToHide = [
+            {
+              fieldName = "id"
             },
           ]
         }
@@ -983,6 +1250,7 @@ okta {
               fieldName = "_links"
             },
           ]
+          serviceUrl = "/admin/settings/account"
         }
         deployRequests = {
           modify = {
@@ -1004,7 +1272,6 @@ okta {
       }
       Brand = {
         transformation = {
-          isSingleton = true
           serviceIdField = "id"
           fieldsToOmit = [
             {
@@ -1028,6 +1295,131 @@ okta {
               fieldName = "id"
             },
           ]
+          standaloneFields = [
+            {
+              fieldName = "theme"
+            },
+          ]
+          nestStandaloneInstances = false
+          fieldTypeOverrides = [
+            {
+              fieldName = "theme"
+              fieldType = "list<BrandTheme>"
+            },
+          ]
+          serviceUrl = "/admin/customizations/footer"
+        }
+        deployRequests = {
+          modify = {
+            url = "/api/v1/brands/{brandId}"
+            method = "put"
+            urlParamsToFields = {
+              brandId = "id"
+            }
+          }
+        }
+      }
+      BrandTheme = {
+        transformation = {
+          idFields = [
+          ]
+          extendsParentId = true
+          serviceIdField = "id"
+          fieldsToHide = [
+            {
+              fieldName = "id"
+            },
+            {
+              fieldName = "_links"
+            },
+            {
+              fieldName = "logo"
+            },
+            {
+              fieldName = "favicon"
+            },
+          ]
+          serviceUrl = "/admin/customizations/branding"
+          fieldTypeOverrides = [
+            {
+              fieldName = "_links"
+              fieldType = "map<unknown>"
+            },
+          ]
+        }
+        deployRequests = {
+          modify = {
+            url = "/api/v1/brands/{brandId}/themes/{themeId}"
+            method = "put"
+            urlParamsToFields = {
+              brandId = "_parent.0.id"
+              themeId = "id"
+            }
+            fieldsToIgnore = [
+              "id",
+              "logo",
+              "favicon",
+              "_links",
+            ]
+          }
+        }
+      }
+      BrandLogo = {
+        deployRequests = {
+          add = {
+            url = "/api/v1/brands/{brandId}/themes/{themeId}/logo"
+            method = "post"
+            urlParamsToFields = {
+              themeId = "_parent.0.id"
+              brandId = "_parent.1.id"
+            }
+          }
+          modify = {
+            url = "/api/v1/brands/{brandId}/themes/{themeId}/logo"
+            method = "post"
+            urlParamsToFields = {
+              themeId = "_parent.0.id"
+              brandId = "_parent.1.id"
+            }
+          }
+          remove = {
+            url = "/api/v1/brands/{brandId}/themes/{themeId}/logo"
+            method = "delete"
+            urlParamsToFields = {
+              themeId = "_parent.0.id"
+              brandId = "_parent.1.id"
+            }
+            omitRequestBody = true
+          }
+        }
+      }
+      FavIcon = {
+        deployRequests = {
+          add = {
+            url = "/api/v1/brands/{brandId}/themes/{themeId}/favicon"
+            method = "post"
+            urlParamsToFields = {
+              themeId = "_parent.0.id"
+              brandId = "_parent.1.id"
+            }
+          }
+          modify = {
+            url = "/api/v1/brands/{brandId}/themes/{themeId}/favicon"
+            method = "post"
+            urlParamsToFields = {
+              themeId = "_parent.0.id"
+              brandId = "_parent.1.id"
+            }
+          }
+          remove = {
+            url = "/api/v1/brands/{brandId}/themes/{themeId}/favicon"
+            method = "delete"
+            urlParamsToFields = {
+              themeId = "_parent.0.id"
+              brandId = "_parent.1.id"
+            }
+            omitRequestBody = true
+          }
         }
       }
       Authenticator = {
@@ -1055,6 +1447,34 @@ okta {
               fieldName = "id"
             },
           ]
+          serviceUrl = "/admin/access/multifactor#policies"
+        }
+        deployRequests = {
+          add = {
+            url = "/api/v1/authenticators"
+            method = "post"
+          }
+          modify = {
+            url = "/api/v1/authenticators/{authenticatorId}"
+            method = "put"
+            urlParamsToFields = {
+              authenticatorId = "id"
+            }
+          }
+          activate = {
+            url = "/api/v1/authenticators/{authenticatorId}/lifecycle/activate"
+            method = "post"
+            urlParamsToFields = {
+              authenticatorId = "id"
+            }
+          }
+          deactivate = {
+            url = "/api/v1/authenticators/{authenticatorId}/lifecycle/deactivate"
+            method = "post"
+            urlParamsToFields = {
+              authenticatorId = "id"
+            }
+          }
         }
       }
       EventHook = {
@@ -1082,6 +1502,15 @@ okta {
               fieldName = "id"
             },
           ]
+          serviceUrl = "/admin/workflow/eventhooks"
+        }
+      }
+      api__v1__groups__rules = {
+        request = {
+          url = "/api/v1/groups/rules"
+          queryParams = {
+            limit = "200"
+          }
         }
       }
       GroupRule = {
@@ -1098,6 +1527,7 @@ okta {
               fieldName = "id"
             },
           ]
+          serviceUrl = "/admin/groups#rules"
         }
         deployRequests = {
           add = {
@@ -1125,6 +1555,7 @@ okta {
             urlParamsToFields = {
               ruleId = "id"
             }
+            omitRequestBody = true
           }
           activate = {
             url = "/api/v1/groups/rules/{ruleId}/lifecycle/activate"
@@ -1167,6 +1598,7 @@ okta {
               fieldName = "id"
             },
           ]
+          serviceUrl = "/admin/workflow/inlinehooks#view/{id}"
         }
       }
       NetworkZone = {
@@ -1194,6 +1626,7 @@ okta {
               fieldName = "id"
             },
           ]
+          serviceUrl = "/admin/access/networks"
         }
         deployRequests = {
           add = {
@@ -1213,6 +1646,7 @@ okta {
             urlParamsToFields = {
               zoneId = "id"
             }
+            omitRequestBody = true
           }
           activate = {
             url = "/api/v1/zones/{zoneId}/lifecycle/activate"
@@ -1255,6 +1689,42 @@ okta {
               fieldName = "id"
             },
           ]
+          serviceUrl = "/admin/access/api/trusted_origins"
+        }
+        deployRequests = {
+          add = {
+            url = "/api/v1/trustedOrigins"
+            method = "post"
+          }
+          modify = {
+            url = "/api/v1/trustedOrigins/{trustedOriginId}"
+            method = "put"
+            urlParamsToFields = {
+              trustedOriginId = "id"
+            }
+          }
+          remove = {
+            url = "/api/v1/trustedOrigins/{trustedOriginId}"
+            method = "delete"
+            urlParamsToFields = {
+              trustedOriginId = "id"
+            }
+            omitRequestBody = true
+          }
+          activate = {
+            url = "/api/v1/trustedOrigins/{trustedOriginId}/lifecycle/activate"
+            method = "post"
+            urlParamsToFields = {
+              trustedOriginId = "id"
+            }
+          }
+          deactivate = {
+            url = "/api/v1/trustedOrigins/{trustedOriginId}/lifecycle/deactivate"
+            method = "post"
+            urlParamsToFields = {
+              trustedOriginId = "id"
+            }
+          }
         }
       }
       UserType = {
@@ -1268,6 +1738,7 @@ okta {
               fieldName = "_links"
             },
           ]
+          serviceUrl = "admin/universaldirectory#okta/{id}"
         }
         deployRequests = {
           add = {
@@ -1287,6 +1758,7 @@ okta {
             urlParamsToFields = {
               typeId = "id"
             }
+            omitRequestBody = true
           }
         }
       }
@@ -1334,6 +1806,26 @@ okta {
               fieldName = "id"
             },
           ]
+        }
+        deployRequests = {
+          add = {
+            url = "/api/v1/templates/sms"
+            method = "post"
+          }
+          modify = {
+            url = "/api/v1/templates/sms/{templateId}"
+            method = "put"
+            urlParamsToFields = {
+              templateId = "id"
+            }
+          }
+          remove = {
+            url = "/api/v1/templates/sms/{templateId}"
+            urlParamsToFields = {
+              templateId = "id"
+            }
+            method = "delete"
+          }
         }
       }
       Protocol = {
@@ -1396,8 +1888,8 @@ okta {
       ProfileMapping = {
         transformation = {
           idFields = [
-            "source.name",
-            "target.name",
+            "&source.id",
+            "&target.id",
           ]
           serviceIdField = "id"
           fieldsToOmit = [
@@ -1422,6 +1914,22 @@ okta {
               fieldName = "id"
             },
           ]
+        }
+        deployRequests = {
+          add = {
+            url = "/api/v1/mappings/{mappingId}"
+            method = "post"
+            urlParamsToFields = {
+              mappingId = "id"
+            }
+          }
+          modify = {
+            url = "/api/v1/mappings/{mappingId}"
+            method = "post"
+            urlParamsToFields = {
+              mappingId = "id"
+            }
+          }
         }
       }
       ProfileMappingSource = {
@@ -1521,6 +2029,10 @@ okta {
             {
               fieldName = "_links"
             },
+            {
+              fieldName = "priority"
+              fieldType = "number"
+            },
           ]
           fieldTypeOverrides = [
             {
@@ -1533,14 +2045,12 @@ okta {
               fieldName = "policyRules"
             },
           ]
+          serviceUrl = "/admin/authn/authentication-policies#authentication-policies/policy/{id}/"
         }
         deployRequests = {
           add = {
             url = "/api/v1/policies"
             method = "post"
-            fieldsToIgnore = [
-              "policyRules",
-            ]
           }
           modify = {
             url = "/api/v1/policies/{policyId}"
@@ -1548,9 +2058,6 @@ okta {
             urlParamsToFields = {
               policyId = "id"
             }
-            fieldsToIgnore = [
-              "policyRules",
-            ]
           }
           remove = {
             url = "/api/v1/policies/{policyId}"
@@ -1558,6 +2065,7 @@ okta {
             urlParamsToFields = {
               policyId = "id"
             }
+            omitRequestBody = true
           }
           activate = {
             url = "/api/v1/policies/{policyId}/lifecycle/activate"
@@ -1606,6 +2114,7 @@ okta {
               fieldName = "_links"
             },
           ]
+          serviceUrl = "/admin/authn/authentication-policies#authentication-policies/policy/{id}/"
         }
         deployRequests = {
           add = {
@@ -1630,6 +2139,7 @@ okta {
               policyId = "_parent.0.id"
               ruleId = "id"
             }
+            omitRequestBody = true
           }
           activate = {
             url = "/api/v1/policies/{policyId}/rules/{ruleId}/lifecycle/activate"
@@ -1715,6 +2225,10 @@ okta {
             {
               fieldName = "_links"
             },
+            {
+              fieldName = "priority"
+              fieldType = "number"
+            },
           ]
           fieldTypeOverrides = [
             {
@@ -1727,6 +2241,7 @@ okta {
               fieldName = "policyRules"
             },
           ]
+          serviceUrl = "/admin/access/identity-providers#"
         }
       }
       IdentityProviderPolicyRule = {
@@ -1768,6 +2283,7 @@ okta {
               fieldName = "_links"
             },
           ]
+          serviceUrl = "/admin/access/identity-providers#rules"
         }
         deployRequests = {
           add = {
@@ -1792,6 +2308,7 @@ okta {
               policyId = "_parent.0.id"
               ruleId = "id"
             }
+            omitRequestBody = true
           }
           activate = {
             url = "/api/v1/policies/{policyId}/rules/{ruleId}/lifecycle/activate"
@@ -1889,14 +2406,12 @@ okta {
               fieldName = "policyRules"
             },
           ]
+          serviceUrl = "/admin/access/multifactor#policies"
         }
         deployRequests = {
           add = {
             url = "/api/v1/policies"
             method = "post"
-            fieldsToIgnore = [
-              "policyRules",
-            ]
           }
           modify = {
             url = "/api/v1/policies/{policyId}"
@@ -1904,9 +2419,6 @@ okta {
             urlParamsToFields = {
               policyId = "id"
             }
-            fieldsToIgnore = [
-              "policyRules",
-            ]
           }
           remove = {
             url = "/api/v1/policies/{policyId}"
@@ -1914,6 +2426,7 @@ okta {
             urlParamsToFields = {
               policyId = "id"
             }
+            omitRequestBody = true
           }
           activate = {
             url = "/api/v1/policies/{policyId}/lifecycle/activate"
@@ -1970,6 +2483,7 @@ okta {
               fieldName = "_links"
             },
           ]
+          serviceUrl = "/admin/access/multifactor#policies"
         }
         deployRequests = {
           add = {
@@ -1994,6 +2508,7 @@ okta {
               policyId = "_parent.0.id"
               ruleId = "id"
             }
+            omitRequestBody = true
           }
           activate = {
             url = "/api/v1/policies/{policyId}/rules/{ruleId}/lifecycle/activate"
@@ -2091,14 +2606,12 @@ okta {
               fieldName = "policyRules"
             },
           ]
+          serviceUrl = "/admin/access/policies"
         }
         deployRequests = {
           add = {
             url = "/api/v1/policies"
             method = "post"
-            fieldsToIgnore = [
-              "policyRules",
-            ]
           }
           modify = {
             url = "/api/v1/policies/{policyId}"
@@ -2106,9 +2619,6 @@ okta {
             urlParamsToFields = {
               policyId = "id"
             }
-            fieldsToIgnore = [
-              "policyRules",
-            ]
           }
           remove = {
             url = "/api/v1/policies/{policyId}"
@@ -2116,6 +2626,7 @@ okta {
             urlParamsToFields = {
               policyId = "id"
             }
+            omitRequestBody = true
           }
           activate = {
             url = "/api/v1/policies/{policyId}/lifecycle/activate"
@@ -2164,6 +2675,7 @@ okta {
               fieldName = "_links"
             },
           ]
+          serviceUrl = "/admin/access/policies"
         }
         deployRequests = {
           add = {
@@ -2188,6 +2700,7 @@ okta {
               policyId = "_parent.0.id"
               ruleId = "id"
             }
+            omitRequestBody = true
           }
           activate = {
             url = "/api/v1/policies/{policyId}/rules/{ruleId}/lifecycle/activate"
@@ -2285,14 +2798,12 @@ okta {
               fieldName = "policyRules"
             },
           ]
+          serviceUrl = "/admin/access/authenticators/password"
         }
         deployRequests = {
           add = {
             url = "/api/v1/policies"
             method = "post"
-            fieldsToIgnore = [
-              "policyRules",
-            ]
           }
           modify = {
             url = "/api/v1/policies/{policyId}"
@@ -2300,9 +2811,6 @@ okta {
             urlParamsToFields = {
               policyId = "id"
             }
-            fieldsToIgnore = [
-              "policyRules",
-            ]
           }
           remove = {
             url = "/api/v1/policies/{policyId}"
@@ -2310,6 +2818,7 @@ okta {
             urlParamsToFields = {
               policyId = "id"
             }
+            omitRequestBody = true
           }
           activate = {
             url = "/api/v1/policies/{policyId}/lifecycle/activate"
@@ -2358,6 +2867,7 @@ okta {
               fieldName = "_links"
             },
           ]
+          serviceUrl = "/admin/access/authenticators/password"
         }
         deployRequests = {
           add = {
@@ -2382,6 +2892,7 @@ okta {
               policyId = "_parent.0.id"
               ruleId = "id"
             }
+            omitRequestBody = true
           }
           activate = {
             url = "/api/v1/policies/{policyId}/rules/{ruleId}/lifecycle/activate"
@@ -2467,6 +2978,10 @@ okta {
             {
               fieldName = "_links"
             },
+            {
+              fieldName = "priority"
+              fieldType = "number"
+            },
           ]
           fieldTypeOverrides = [
             {
@@ -2479,14 +2994,12 @@ okta {
               fieldName = "policyRules"
             },
           ]
+          serviceUrl = "/admin/authn/policies"
         }
         deployRequests = {
           add = {
             url = "/api/v1/policies"
             method = "post"
-            fieldsToIgnore = [
-              "policyRules",
-            ]
           }
           modify = {
             url = "/api/v1/policies/{policyId}"
@@ -2494,9 +3007,6 @@ okta {
             urlParamsToFields = {
               policyId = "id"
             }
-            fieldsToIgnore = [
-              "policyRules",
-            ]
           }
           remove = {
             url = "/api/v1/policies/{policyId}"
@@ -2504,6 +3014,7 @@ okta {
             urlParamsToFields = {
               policyId = "id"
             }
+            omitRequestBody = true
           }
           activate = {
             url = "/api/v1/policies/{policyId}/lifecycle/activate"
@@ -2552,6 +3063,7 @@ okta {
               fieldName = "_links"
             },
           ]
+          serviceUrl = "/admin/authn/policies"
         }
         deployRequests = {
           add = {
@@ -2576,6 +3088,199 @@ okta {
               policyId = "_parent.0.id"
               ruleId = "id"
             }
+            omitRequestBody = true
+          }
+          activate = {
+            url = "/api/v1/policies/{policyId}/rules/{ruleId}/lifecycle/activate"
+            method = "post"
+            urlParamsToFields = {
+              policyId = "_parent.0.id"
+              ruleId = "id"
+            }
+          }
+          deactivate = {
+            url = "/api/v1/policies/{policyId}/rules/{ruleId}/lifecycle/deactivate"
+            method = "post"
+            urlParamsToFields = {
+              policyId = "_parent.0.id"
+              ruleId = "id"
+            }
+          }
+        }
+      }
+      Automations = {
+        request = {
+          url = "/api/v1/policies"
+          queryParams = {
+            type = "USER_LIFECYCLE"
+          }
+          recurseInto = [
+            {
+              type = "AutomationRules"
+              toField = "policyRules"
+              context = [
+                {
+                  name = "policyId"
+                  fromField = "id"
+                },
+              ]
+            },
+          ]
+        }
+        transformation = {
+          fieldTypeOverrides = [
+            {
+              fieldName = "items"
+              fieldType = "list<Automation>"
+            },
+          ]
+        }
+      }
+      AutomationRules = {
+        request = {
+          url = "/api/v1/policies/{policyId}/rules"
+        }
+        transformation = {
+          dataField = "."
+          fieldTypeOverrides = [
+            {
+              fieldName = "items"
+              fieldType = "list<AutomationRule>"
+            },
+          ]
+        }
+      }
+      Automation = {
+        transformation = {
+          serviceIdField = "id"
+          fieldsToHide = [
+            {
+              fieldName = "id"
+            },
+          ]
+          fieldsToOmit = [
+            {
+              fieldName = "created"
+            },
+            {
+              fieldName = "lastUpdated"
+            },
+            {
+              fieldName = "createdBy"
+            },
+            {
+              fieldName = "lastUpdatedBy"
+            },
+            {
+              fieldName = "_links"
+            },
+          ]
+          fieldTypeOverrides = [
+            {
+              fieldName = "policyRules"
+              fieldType = "list<AutomationRule>"
+            },
+          ]
+          standaloneFields = [
+            {
+              fieldName = "policyRules"
+            },
+          ]
+          serviceUrl = "/admin/lifecycle-automation#tab-policy/{id}"
+        }
+        deployRequests = {
+          add = {
+            url = "/api/v1/policies?activate=false"
+            method = "post"
+          }
+          modify = {
+            url = "/api/v1/policies/{policyId}"
+            method = "put"
+            urlParamsToFields = {
+              policyId = "id"
+            }
+          }
+          remove = {
+            url = "/api/v1/policies/{policyId}"
+            method = "delete"
+            urlParamsToFields = {
+              policyId = "id"
+            }
+            omitRequestBody = true
+          }
+          activate = {
+            url = "/api/v1/policies/{policyId}/lifecycle/activate"
+            method = "post"
+            urlParamsToFields = {
+              policyId = "id"
+            }
+          }
+          deactivate = {
+            url = "/api/v1/policies/{policyId}/lifecycle/deactivate"
+            method = "post"
+            urlParamsToFields = {
+              policyId = "id"
+            }
+          }
+        }
+      }
+      AutomationRule = {
+        transformation = {
+          serviceIdField = "id"
+          fieldsToHide = [
+            {
+              fieldName = "id"
+            },
+          ]
+          fieldTypeOverrides = [
+            {
+              fieldName = "_links"
+              fieldType = "LinksSelf"
+            },
+          ]
+          fieldsToOmit = [
+            {
+              fieldName = "created"
+            },
+            {
+              fieldName = "lastUpdated"
+            },
+            {
+              fieldName = "createdBy"
+            },
+            {
+              fieldName = "lastUpdatedBy"
+            },
+            {
+              fieldName = "_links"
+            },
+          ]
+          serviceUrl = "/admin/lifecycle-automation#tab-policy/{id}"
+        }
+        deployRequests = {
+          add = {
+            url = "/api/v1/policies/{policyId}/rules"
+            method = "post"
+            urlParamsToFields = {
+              policyId = "_parent.0.id"
+            }
+          }
+          modify = {
+            url = "/api/v1/policies/{policyId}/rules/{ruleId}"
+            method = "put"
+            urlParamsToFields = {
+              policyId = "_parent.0.id"
+              ruleId = "id"
+            }
+          }
+          remove = {
+            url = "/api/v1/policies/{policyId}/rules/{ruleId}"
+            method = "delete"
+            urlParamsToFields = {
+              policyId = "_parent.0.id"
+              ruleId = "id"
+            }
+            omitRequestBody = true
           }
           activate = {
             url = "/api/v1/policies/{policyId}/rules/{ruleId}/lifecycle/activate"
@@ -2634,6 +3339,7 @@ okta {
               fieldName = "_links"
             },
           ]
+          serviceUrl = "/admin/access/behaviors"
         }
         deployRequests = {
           add = {
@@ -2653,6 +3359,7 @@ okta {
             urlParamsToFields = {
               behaviorId = "id"
             }
+            omitRequestBody = true
           }
           activate = {
             url = "/api/v1/behaviors/{behaviorId}/lifecycle/activate"
@@ -2677,6 +3384,7 @@ okta {
         transformation = {
           isSingleton = true
           dataField = "."
+          serviceUrl = "/admin/settings/account"
         }
         deployRequests = {
           modify = {
@@ -2691,11 +3399,219 @@ okta {
         }
         transformation = {
           isSingleton = true
+          serviceUrl = "/admin/settings/account"
         }
         deployRequests = {
           modify = {
             url = "/api/v1/rate-limit-settings/admin-notifications"
             method = "put"
+          }
+        }
+      }
+      ProfileEnrollmentPolicyRuleProfileAttribute = {
+        transformation = {
+          fieldTypeOverrides = [
+            {
+              fieldName = "name"
+              fieldType = "UserSchemaAttribute"
+            },
+          ]
+        }
+      }
+      RoleAssignment = {
+        transformation = {
+          idFields = [
+            "label",
+          ]
+          serviceIdField = "id"
+          fieldsToOmit = [
+            {
+              fieldName = "created"
+            },
+            {
+              fieldName = "lastUpdated"
+            },
+            {
+              fieldName = "createdBy"
+            },
+            {
+              fieldName = "lastUpdatedBy"
+            },
+            {
+              fieldName = "_links"
+            },
+          ]
+          fieldsToHide = [
+            {
+              fieldName = "id"
+            },
+          ]
+          fieldTypeOverrides = [
+            {
+              fieldName = "resource-set"
+              fieldType = "string"
+            },
+            {
+              fieldName = "role"
+              fieldType = "string"
+            },
+          ]
+          extendsParentId = true
+        }
+        deployRequests = {
+          add = {
+            url = "/api/v1/groups/{groupId}/roles"
+            method = "post"
+            urlParamsToFields = {
+              groupId = "_parent.0.id"
+            }
+          }
+          remove = {
+            url = "/api/v1/groups/{groupId}/roles/{roleId}"
+            method = "delete"
+            urlParamsToFields = {
+              groupId = "_parent.0.id"
+              roleId = "id"
+            }
+            omitRequestBody = true
+          }
+        }
+      }
+      ResourceSets = {
+        request = {
+          url = "/api/v1/iam/resource-sets"
+        }
+        transformation = {
+          dataField = "resource-sets"
+        }
+      }
+      ResourceSetResources = {
+        request = {
+          url = "/api/v1/iam/resource-sets/{resourceSetId}/resources"
+        }
+        transformation = {
+          dataField = "resources"
+        }
+      }
+      ResourceSet = {
+        transformation = {
+          idFields = [
+            "label",
+          ]
+          serviceIdField = "id"
+          fieldsToOmit = [
+            {
+              fieldName = "created"
+            },
+            {
+              fieldName = "lastUpdated"
+            },
+            {
+              fieldName = "createdBy"
+            },
+            {
+              fieldName = "lastUpdatedBy"
+            },
+            {
+              fieldName = "_links"
+            },
+          ]
+          fieldsToHide = [
+            {
+              fieldName = "id"
+            },
+          ]
+        }
+      }
+      ProfileEnrollmentPolicyRuleAction = {
+        transformation = {
+          fieldTypeOverrides = [
+            {
+              fieldName = "uiSchemaId"
+              fieldType = "string"
+            },
+          ]
+          fieldsToHide = [
+            {
+              fieldName = "uiSchemaId"
+            },
+          ]
+        }
+      }
+      DevicePolicyRuleCondition = {
+        transformation = {
+          fieldTypeOverrides = [
+            {
+              fieldName = "registered"
+              fieldType = "boolean"
+            },
+            {
+              fieldName = "managed"
+              fieldType = "boolean"
+            },
+            {
+              fieldName = "assurance"
+              fieldType = "DeviceCondition"
+            },
+          ]
+        }
+      }
+      DeviceAssurance = {
+        transformation = {
+          fieldTypeOverrides = [
+            {
+              fieldName = "lastUpdate"
+              fieldType = "string"
+            },
+          ]
+          fieldsToHide = [
+            {
+              fieldName = "id"
+            },
+          ]
+          fieldsToOmit = [
+            {
+              fieldName = "created"
+            },
+            {
+              fieldName = "lastUpdated"
+            },
+            {
+              fieldName = "createdBy"
+            },
+            {
+              fieldName = "lastUpdatedBy"
+            },
+            {
+              fieldName = "createdDate"
+            },
+            {
+              fieldName = "lastUpdate"
+            },
+            {
+              fieldName = "_links"
+            },
+          ]
+        }
+        deployRequests = {
+          add = {
+            url = "/api/v1/device-assurances"
+            method = "post"
+          }
+          modify = {
+            url = "/api/v1/device-assurances/{deviceAssuranceId}"
+            method = "put"
+            urlParamsToFields = {
+              deviceAssuranceId = "id"
+            }
+          }
+          remove = {
+            url = "/api/v1/device-assurances/{deviceAssuranceId}"
+            method = "delete"
+            urlParamsToFields = {
+              deviceAssuranceId = "id"
+            }
+            omitRequestBody = true
           }
         }
       }
@@ -2716,6 +3632,9 @@ okta {
       Brand = [
         "api__v1__brands",
       ]
+      BrandTheme = [
+        "api__v1__brands___brandId___themes@uuuuuu_00123_00125uu",
+      ]
       EventHook = [
         "api__v1__eventHooks",
       ]
@@ -2724,6 +3643,9 @@ okta {
       ]
       Group = [
         "api__v1__groups",
+      ]
+      RoleAssignment = [
+        "api__v1__groups___groupId___roles@uuuuuu_00123_00125uu",
       ]
       GroupRule = [
         "api__v1__groups__rules",
@@ -2752,12 +3674,27 @@ okta {
       OrgSettings = [
         "OrgSetting",
       ]
-      AccessPolicy = "AccessPolicies"
-      IdentityProviderPolicy = "IdentityProviderPolicies"
-      MultifactorEnrollmentPolicy = "MultifactorEnrollmentPolicies"
-      OktaSignOnPolicy = "OktaSignOnPolicies"
-      PasswordPolicy = "PasswordPolicies"
-      ProfileEnrollmentPolicy = "ProfileEnrollmentPolicies"
+      AccessPolicy = [
+        "AccessPolicies",
+      ]
+      IdentityProviderPolicy = [
+        "IdentityProviderPolicies",
+      ]
+      MultifactorEnrollmentPolicy = [
+        "MultifactorEnrollmentPolicies",
+      ]
+      OktaSignOnPolicy = [
+        "OktaSignOnPolicies",
+      ]
+      PasswordPolicy = [
+        "PasswordPolicies",
+      ]
+      ProfileEnrollmentPolicy = [
+        "ProfileEnrollmentPolicies",
+      ]
+      Automation = [
+        "Automations",
+      ]
       SmsTemplate = [
         "api__v1__templates__sms",
       ]
@@ -2770,6 +3707,9 @@ okta {
       Domain = [
         "DomainListResponse",
       ]
+      EmailDomain = [
+        "api__v1__email_domains@uuuub",
+      ]
       Role = [
         "IamRoles",
       ]
@@ -2781,6 +3721,12 @@ okta {
       ]
       RateLimitAdmin = [
         "RateLimitAdminNotifications",
+      ]
+      ResourceSet = [
+        "ResourceSets",
+      ]
+      DeviceAssurance = [
+        "api__v1__device_assurances@uuuub",
       ]
     }
   }
@@ -2819,6 +3765,8 @@ okta {
               fieldName = "id"
             },
           ]
+          dataField = "."
+          serviceUrl = "/admin/settings/account"
         }
         deployRequests = {
           modify = {
@@ -2833,6 +3781,7 @@ okta {
         }
         transformation = {
           isSingleton = true
+          serviceUrl = "/admin/settings/account"
         }
         deployRequests = {
           modify = {
@@ -2847,6 +3796,7 @@ okta {
         }
         transformation = {
           isSingleton = true
+          serviceUrl = "/admin/settings/account"
         }
         deployRequests = {
           modify = {
@@ -2861,6 +3811,7 @@ okta {
         }
         transformation = {
           isSingleton = true
+          serviceUrl = "/admin/settings/account"
         }
         deployRequests = {
           modify = {
@@ -2875,6 +3826,7 @@ okta {
         }
         transformation = {
           isSingleton = true
+          serviceUrl = "/admin/customizations/other"
         }
         deployRequests = {
           modify = {
@@ -2889,6 +3841,7 @@ okta {
         }
         transformation = {
           isSingleton = true
+          serviceUrl = "/admin/customizations/other"
         }
         deployRequests = {
           modify = {
@@ -2904,6 +3857,7 @@ okta {
         transformation = {
           dataField = "."
           isSingleton = true
+          serviceUrl = "/admin/customizations/other"
         }
         deployRequests = {
           modify = {
@@ -2918,6 +3872,7 @@ okta {
         }
         transformation = {
           isSingleton = true
+          serviceUrl = "/admin/customizations/other"
         }
         deployRequests = {
           modify = {
@@ -2926,30 +3881,109 @@ okta {
           }
         }
       }
+      GroupPush = {
+        transformation = {
+          idFields = [
+            "&userGroupId",
+          ]
+          serviceIdField = "mappingId"
+          extendsParentId = true
+        }
+        deployRequests = {
+          add = {
+            url = "/api/internal/instance/{appId}/grouppush"
+            method = "post"
+            urlParamsToFields = {
+              appId = "_parent.0.id"
+            }
+          }
+          remove = {
+            url = "/api/internal/instance/{appId}/grouppush/{pushId}/delete"
+            method = "post"
+            urlParamsToFields = {
+              appId = "_parent.0.id"
+              pushId = "mappingId"
+            }
+            fieldsToIgnore = [
+              "mappingId",
+              "status",
+              "userGroupId",
+              "newAppGroupName",
+              "groupPushRule",
+            ]
+          }
+        }
+      }
+      GroupPushRule = {
+        transformation = {
+          idFields = [
+            "name",
+          ]
+          serviceIdField = "mappingRuleId"
+          extendsParentId = true
+        }
+        deployRequests = {
+          add = {
+            url = "/api/internal/instance/{appId}/grouppushrules"
+            method = "post"
+            urlParamsToFields = {
+              appId = "_parent.0.id"
+            }
+          }
+          modify = {
+            url = "/api/internal/instance/{appId}/grouppushrules/{ruleId}"
+            method = "put"
+            urlParamsToFields = {
+              appId = "_parent.0.id"
+              ruleId = "mappingRuleId"
+            }
+            fieldsToIgnore = [
+              "mappingRuleId",
+            ]
+          }
+          remove = {
+            url = "/api/internal/instance/{appId}/grouppushrules/{ruleId}"
+            method = "delete"
+            urlParamsToFields = {
+              appId = "_parent.0.id"
+              ruleId = "mappingRuleId"
+            }
+            fieldsToIgnore = [
+              "mappingRuleId",
+              "name",
+              "status",
+              "searchExpression",
+              "descriptionSearchExpression",
+              "searchExpressionType",
+              "descriptionSearchExpressionType",
+            ]
+          }
+        }
+      }
     }
     supportedTypes = {
-      EmailNotificationSettings = [
+      EmailNotifications = [
         "EmailNotifications",
       ]
-      EndUserSupportSettings = [
+      EndUserSupport = [
         "EndUserSupport",
       ]
-      ThirdPartyAdminSettings = [
+      ThirdPartyAdmin = [
         "ThirdPartyAdmin",
       ]
-      EmbeddedSignInSuppportSettings = [
+      EmbeddedSignInSuppport = [
         "EmbeddedSignInSuppport",
       ]
-      SignOutPageSettings = [
+      SignOutPage = [
         "SignOutPage",
       ]
-      BrowserPluginSettings = [
+      BrowserPlugin = [
         "BrowserPlugin",
       ]
-      DisplayLanguageSettings = [
+      DisplayLanguage = [
         "DisplayLanguage",
       ]
-      ReauthenticationSettings = [
+      Reauthentication = [
         "Reauthentication",
       ]
     }

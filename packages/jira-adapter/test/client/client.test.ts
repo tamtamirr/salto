@@ -1,18 +1,18 @@
 /*
-*                      Copyright 2024 Salto Labs Ltd.
-*
-* Licensed under the Apache License, Version 2.0 (the "License");
-* you may not use this file except in compliance with
-* the License.  You may obtain a copy of the License at
-*
-*     http://www.apache.org/licenses/LICENSE-2.0
-*
-* Unless required by applicable law or agreed to in writing, software
-* distributed under the License is distributed on an "AS IS" BASIS,
-* WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-* See the License for the specific language governing permissions and
-* limitations under the License.
-*/
+ *                      Copyright 2024 Salto Labs Ltd.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 import axios from 'axios'
 import MockAdapter from 'axios-mock-adapter'
 import * as clientUtils from '@salto-io/adapter-components'
@@ -24,11 +24,16 @@ describe('client', () => {
   let result: clientUtils.client.ResponseValue
   beforeEach(() => {
     mockAxios = new MockAdapter(axios)
-    client = new JiraClient({ credentials: { baseUrl: 'http://myjira.net', user: 'me', token: 'tok' }, isDataCenter: false })
+    client = new JiraClient({
+      credentials: { baseUrl: 'http://myjira.net', user: 'me', token: 'tok' },
+      isDataCenter: false,
+    })
     mockAxios
       // first three requests are for login assertion
-      .onGet('/rest/api/3/configuration').replyOnce(200)
-      .onGet('/rest/api/3/serverInfo').replyOnce(200, { baseUrl: 'a' })
+      .onGet('/rest/api/3/configuration')
+      .replyOnce(200)
+      .onGet('/rest/api/3/serverInfo')
+      .replyOnce(200, { baseUrl: 'a' })
       .onGet('/rest/api/3/instance/license')
       .replyOnce(200, { applications: [{ plan: 'FREE' }] })
   })
@@ -41,14 +46,16 @@ describe('client', () => {
       mockAxios.onGet().reply(400, { response: 'asd', errorMessages: ['error message'] })
     })
     it('should call send request decorator', async () => {
-      await expect(async () => client.getSinglePage({ url: '/myPath' })).rejects.toThrow(new Error('Failed to get /myPath with error: Error: Request failed with status code 400. error message'))
+      await expect(async () => client.get({ url: '/myPath' })).rejects.toThrow(
+        new Error('Failed to get /myPath with error: Error: Request failed with status code 400. error message'),
+      )
     })
   })
 
-  describe('getSinglePage', () => {
+  describe('get', () => {
     beforeEach(async () => {
       mockAxios.onGet('/myPath').reply(200, { response: 'asd' })
-      result = await client.getSinglePage({ url: '/myPath' })
+      result = await client.get({ url: '/myPath' })
     })
     it('should request the correct path with auth headers', () => {
       const request = mockAxios.history.get.find(r => r.url === '/myPath')
@@ -74,7 +81,9 @@ describe('client', () => {
     await client.getPrivate({ url: '/myPath', headers: { 'x-atlassian-force-account-id': '1234' } })
     await client.deletePrivate({ url: '/myPath', headers: { 'x-atlassian-force-account-id': '1234' } })
     expect(mockAxios.history.patch[0].headers?.['x-atlassian-force-account-id']).toEqual('1234')
-    expect(mockAxios.history.get.find(r => r.url === '/myPath')?.headers?.['x-atlassian-force-account-id']).toEqual('1234')
+    expect(mockAxios.history.get.find(r => r.url === '/myPath')?.headers?.['x-atlassian-force-account-id']).toEqual(
+      '1234',
+    )
     expect(mockAxios.history.post[0].headers?.['x-atlassian-force-account-id']).toEqual('1234')
     expect(mockAxios.history.post[1].headers?.['x-atlassian-force-account-id']).toEqual('1234')
     expect(mockAxios.history.delete[0].headers?.['x-atlassian-force-account-id']).toEqual('1234')
@@ -88,17 +97,21 @@ describe('client', () => {
           id: '2',
           name: 'Default Issue Layout',
           usageInfo: {
-            edges: [{
-              node: {
-                layoutOwners: [{
-                  avatarId: '3',
-                  description: 'ownerTest',
-                  iconUrl: 'www.icon.com',
-                  id: '100',
-                  name: 'ownerTest',
-                }],
+            edges: [
+              {
+                node: {
+                  layoutOwners: [
+                    {
+                      avatarId: '3',
+                      description: 'ownerTest',
+                      iconUrl: 'www.icon.com',
+                      id: '100',
+                      name: 'ownerTest',
+                    },
+                  ],
+                },
               },
-            }],
+            ],
           },
           containers: [
             {
@@ -117,12 +130,23 @@ describe('client', () => {
         },
       },
     }
-    mockAxios.onPost().replyOnce(200, { data: { data: innerData } })
+    mockAxios.onPost().replyOnce(200, { data: innerData })
     result = await client.gqlPost({ url: 'www.test.com', query: 'query' })
-    expect(result).toEqual({ data: { data: innerData } })
+    expect(result).toEqual({ data: innerData })
   })
   it('check if gqlpost throws an error if the response is not as expected', async () => {
     mockAxios.onPost().replyOnce(200, { response: 'not as expected' })
     await expect(client.gqlPost({ url: 'www.test.com', query: 'query' })).rejects.toThrow()
+  })
+  it('check if gqlpost returns the data when data as expected and there are errors.', async () => {
+    const error = {
+      message: 'Requested issue layout configuration is not found',
+      locations: [{ line: 65, column: 3 }],
+      path: ['issueLayoutConfiguration'],
+      extensions: { statusCode: 404, errorType: 'DataFetchingException', classification: 'DataFetchingException' },
+    }
+    mockAxios.onPost().reply(200, { data: { layoutConfiguration: null }, errors: [error] })
+    result = await client.gqlPost({ url: 'www.test.com', query: 'query' })
+    expect(result).toEqual({ data: { layoutConfiguration: null }, errors: [error] })
   })
 })

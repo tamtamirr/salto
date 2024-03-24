@@ -1,18 +1,18 @@
 /*
-*                      Copyright 2024 Salto Labs Ltd.
-*
-* Licensed under the Apache License, Version 2.0 (the "License");
-* you may not use this file except in compliance with
-* the License.  You may obtain a copy of the License at
-*
-*     http://www.apache.org/licenses/LICENSE-2.0
-*
-* Unless required by applicable law or agreed to in writing, software
-* distributed under the License is distributed on an "AS IS" BASIS,
-* WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-* See the License for the specific language governing permissions and
-* limitations under the License.
-*/
+ *                      Copyright 2024 Salto Labs Ltd.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 import { ChangeValidator } from '@salto-io/adapter-api'
 import { deployment, client as clientUtils } from '@salto-io/adapter-components'
 import { readOnlyProjectRoleChangeValidator } from './read_only_project_role'
@@ -21,11 +21,13 @@ import { issueTypeSchemeValidator } from './issue_type_scheme'
 import { screenValidator } from './screen'
 import JiraClient from '../client/client'
 import { ChangeValidatorName, JiraConfig } from '../config/config'
-import { projectDeletionValidator } from './project_deletion'
+import { projectDeletionValidator } from './projects/project_deletion'
+import { teamManagedProjectValidator } from './projects/team_managed_project'
 import { statusValidator } from './status'
 import { privateApiValidator } from './private_api'
 import { readOnlyWorkflowValidator } from './workflows/read_only_workflow'
 import { workflowStatusMappingsValidator } from './workflowsV2/status_mappings'
+import { inboundTransitionChangeValidator } from './workflowsV2/inbound_transition'
 import { dashboardGadgetsValidator } from './dashboard_gadgets'
 import { dashboardLayoutValidator } from './dashboard_layout'
 import { permissionTypeValidator } from './permission_type'
@@ -54,7 +56,7 @@ import { unresolvedReferenceValidator } from './unresolved_references'
 import { sameIssueTypeNameChangeValidator } from './same_issue_type_name'
 import { issueTypeSchemeMigrationValidator } from './issue_type_scheme_migration'
 import { issueTypeDeletionValidator } from './issue_type_deletion'
-import { projectCategoryValidator } from './project_category'
+import { projectCategoryValidator } from './projects/project_category'
 import { fieldSecondGlobalContextValidator } from './field_contexts/second_global_context'
 import { customFieldsWith10KOptionValidator } from './field_contexts/custom_field_with_10K_options'
 import { issueTypeHierarchyValidator } from './issue_type_hierarchy'
@@ -65,16 +67,11 @@ import { defaultAdditionQueueValidator } from './default_addition_queue'
 import { defaultAttributeValidator } from './assets/default_attribute'
 import { automationToAssetsValidator } from './automation/automation_to_assets'
 import { addJsmProjectValidator } from './adding_jsm_project'
+import { jsmPermissionsValidator } from './jsm/jsm_permissions'
 
-const {
-  deployTypesNotSupportedValidator,
-  createChangeValidator,
-} = deployment.changeValidators
+const { deployTypesNotSupportedValidator, createChangeValidator } = deployment.changeValidators
 
-
-export default (
-  client: JiraClient, config: JiraConfig, paginator: clientUtils.Paginator
-): ChangeValidator => {
+export default (client: JiraClient, config: JiraConfig, paginator: clientUtils.Paginator): ChangeValidator => {
   const validators: Record<ChangeValidatorName, ChangeValidator> = {
     ...deployment.changeValidators.getDefaultChangeValidators(['outgoingUnresolvedReferencesValidator']),
     unresolvedReference: unresolvedReferenceValidator,
@@ -85,6 +82,7 @@ export default (
     screen: screenValidator,
     issueTypeScheme: issueTypeSchemeValidator,
     issueTypeSchemeDefaultType: issueTypeSchemeDefaultTypeValidator,
+    teamManagedProject: teamManagedProjectValidator(client),
     projectDeletion: projectDeletionValidator(client, config),
     status: statusValidator,
     privateApi: privateApiValidator(config),
@@ -100,6 +98,7 @@ export default (
     // Must run after statusMigrationChangeValidator
     workflowSchemeMigration: workflowSchemeMigrationValidator(client, config, paginator),
     workflowStatusMappings: workflowStatusMappingsValidator,
+    inboundTransition: inboundTransitionChangeValidator,
     issueTypeSchemeMigration: issueTypeSchemeMigrationValidator(client),
     activeSchemeChange: activeSchemeChangeValidator(client),
     masking: maskingValidator(client),
@@ -127,6 +126,7 @@ export default (
     defaultAttributeValidator: defaultAttributeValidator(config, client),
     addJsmProject: addJsmProjectValidator,
     deleteLabelAtttribute: deleteLabelAtttributeValidator(config),
+    jsmPermissions: jsmPermissionsValidator(config, client),
   }
 
   return createChangeValidator({

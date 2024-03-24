@@ -1,18 +1,18 @@
 /*
-*                      Copyright 2024 Salto Labs Ltd.
-*
-* Licensed under the Apache License, Version 2.0 (the "License");
-* you may not use this file except in compliance with
-* the License.  You may obtain a copy of the License at
-*
-*     http://www.apache.org/licenses/LICENSE-2.0
-*
-* Unless required by applicable law or agreed to in writing, software
-* distributed under the License is distributed on an "AS IS" BASIS,
-* WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-* See the License for the specific language governing permissions and
-* limitations under the License.
-*/
+ *                      Copyright 2024 Salto Labs Ltd.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 
 import { InstanceElement, isInstanceElement } from '@salto-io/adapter-api'
 import { createSchemeGuard } from '@salto-io/adapter-utils'
@@ -40,17 +40,26 @@ type QueuesCatagoriesResponse = {
   categories: AllTicketResponse[]
 }
 
-
 const QUEUES_CATAGORIES_RESPONSE_SCHEME = Joi.object({
-  categories: Joi.array().items(Joi.object({
-    queues: Joi.array().items(Joi.object({
-      id: Joi.number().required(),
-      name: Joi.string().required(),
-      canBeHidden: Joi.boolean().required(),
-      favourite: Joi.boolean().required(),
-    }).unknown(true)).required(),
-  }).unknown(true)).required(),
-}).unknown(true).required()
+  categories: Joi.array()
+    .items(
+      Joi.object({
+        queues: Joi.array()
+          .items(
+            Joi.object({
+              id: Joi.number().required(),
+              name: Joi.string().required(),
+              canBeHidden: Joi.boolean().required(),
+              favourite: Joi.boolean().required(),
+            }).unknown(true),
+          )
+          .required(),
+      }).unknown(true),
+    )
+    .required(),
+})
+  .unknown(true)
+  .required()
 
 const isQueuesCatagoriesResponse = createSchemeGuard<QueuesCatagoriesResponse>(QUEUES_CATAGORIES_RESPONSE_SCHEME)
 
@@ -64,18 +73,21 @@ const addQueueStarAndPriority = async (
   client: JiraClient,
 ): Promise<void> => {
   await awu(Object.entries(projectKeysToQueues)).forEach(async ([projectKey, queues]) => {
-    const response = await client.getSinglePage({
+    const response = await client.get({
       url: `/rest/servicedesk/1/servicedesk/${projectKey}/queues/categories`,
     })
     if (!isQueuesCatagoriesResponse(response.data)) {
       return
     }
-    const queuesCatagories = Object.fromEntries(response.data.categories[0].queues.map(queueDetails => [
-      queueDetails.name,
-      {
-        canBeHidden: queueDetails.canBeHidden,
-        favourite: queueDetails.favourite,
-      }]))
+    const queuesCatagories = Object.fromEntries(
+      response.data.categories[0].queues.map(queueDetails => [
+        queueDetails.name,
+        {
+          canBeHidden: queueDetails.canBeHidden,
+          favourite: queueDetails.favourite,
+        },
+      ]),
+    )
     queues.forEach(queue => {
       queue.value.canBeHidden = queuesCatagories[queue.value.name].canBeHidden
       queue.value.favourite = queuesCatagories[queue.value.name].favourite
@@ -101,10 +113,8 @@ const filter: FilterCreator = ({ config, client }) => ({
       })
 
     const projectKeysToQueues = _.groupBy(
-      elements
-        .filter(isInstanceElement)
-        .filter(instance => instance.elemID.typeName === QUEUE_TYPE),
-      instance => instance.value.projectKey
+      elements.filter(isInstanceElement).filter(instance => instance.elemID.typeName === QUEUE_TYPE),
+      instance => instance.value.projectKey,
     )
     await addQueueStarAndPriority(projectKeysToQueues, client)
   },

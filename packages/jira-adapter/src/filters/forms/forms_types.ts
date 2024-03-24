@@ -1,18 +1,18 @@
 /*
-*                      Copyright 2024 Salto Labs Ltd.
-*
-* Licensed under the Apache License, Version 2.0 (the "License");
-* you may not use this file except in compliance with
-* the License.  You may obtain a copy of the License at
-*
-*     http://www.apache.org/licenses/LICENSE-2.0
-*
-* Unless required by applicable law or agreed to in writing, software
-* distributed under the License is distributed on an "AS IS" BASIS,
-* WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-* See the License for the specific language governing permissions and
-* limitations under the License.
-*/
+ *                      Copyright 2024 Salto Labs Ltd.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 
 import { ObjectType, ElemID, BuiltinTypes, CORE_ANNOTATIONS, ListType } from '@salto-io/adapter-api'
 import Joi from 'joi'
@@ -21,21 +21,21 @@ import { createSchemeGuard } from '@salto-io/adapter-utils'
 import { JIRA, FORM_TYPE } from '../../constants'
 
 type DetailedFormDataResponse = {
-    uuid: string
-    design: {
-      settings: {
-        templateId: string
-        name: string
-        submit: {
-          lock: boolean
-          pdf: boolean
-        }
-        templateFormUuid: string
+  uuid: string
+  design: {
+    settings: {
+      templateId: string
+      name: string
+      submit: {
+        lock: boolean
+        pdf: boolean
       }
-      questions: {}
-      sections: {}
-      conditions: {}
+      templateFormUuid: string
     }
+    questions: {}
+    sections: {}
+    conditions: {}
+  }
 }
 
 type FormResponse = {
@@ -48,11 +48,17 @@ type FormsResponse = {
 }
 
 export const FORMS_RESPONSE_SCHEME = Joi.object({
-  data: Joi.array().items(Joi.object({
-    id: Joi.number().required(),
-    name: Joi.string().allow(''),
-  }).unknown(true).required()),
-}).unknown(true).required()
+  data: Joi.array().items(
+    Joi.object({
+      id: Joi.number().required(),
+      name: Joi.string().allow(''),
+    })
+      .unknown(true)
+      .required(),
+  ),
+})
+  .unknown(true)
+  .required()
 
 export const DETAILED_FORM_RESPONSE_SCHEME = Joi.object({
   uuid: Joi.string().required(),
@@ -63,20 +69,27 @@ export const DETAILED_FORM_RESPONSE_SCHEME = Joi.object({
       submit: Joi.object({
         lock: Joi.boolean().required(),
         pdf: Joi.boolean().required(),
-      }).unknown(true).required(),
+      })
+        .unknown(true)
+        .required(),
       templateFormUuid: Joi.string(),
-    }).unknown(true).required(),
+    })
+      .unknown(true)
+      .required(),
     questions: Joi.object().unknown(true).required(),
     sections: Joi.object().unknown(true).required(),
     conditions: Joi.object().unknown(true).required(),
-  }).unknown(true).required(),
-}).unknown(true).required()
-
+  })
+    .unknown(true)
+    .required(),
+})
+  .unknown(true)
+  .required()
 
 export const createFormType = (): {
-    formType: ObjectType
-    subTypes: ObjectType[]
-  } => {
+  formType: ObjectType
+  subTypes: ObjectType[]
+} => {
   const formSubmitType = new ObjectType({
     elemID: new ElemID(JIRA, 'FormSubmitettings'),
     fields: {
@@ -184,6 +197,23 @@ export const createFormType = (): {
       },
     },
   })
+  const formPortalType = new ObjectType({
+    elemID: new ElemID(JIRA, 'FormPortal'),
+    fields: {
+      portalRequestTypeIds: {
+        refType: new ListType(BuiltinTypes.NUMBER),
+      },
+    },
+  })
+
+  const formPublishType = new ObjectType({
+    elemID: new ElemID(JIRA, 'FormPublish'),
+    fields: {
+      portal: {
+        refType: formPortalType,
+      },
+    },
+  })
 
   const formType = new ObjectType({
     elemID: new ElemID(JIRA, FORM_TYPE),
@@ -203,17 +233,35 @@ export const createFormType = (): {
       design: {
         refType: formDesignType,
       },
+      publish: {
+        refType: formPublishType,
+      },
     },
     path: [JIRA, adapterElements.TYPES_PATH, FORM_TYPE],
   })
   return {
     formType,
-    subTypes: [formSubmitType, formSettingsType, formLayoutItemType, formDesignType, questionType, contentLayoutType],
+    subTypes: [
+      formSubmitType,
+      formSettingsType,
+      formLayoutItemType,
+      formDesignType,
+      questionType,
+      contentLayoutType,
+      formPortalType,
+      formPublishType,
+    ],
   }
 }
 
-export const isFormsResponse = createSchemeGuard<FormsResponse>(FORMS_RESPONSE_SCHEME, 'bad forms response from jira server')
-export const isDetailedFormsResponse = createSchemeGuard<DetailedFormDataResponse>(DETAILED_FORM_RESPONSE_SCHEME, 'bad detailed form response from jira server')
+export const isFormsResponse = createSchemeGuard<FormsResponse>(
+  FORMS_RESPONSE_SCHEME,
+  'bad forms response from jira server',
+)
+export const isDetailedFormsResponse = createSchemeGuard<DetailedFormDataResponse>(
+  DETAILED_FORM_RESPONSE_SCHEME,
+  'bad detailed form response from jira server',
+)
 
 type createFormResponse = {
   id: number
@@ -221,6 +269,11 @@ type createFormResponse = {
 
 const CREATE_FORM_RESPONSE_SCHEME = Joi.object({
   id: Joi.number().required(),
-}).unknown(true).required()
+})
+  .unknown(true)
+  .required()
 
-export const isCreateFormResponse = createSchemeGuard<createFormResponse>(CREATE_FORM_RESPONSE_SCHEME, 'bad form creation response from jira server')
+export const isCreateFormResponse = createSchemeGuard<createFormResponse>(
+  CREATE_FORM_RESPONSE_SCHEME,
+  'bad form creation response from jira server',
+)

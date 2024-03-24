@@ -1,20 +1,33 @@
 /*
-*                      Copyright 2024 Salto Labs Ltd.
-*
-* Licensed under the Apache License, Version 2.0 (the "License");
-* you may not use this file except in compliance with
-* the License.  You may obtain a copy of the License at
-*
-*     http://www.apache.org/licenses/LICENSE-2.0
-*
-* Unless required by applicable law or agreed to in writing, software
-* distributed under the License is distributed on an "AS IS" BASIS,
-* WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-* See the License for the specific language governing permissions and
-* limitations under the License.
-*/
-import { AdditionChange, Change, Element, getChangeData, InstanceElement, isAdditionChange, isAdditionOrModificationChange, isEqualValues, isInstanceChange, isInstanceElement, isModificationChange } from '@salto-io/adapter-api'
-import { createSchemeGuard, resolveValues } from '@salto-io/adapter-utils'
+ *                      Copyright 2024 Salto Labs Ltd.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+import {
+  Change,
+  Element,
+  getChangeData,
+  InstanceElement,
+  isAdditionChange,
+  isAdditionOrModificationChange,
+  isEqualValues,
+  isInstanceChange,
+  isInstanceElement,
+  isModificationChange,
+} from '@salto-io/adapter-api'
+import { createSchemeGuard } from '@salto-io/adapter-utils'
+import { resolveValues } from '@salto-io/adapter-components'
+
 import _ from 'lodash'
 import Joi from 'joi'
 import { logger } from '@salto-io/logging'
@@ -25,7 +38,6 @@ import { FilterCreator } from '../filter'
 import { findObject, isAllFreeLicense, setFieldDeploymentAnnotations } from '../utils'
 import { PROJECT_CONTEXTS_FIELD } from './fields/contexts_projects_filter'
 import { JiraConfig } from '../config/config'
-import { isObjectWithId } from './change_jsm_fields'
 import { PROJECT_TYPE_TYPE_NAME, SERVICE_DESK } from '../constants'
 
 const PROJECT_TYPE_NAME = 'Project'
@@ -42,16 +54,13 @@ const CUSTOMER_PERMISSIONS = 'customerPermissions'
 
 const log = logger(module)
 
-const changeProjectPath = (
-  instance: InstanceElement,
-  projectTypesKeysToFormatedKeys: Record<string, string>
-): void => {
+const changeProjectPath = (instance: InstanceElement, projectTypesKeysToFormatedKeys: Record<string, string>): void => {
   if (instance.path === undefined) {
     log.error(`Cannot change instance's path, because instance ${instance.elemID.name} path is undefined`)
     return
   }
   const subPath = projectTypesKeysToFormatedKeys[instance.value.projectTypeKey] ?? 'Other'
-  instance.path = [...instance.path.slice(0, -2), subPath, ...instance.path.slice(-2,)]
+  instance.path = [...instance.path.slice(0, -2), subPath, ...instance.path.slice(-2)]
 }
 
 const deployScheme = async (
@@ -71,10 +80,7 @@ const deployScheme = async (
   }
 }
 
-const deployPriorityScheme = async (
-  instance: InstanceElement,
-  client: JiraClient,
-): Promise<void> => {
+const deployPriorityScheme = async (instance: InstanceElement, client: JiraClient): Promise<void> => {
   if (!client.isDataCenter) {
     return
   }
@@ -86,10 +92,7 @@ const deployPriorityScheme = async (
   })
 }
 
-const deployProjectSchemes = async (
-  instance: InstanceElement,
-  client: JiraClient,
-): Promise<void> => {
+const deployProjectSchemes = async (instance: InstanceElement, client: JiraClient): Promise<void> => {
   await deployScheme(instance, client, WORKFLOW_SCHEME_FIELD, 'workflowSchemeId')
   await deployScheme(instance, client, ISSUE_TYPE_SCREEN_SCHEME_FIELD, 'issueTypeScreenSchemeId')
   await deployScheme(instance, client, ISSUE_TYPE_SCHEME, 'issueTypeSchemeId')
@@ -100,66 +103,21 @@ const deployCustomerPermissions = async (
   instance: InstanceElement,
   change: Change<InstanceElement>,
   client: JiraClient,
-  config: JiraConfig
+  config: JiraConfig,
 ): Promise<void> => {
   if (!config.fetch.enableJSM || instance.value.projectTypeKey !== SERVICE_DESK) {
     return
   }
-  if (((isAdditionChange(change))
-  || (isModificationChange(change)
-    && !isEqualValues(change.data.before.value.customerPermissions, change.data.after.value.customerPermissions)))
-  && instance.value.customerPermissions !== undefined) {
+  if (
+    (isAdditionChange(change) ||
+      (isModificationChange(change) &&
+        !isEqualValues(change.data.before.value.customerPermissions, change.data.after.value.customerPermissions))) &&
+    instance.value.customerPermissions !== undefined
+  ) {
     await client.post({
       url: `/rest/servicedesk/1/servicedesk/${instance.value.key}/settings/requestsecurity`,
       data: instance.value.customerPermissions,
     })
-  }
-}
-
-type ServiceDeskValue = {
-  id: number
-  projectId: number
-}
-
-type ServiceDeskResponse = {
-  values: ServiceDeskValue[]
-}
-
-const SERVICE_DESK_RESPONSE_SCHEME = Joi.object({
-  values: Joi.array().items(Joi.object({
-    id: Joi.number().required(),
-    projectId: Joi.number().required(),
-  }).unknown(true)),
-}).unknown(true).required()
-
-const isServiceDeskResponse = createSchemeGuard<ServiceDeskResponse>(SERVICE_DESK_RESPONSE_SCHEME)
-
-const getServiceDeskId = async (
-  change: AdditionChange<InstanceElement>,
-  client: JiraClient,
-): Promise<number> => {
-  try {
-    const instance = getChangeData(change)
-    const response = await client.getSinglePage({
-      url: `/rest/servicedeskapi/servicedesk/projectId:${instance.value.id}`,
-    })
-    if (!isObjectWithId(response.data)) {
-      throw new Error('Received an invalid serviceDesk id response')
-    }
-    return response.data.id
-  } catch (error) {
-    // Call for all serviceDesk in the account to find the serviceDesk id of the project
-    const response = await client.getSinglePage({
-      url: '/rest/servicedeskapi/servicedesk',
-    })
-    if (!isServiceDeskResponse(response.data)) {
-      throw new Error('Received an invalid serviceDesk response')
-    }
-    const serviceDesk = response.data.values.find(sd => sd.projectId === change.data.after.value.id)
-    if (serviceDesk === undefined || !isObjectWithId(serviceDesk)) {
-      throw new Error(`Failed to find service desk for project ${change.data.after.value.id}`)
-    }
-    return serviceDesk.id
   }
 }
 
@@ -170,19 +128,25 @@ type ComponentsResponse = {
 }
 
 const shouldSeparateSchemeDeployment = (change: Change, isDataCenter: boolean): boolean =>
-  isModificationChange(change)
-  || (isAdditionChange(change) && isDataCenter)
+  isModificationChange(change) || (isAdditionChange(change) && isDataCenter)
 
 const COMPONENTS_RESPONSE_SCHEME = Joi.object({
-  components: Joi.array().items(Joi.object({
-    id: Joi.string().required(),
-  }).unknown(true)),
-}).unknown(true).required()
+  components: Joi.array().items(
+    Joi.object({
+      id: Joi.string().required(),
+    }).unknown(true),
+  ),
+})
+  .unknown(true)
+  .required()
 
-const isComponentsResponse = createSchemeGuard<ComponentsResponse>(COMPONENTS_RESPONSE_SCHEME, 'Received an invalid project component response')
+const isComponentsResponse = createSchemeGuard<ComponentsResponse>(
+  COMPONENTS_RESPONSE_SCHEME,
+  'Received an invalid project component response',
+)
 
 const getProjectComponentIds = async (projectId: number, client: JiraClient): Promise<string[]> => {
-  const response = await client.getSinglePage({
+  const response = await client.get({
     url: `/rest/api/3/project/${projectId}`,
   })
 
@@ -196,17 +160,26 @@ const getProjectComponentIds = async (projectId: number, client: JiraClient): Pr
 const removeComponents = async (projectId: number, client: JiraClient): Promise<void> => {
   const componentIds = await getProjectComponentIds(projectId, client)
 
-  await Promise.all(componentIds.map(id => client.delete({
-    url: `/rest/api/3/component/${id}`,
-  })))
+  await Promise.all(
+    componentIds.map(id =>
+      client.delete({
+        url: `/rest/api/3/component/${id}`,
+      }),
+    ),
+  )
 }
 
-const isIdResponse = createSchemeGuard<{ id: string }>(Joi.object({
-  id: Joi.string().required(),
-}).unknown(true).required(), 'Received an invalid project id response')
+const isIdResponse = createSchemeGuard<{ id: string }>(
+  Joi.object({
+    id: Joi.string().required(),
+  })
+    .unknown(true)
+    .required(),
+  'Received an invalid project id response',
+)
 
 const getProjectId = async (projectKey: string, client: JiraClient): Promise<string> => {
-  const response = await client.getSinglePage({
+  const response = await client.get({
     url: `/rest/api/3/project/${projectKey}`,
   })
 
@@ -223,20 +196,26 @@ const isFieldConfigurationSchemeResponse = createSchemeGuard<{
       id: string
     }
   }[]
-}>(Joi.object({
-  values: Joi.array().items(Joi.object({
-    fieldConfigurationScheme: Joi.object({
-      id: Joi.string().required(),
-    }).unknown(true).optional(),
-  }).unknown(true)),
-}).unknown(true).required(), 'Received an invalid field configuration scheme response')
+}>(
+  Joi.object({
+    values: Joi.array().items(
+      Joi.object({
+        fieldConfigurationScheme: Joi.object({
+          id: Joi.string().required(),
+        })
+          .unknown(true)
+          .optional(),
+      }).unknown(true),
+    ),
+  })
+    .unknown(true)
+    .required(),
+  'Received an invalid field configuration scheme response',
+)
 
-const deleteFieldConfigurationScheme = async (
-  change: Change<InstanceElement>,
-  client: JiraClient,
-): Promise<void> => {
+const deleteFieldConfigurationScheme = async (change: Change<InstanceElement>, client: JiraClient): Promise<void> => {
   const instance = await resolveValues(getChangeData(change), getLookUpName)
-  const response = await client.getSinglePage({
+  const response = await client.get({
     url: `/rest/api/3/fieldconfigurationscheme/project?projectId=${instance.value.id}`,
   })
 
@@ -283,10 +262,12 @@ const filter: FilterCreator = ({ config, client, elementsSource }) => ({
       }
     }
 
-    const projectTypesKeysToFormattedKeys: Record<string, string> = Object.fromEntries(elements
-      .filter(isInstanceElement)
-      .filter(inst => inst.elemID.typeName === PROJECT_TYPE_TYPE_NAME)
-      .map(inst => [inst.value.key, inst.value.formattedKey]))
+    const projectTypesKeysToFormattedKeys: Record<string, string> = Object.fromEntries(
+      elements
+        .filter(isInstanceElement)
+        .filter(inst => inst.elemID.typeName === PROJECT_TYPE_TYPE_NAME)
+        .map(inst => [inst.value.key, inst.value.formattedKey]),
+    )
 
     elements
       .filter(isInstanceElement)
@@ -295,14 +276,13 @@ const filter: FilterCreator = ({ config, client, elementsSource }) => ({
         instance.value.leadAccountId = client.isDataCenter ? instance.value.lead?.key : instance.value.lead?.accountId
         delete instance.value.lead
 
-        instance.value[WORKFLOW_SCHEME_FIELD] = instance
-          .value[WORKFLOW_SCHEME_FIELD]?.[WORKFLOW_SCHEME_FIELD]?.id?.toString()
-        instance.value.issueTypeScreenScheme = instance
-          .value[ISSUE_TYPE_SCREEN_SCHEME_FIELD]?.[ISSUE_TYPE_SCREEN_SCHEME_FIELD]?.id
-        instance.value.fieldConfigurationScheme = instance
-          .value[FIELD_CONFIG_SCHEME_FIELD]?.[FIELD_CONFIG_SCHEME_FIELD]?.id
-        instance.value[ISSUE_TYPE_SCHEME] = instance
-          .value[ISSUE_TYPE_SCHEME]?.[ISSUE_TYPE_SCHEME]?.id
+        instance.value[WORKFLOW_SCHEME_FIELD] =
+          instance.value[WORKFLOW_SCHEME_FIELD]?.[WORKFLOW_SCHEME_FIELD]?.id?.toString()
+        instance.value.issueTypeScreenScheme =
+          instance.value[ISSUE_TYPE_SCREEN_SCHEME_FIELD]?.[ISSUE_TYPE_SCREEN_SCHEME_FIELD]?.id
+        instance.value.fieldConfigurationScheme =
+          instance.value[FIELD_CONFIG_SCHEME_FIELD]?.[FIELD_CONFIG_SCHEME_FIELD]?.id
+        instance.value[ISSUE_TYPE_SCHEME] = instance.value[ISSUE_TYPE_SCHEME]?.[ISSUE_TYPE_SCHEME]?.id
 
         instance.value.notificationScheme = instance.value.notificationScheme?.id?.toString()
         instance.value.permissionScheme = instance.value.permissionScheme?.id?.toString()
@@ -329,9 +309,10 @@ const filter: FilterCreator = ({ config, client, elementsSource }) => ({
   deploy: async changes => {
     const [relevantChanges, leftoverChanges] = _.partition(
       changes,
-      change => isInstanceChange(change)
-        && getChangeData(change).elemID.typeName === PROJECT_TYPE_NAME
-        && isAdditionOrModificationChange(change)
+      change =>
+        isInstanceChange(change) &&
+        getChangeData(change).elemID.typeName === PROJECT_TYPE_NAME &&
+        isAdditionOrModificationChange(change),
     )
 
     const getFieldsToIgnore = async (change: Change<InstanceElement>): Promise<string[]> => {
@@ -351,58 +332,49 @@ const filter: FilterCreator = ({ config, client, elementsSource }) => ({
       return fieldsToIgnore
     }
 
-    const deployResult = await deployChanges(
-      relevantChanges as Change<InstanceElement>[],
-      async change => {
-        try {
-          await defaultDeployChange({
-            change,
-            client,
-            apiDefinitions: config.apiDefinitions,
-            fieldsToIgnore: await getFieldsToIgnore(change),
-          })
-        } catch (error) {
-          // When a JSM project is created, a fieldConfigurationScheme is created
-          // automatically with the name "Jira Service Management Field Configuration Scheme
-          // for Project <project key>"". There seems to be a bug in Jira that if a
-          // fieldConfigurationScheme with that name already exists, the request
-          // fails with 500 although the project is created and another fieldConfigurationScheme
-          // with the same name is created (although in the UI you can’t create two
-          // fieldConfigurationScheme with the same name). To overcome this, we delete the
-          // fieldConfigurationScheme that was automatically created and set the right one
-          if (isAdditionChange(change) && error.response?.status === 500) {
-            log.debug('Received 500 when creating a project, checking if the project was created and fixing its field configuration scheme')
-            change.data.after.value.id = await getProjectId(change.data.after.value.key, client)
-            await deleteFieldConfigurationScheme(change, client)
-          } else {
-            throw error
-          }
+    const deployResult = await deployChanges(relevantChanges as Change<InstanceElement>[], async change => {
+      try {
+        await defaultDeployChange({
+          change,
+          client,
+          apiDefinitions: config.apiDefinitions,
+          fieldsToIgnore: await getFieldsToIgnore(change),
+        })
+      } catch (error) {
+        // When a JSM project is created, a fieldConfigurationScheme is created
+        // automatically with the name "Jira Service Management Field Configuration Scheme
+        // for Project <project key>"". There seems to be a bug in Jira that if a
+        // fieldConfigurationScheme with that name already exists, the request
+        // fails with 500 although the project is created and another fieldConfigurationScheme
+        // with the same name is created (although in the UI you can’t create two
+        // fieldConfigurationScheme with the same name). To overcome this, we delete the
+        // fieldConfigurationScheme that was automatically created and set the right one
+        if (isAdditionChange(change) && error.response?.status === 500) {
+          log.debug(
+            'Received 500 when creating a project, checking if the project was created and fixing its field configuration scheme',
+          )
+          change.data.after.value.id = await getProjectId(change.data.after.value.key, client)
+          await deleteFieldConfigurationScheme(change, client)
+        } else {
+          throw error
         }
-
-        const instance = await resolveValues(getChangeData(change), getLookUpName)
-        if (isAdditionChange(change) && config.fetch.enableJSM && instance.value.projectTypeKey === SERVICE_DESK) {
-          try {
-            change.data.after.value.serviceDeskId = await getServiceDeskId(change, client)
-          } catch (error) {
-            log.warn(`Failed to get service desk id for project ${instance.elemID.getFullName()}: ${error}`)
-          }
-        }
-
-        if (shouldSeparateSchemeDeployment(change, client.isDataCenter)) {
-          await deployProjectSchemes(instance, client)
-        }
-
-        await deployScheme(instance, client, FIELD_CONFIG_SCHEME_FIELD, 'fieldConfigurationSchemeId')
-
-        if (isAdditionChange(change)) {
-          // In some projects, some components are created as a side effect
-          // when creating the project. We want to remove these and deploy
-          // the components that are in the NaCls
-          await removeComponents(getChangeData(change).value.id, client)
-        }
-        await deployCustomerPermissions(instance, change, client, config)
       }
-    )
+
+      const instance = await resolveValues(getChangeData(change), getLookUpName)
+      if (shouldSeparateSchemeDeployment(change, client.isDataCenter)) {
+        await deployProjectSchemes(instance, client)
+      }
+
+      await deployScheme(instance, client, FIELD_CONFIG_SCHEME_FIELD, 'fieldConfigurationSchemeId')
+
+      if (isAdditionChange(change)) {
+        // In some projects, some components are created as a side effect
+        // when creating the project. We want to remove these and deploy
+        // the components that are in the NaCls
+        await removeComponents(getChangeData(change).value.id, client)
+      }
+      await deployCustomerPermissions(instance, change, client, config)
+    })
 
     return {
       leftoverChanges,

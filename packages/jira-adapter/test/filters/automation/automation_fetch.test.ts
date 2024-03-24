@@ -1,18 +1,18 @@
 /*
-*                      Copyright 2024 Salto Labs Ltd.
-*
-* Licensed under the Apache License, Version 2.0 (the "License");
-* you may not use this file except in compliance with
-* the License.  You may obtain a copy of the License at
-*
-*     http://www.apache.org/licenses/LICENSE-2.0
-*
-* Unless required by applicable law or agreed to in writing, software
-* distributed under the License is distributed on an "AS IS" BASIS,
-* WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-* See the License for the specific language governing permissions and
-* limitations under the License.
-*/
+ *                      Copyright 2024 Salto Labs Ltd.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 import { ElemID, InstanceElement, ObjectType, Element, BuiltinTypes } from '@salto-io/adapter-api'
 import _ from 'lodash'
 import { safeJsonStringify } from '@salto-io/adapter-utils'
@@ -27,7 +27,6 @@ import { JIRA, OBJECT_TYPE_TYPE, PROJECT_TYPE } from '../../../src/constants'
 import JiraClient from '../../../src/client/client'
 import { createAutomationTypes } from '../../../src/filters/automation/types'
 import { CLOUD_RESOURCE_FIELD } from '../../../src/filters/automation/cloud_id'
-
 
 describe('automationFetchFilter', () => {
   let filter: filterUtils.FilterWith<'onFetch'>
@@ -56,8 +55,10 @@ describe('automationFetchFilter', () => {
             },
           ],
           ruleScope: {
-            resources: ['ari:cloud:jira:a35ab846-aa6a-41c1-b9ca-40eb4e260dd8:project/2',
-              'ari:cloud:jira:a35ab846-aa6a-41c1-b9ca-40eb4e260dd8:project/3'],
+            resources: [
+              'ari:cloud:jira:a35ab846-aa6a-41c1-b9ca-40eb4e260dd8:project/2',
+              'ari:cloud:jira:a35ab846-aa6a-41c1-b9ca-40eb4e260dd8:project/3',
+            ],
           },
         },
       ],
@@ -73,34 +74,28 @@ describe('automationFetchFilter', () => {
 
     fetchQuery = elementUtils.query.createMockQuery()
 
-    filter = automationFetchFilter(getFilterParams({
-      client,
-      paginator,
-      config,
-      fetchQuery,
-    })) as filterUtils.FilterWith<'onFetch'>
+    filter = automationFetchFilter(
+      getFilterParams({
+        client,
+        paginator,
+        config,
+        fetchQuery,
+      }),
+    ) as filterUtils.FilterWith<'onFetch'>
 
     projectType = new ObjectType({
       elemID: new ElemID(JIRA, PROJECT_TYPE),
     })
 
-    project2Instance = new InstanceElement(
-      'project2Instance',
-      projectType,
-      {
-        name: 'projectName',
-        id: '2',
-      }
-    )
+    project2Instance = new InstanceElement('project2Instance', projectType, {
+      name: 'projectName',
+      id: '2',
+    })
 
-    project3Instance = new InstanceElement(
-      'project3Instance',
-      projectType,
-      {
-        name: 'otherName',
-        id: '3',
-      }
-    )
+    project3Instance = new InstanceElement('project3Instance', projectType, {
+      name: 'otherName',
+      id: '3',
+    })
 
     connection.post.mockImplementation(async url => {
       if (url === '/rest/webResources/1.0/resources') {
@@ -131,10 +126,10 @@ describe('automationFetchFilter', () => {
 
       const automationTypes = createAutomationTypes()
       expect(elements).toHaveLength(
-        2 // original projects
-        + 1 // new automation
-        + 1 // automation top level type
-        + automationTypes.subTypes.length
+        2 + // original projects
+          1 + // new automation
+          1 + // automation top level type
+          automationTypes.subTypes.length,
       )
 
       const automation = elements[2]
@@ -153,8 +148,10 @@ describe('automationFetchFilter', () => {
           },
         ],
         ruleScope: {
-          resources: ['ari:cloud:jira:a35ab846-aa6a-41c1-b9ca-40eb4e260dd8:project/2',
-            'ari:cloud:jira:a35ab846-aa6a-41c1-b9ca-40eb4e260dd8:project/3'],
+          resources: [
+            'ari:cloud:jira:a35ab846-aa6a-41c1-b9ca-40eb4e260dd8:project/2',
+            'ari:cloud:jira:a35ab846-aa6a-41c1-b9ca-40eb4e260dd8:project/3',
+          ],
         },
       })
 
@@ -195,19 +192,21 @@ describe('automationFetchFilter', () => {
         throw new Error(`Unexpected url ${url}`)
       })
 
-      filter = automationFetchFilter(getFilterParams({
-        client,
-      })) as filterUtils.FilterWith<'onFetch'>
+      filter = automationFetchFilter(
+        getFilterParams({
+          client,
+        }),
+      ) as filterUtils.FilterWith<'onFetch'>
 
       const elements = [project2Instance]
       await filter.onFetch(elements)
 
       const automationTypes = createAutomationTypes()
       expect(elements).toHaveLength(
-        1 // original project
-        + 1 // new automation
-        + 1 // automation top level type
-        + automationTypes.subTypes.length
+        1 + // original project
+          1 + // new automation
+          1 + // automation top level type
+          automationTypes.subTypes.length,
       )
 
       const automation = elements[1]
@@ -226,23 +225,21 @@ describe('automationFetchFilter', () => {
           },
         ],
         ruleScope: {
-          resources: ['ari:cloud:jira:a35ab846-aa6a-41c1-b9ca-40eb4e260dd8:project/2',
-            'ari:cloud:jira:a35ab846-aa6a-41c1-b9ca-40eb4e260dd8:project/3'],
+          resources: [
+            'ari:cloud:jira:a35ab846-aa6a-41c1-b9ca-40eb4e260dd8:project/2',
+            'ari:cloud:jira:a35ab846-aa6a-41c1-b9ca-40eb4e260dd8:project/3',
+          ],
         },
       })
 
       expect(connection.post).not.toHaveBeenCalled()
-      expect(connection.get).toHaveBeenCalledWith(
-        '/rest/cb-automation/latest/project/GLOBAL/rule',
-        undefined,
-      )
+      expect(connection.get).toHaveBeenCalledWith('/rest/cb-automation/latest/project/GLOBAL/rule', undefined)
     })
 
     it('should not fetch automations if usePrivateApi is false', async () => {
       config.client.usePrivateAPI = false
       const elements = [project2Instance]
       await filter.onFetch(elements)
-
 
       expect(elements).toHaveLength(1)
 
@@ -255,7 +252,6 @@ describe('automationFetchFilter', () => {
       const elements = [project2Instance]
       await filter.onFetch(elements)
 
-
       expect(elements).toHaveLength(1)
 
       expect(connection.post).not.toHaveBeenCalled()
@@ -263,12 +259,14 @@ describe('automationFetchFilter', () => {
 
     it('should use elemIdGetter', async () => {
       const { paginator } = mockClient()
-      filter = automationFetchFilter(getFilterParams({
-        client,
-        paginator,
-        config,
-        getElemIdFunc: () => new ElemID(JIRA, 'someName'),
-      })) as filterUtils.FilterWith<'onFetch'>
+      filter = automationFetchFilter(
+        getFilterParams({
+          client,
+          paginator,
+          config,
+          getElemIdFunc: () => new ElemID(JIRA, 'someName'),
+        }),
+      ) as filterUtils.FilterWith<'onFetch'>
 
       const elements = [project2Instance]
       await filter.onFetch(elements)
@@ -291,8 +289,7 @@ describe('automationFetchFilter', () => {
           return {
             status: 200,
             data: {
-              unparsedData: {
-              },
+              unparsedData: {},
             },
           }
         }
@@ -453,15 +450,20 @@ describe('automationFetchFilter', () => {
       throw new Error(`Unexpected url ${url}`)
     })
 
-    filter = automationFetchFilter(getFilterParams({
-      client,
-    })) as filterUtils.FilterWith<'onFetch'>
+    filter = automationFetchFilter(
+      getFilterParams({
+        client,
+      }),
+    ) as filterUtils.FilterWith<'onFetch'>
     const elements = [project2Instance]
     expect(await filter.onFetch(elements)).toEqual({
-      errors: [{
-        message: 'Salto could not access the Automation resource. Elements from that type were not fetched. Please make sure that this type is enabled in your service, and that the supplied user credentials have sufficient permissions to access this data. You can also exclude this data from Salto\'s fetches by changing the environment configuration. Learn more at https://help.salto.io/en/articles/6947061-salto-could-not-access-the-resource',
-        severity: 'Warning',
-      }],
+      errors: [
+        {
+          message:
+            "Salto could not access the Automation resource. Elements from that type were not fetched. Please make sure that this type is enabled in your service, and that the supplied user credentials have sufficient permissions to access this data. You can also exclude this data from Salto's fetches by changing the environment configuration. Learn more at https://help.salto.io/en/articles/6947061-salto-could-not-access-the-resource",
+          severity: 'Warning',
+        },
+      ],
     })
   })
   it('should warn if response is 405', async () => {
@@ -477,15 +479,20 @@ describe('automationFetchFilter', () => {
       throw new Error(`Unexpected url ${url}`)
     })
 
-    filter = automationFetchFilter(getFilterParams({
-      client,
-    })) as filterUtils.FilterWith<'onFetch'>
+    filter = automationFetchFilter(
+      getFilterParams({
+        client,
+      }),
+    ) as filterUtils.FilterWith<'onFetch'>
     const elements = [project2Instance]
     expect(await filter.onFetch(elements)).toEqual({
-      errors: [{
-        message: 'Salto could not access the Automation resource. Elements from that type were not fetched. Please make sure that this type is enabled in your service, and that the supplied user credentials have sufficient permissions to access this data. You can also exclude this data from Salto\'s fetches by changing the environment configuration. Learn more at https://help.salto.io/en/articles/6947061-salto-could-not-access-the-resource',
-        severity: 'Warning',
-      }],
+      errors: [
+        {
+          message:
+            "Salto could not access the Automation resource. Elements from that type were not fetched. Please make sure that this type is enabled in your service, and that the supplied user credentials have sufficient permissions to access this data. You can also exclude this data from Salto's fetches by changing the environment configuration. Learn more at https://help.salto.io/en/articles/6947061-salto-could-not-access-the-resource",
+          severity: 'Warning',
+        },
+      ],
     })
   })
   it('should adjust elemID correctly when projects is part of idFields', async () => {
@@ -503,9 +510,11 @@ describe('automationFetchFilter', () => {
       throw new Error(`Unexpected url ${url}`)
     })
 
-    filter = automationFetchFilter(getFilterParams({
-      client,
-    })) as filterUtils.FilterWith<'onFetch'>
+    filter = automationFetchFilter(
+      getFilterParams({
+        client,
+      }),
+    ) as filterUtils.FilterWith<'onFetch'>
 
     const elements = [project2Instance]
     await filter.onFetch(elements)
@@ -531,10 +540,12 @@ describe('automationFetchFilter', () => {
       throw new Error(`Unexpected url ${url}`)
     })
 
-    filter = automationFetchFilter(getFilterParams({
-      client,
-      config,
-    })) as filterUtils.FilterWith<'onFetch'>
+    filter = automationFetchFilter(
+      getFilterParams({
+        client,
+        config,
+      }),
+    ) as filterUtils.FilterWith<'onFetch'>
 
     const elements = [project3Instance]
     await filter.onFetch(elements)
@@ -574,10 +585,8 @@ describe('automationFetchFilter', () => {
                     },
                   ],
                 },
-                children: [
-                ],
-                conditions: [
-                ],
+                children: [],
+                conditions: [],
               },
             ],
           },
@@ -595,14 +604,10 @@ describe('automationFetchFilter', () => {
         },
       },
     })
-    const objectTypeInstnce = new InstanceElement(
-      'objectTypeInstance',
-      objectTypeType,
-      {
-        id: '35',
-        name: 'objectTypeName',
-      }
-    )
+    const objectTypeInstnce = new InstanceElement('objectTypeInstance', objectTypeType, {
+      id: '35',
+      name: 'objectTypeName',
+    })
     beforeEach(() => {
       const { client: cli, connection: conn } = mockClient()
       client = cli
@@ -636,22 +641,24 @@ describe('automationFetchFilter', () => {
       const { paginator } = mockClient()
       config = _.cloneDeep(getDefaultConfig({ isDataCenter: false }))
       config.fetch.enableJSM = false
-      config.fetch.enableJsmExperimental = false
-      filter = automationFetchFilter(getFilterParams({
-        client,
-        paginator,
-        config,
-        fetchQuery,
-      })) as filterUtils.FilterWith<'onFetch'>
+      config.fetch.enableJSMPremium = false
+      filter = automationFetchFilter(
+        getFilterParams({
+          client,
+          paginator,
+          config,
+          fetchQuery,
+        }),
+      ) as filterUtils.FilterWith<'onFetch'>
       const elements = [objectTypeInstnce]
       await filter.onFetch(elements)
 
       const automationTypes = createAutomationTypes()
       expect(elements).toHaveLength(
-        1 // original objectTypeInstnce
-        + 1 // new automation
-        + 1 // automation top level type
-        + automationTypes.subTypes.length
+        1 + // original objectTypeInstnce
+          1 + // new automation
+          1 + // automation top level type
+          automationTypes.subTypes.length,
       )
 
       const automation = elements[1]
@@ -684,10 +691,8 @@ describe('automationFetchFilter', () => {
                 },
               ],
             },
-            children: [
-            ],
-            conditions: [
-            ],
+            children: [],
+            conditions: [],
           },
         ],
       })
@@ -695,22 +700,24 @@ describe('automationFetchFilter', () => {
     it('should fetch automations with assets support from the service when enableJsm is true', async () => {
       const { paginator } = mockClient()
       config.fetch.enableJSM = true
-      config.fetch.enableJsmExperimental = true
-      filter = automationFetchFilter(getFilterParams({
-        client,
-        paginator,
-        config,
-        fetchQuery,
-      })) as filterUtils.FilterWith<'onFetch'>
+      config.fetch.enableJSMPremium = true
+      filter = automationFetchFilter(
+        getFilterParams({
+          client,
+          paginator,
+          config,
+          fetchQuery,
+        }),
+      ) as filterUtils.FilterWith<'onFetch'>
       const elements = [objectTypeInstnce]
       await filter.onFetch(elements)
 
       const automationTypes = createAutomationTypes()
       expect(elements).toHaveLength(
-        1 // original objectTypeInstnce
-        + 1 // new automation
-        + 1 // automation top level type
-        + automationTypes.subTypes.length
+        1 + // original objectTypeInstnce
+          1 + // new automation
+          1 + // automation top level type
+          automationTypes.subTypes.length,
       )
 
       const automation = elements[1]
@@ -731,6 +738,7 @@ describe('automationFetchFilter', () => {
             type: 'cmdb.object.create',
             value: {
               objectTypeId: '35',
+              schemaId: '5',
               attributes: [
                 {
                   name: 'Name',
@@ -739,10 +747,117 @@ describe('automationFetchFilter', () => {
                 },
               ],
             },
-            children: [
-            ],
-            conditions: [
-            ],
+            children: [],
+            conditions: [],
+          },
+        ],
+      })
+    })
+    it('should fetch automations with assets support from the service when enableJsm is true and only schemaId', async () => {
+      connection.post.mockImplementation(async url => {
+        if (url === '/rest/webResources/1.0/resources') {
+          return {
+            status: 200,
+            data: {
+              unparsedData: {
+                [CLOUD_RESOURCE_FIELD]: safeJsonStringify({
+                  tenantId: 'cloudId',
+                }),
+              },
+            },
+          }
+        }
+
+        if (url === '/gateway/api/automation/internal-api/jira/cloudId/pro/rest/GLOBAL/rules') {
+          return {
+            status: 200,
+            data: {
+              total: 1,
+              values: [
+                {
+                  id: '1',
+                  name: 'automationName',
+                  projects: [],
+                  ruleScope: {
+                    resources: ['ari:cloud:jira:a35ab846-aa6a-41c1-b9ca-40eb4e260dd8'],
+                  },
+                  components: [
+                    {
+                      component: 'ACTION',
+                      schemaVersion: 1,
+                      type: 'cmdb.object.create',
+                      value: {
+                        workspaceId: '68d020c3-b88e-47dc-9231-452f7dc63521',
+                        schemaLabel: 'idoA Schema',
+                        schemaId: '5',
+                        attributes: [
+                          {
+                            name: 'Name',
+                            value: 'idoA automation',
+                            isLabel: true,
+                          },
+                        ],
+                      },
+                      children: [],
+                      conditions: [],
+                    },
+                  ],
+                },
+              ],
+            },
+          }
+        }
+        throw new Error(`Unexpected url ${url}`)
+      })
+      const { paginator } = mockClient()
+      config.fetch.enableJSM = true
+      config.fetch.enableJSMPremium = true
+      filter = automationFetchFilter(
+        getFilterParams({
+          client,
+          paginator,
+          config,
+          fetchQuery,
+        }),
+      ) as filterUtils.FilterWith<'onFetch'>
+      const elements = [objectTypeInstnce]
+      await filter.onFetch(elements)
+      const automationTypes = createAutomationTypes()
+      expect(elements).toHaveLength(
+        1 + // original objectTypeInstnce
+          1 + // new automation
+          1 + // automation top level type
+          automationTypes.subTypes.length,
+      )
+
+      const automation = elements[1]
+
+      expect(automation.elemID.getFullName()).toEqual('jira.Automation.instance.automationName')
+
+      expect(automation.value).toEqual({
+        id: '1',
+        name: 'automationName',
+        projects: [],
+        ruleScope: {
+          resources: ['ari:cloud:jira:a35ab846-aa6a-41c1-b9ca-40eb4e260dd8'],
+        },
+        components: [
+          {
+            component: 'ACTION',
+            schemaVersion: 1,
+            type: 'cmdb.object.create',
+            value: {
+              schemaId: '5',
+              attributes: [
+                {
+                  name: 'Name',
+                  value: 'idoA automation',
+                  isLabel: true,
+                },
+              ],
+            },
+            children: [],
+            conditions: [],
           },
         ],
       })
@@ -783,7 +898,6 @@ describe('automationFetchFilter', () => {
                       value: {
                         objectTypeId: '35',
                         schemaLabel: 'idoA Schema',
-                        schemaId: '5',
                         objectTypeLabel: 'R&D',
                         attributes: [
                           {
@@ -793,10 +907,8 @@ describe('automationFetchFilter', () => {
                           },
                         ],
                       },
-                      children: [
-                      ],
-                      conditions: [
-                      ],
+                      children: [],
+                      conditions: [],
                     },
                   ],
                 },
@@ -809,20 +921,22 @@ describe('automationFetchFilter', () => {
       const { paginator } = mockClient()
       config.fetch.enableJSM = true
       config.fetch.enableJsmExperimental = true
-      filter = automationFetchFilter(getFilterParams({
-        client,
-        paginator,
-        config,
-        fetchQuery,
-      })) as filterUtils.FilterWith<'onFetch'>
+      filter = automationFetchFilter(
+        getFilterParams({
+          client,
+          paginator,
+          config,
+          fetchQuery,
+        }),
+      ) as filterUtils.FilterWith<'onFetch'>
       const elements = [objectTypeInstnce]
       await filter.onFetch(elements)
       const automationTypes = createAutomationTypes()
       expect(elements).toHaveLength(
-        1 // original objectTypeInstnce
-        + 1 // new automation
-        + 1 // automation top level type
-        + automationTypes.subTypes.length
+        1 + // original objectTypeInstnce
+          1 + // new automation
+          1 + // automation top level type
+          automationTypes.subTypes.length,
       )
 
       const automation = elements[1]
@@ -844,7 +958,6 @@ describe('automationFetchFilter', () => {
             value: {
               objectTypeId: '35',
               schemaLabel: 'idoA Schema',
-              schemaId: '5',
               objectTypeLabel: 'R&D',
               attributes: [
                 {
@@ -854,10 +967,8 @@ describe('automationFetchFilter', () => {
                 },
               ],
             },
-            children: [
-            ],
-            conditions: [
-            ],
+            children: [],
+            conditions: [],
           },
         ],
       })
@@ -900,20 +1011,22 @@ describe('automationFetchFilter', () => {
       const { paginator } = mockClient()
       config.fetch.enableJSM = true
       config.fetch.enableJsmExperimental = true
-      filter = automationFetchFilter(getFilterParams({
-        client,
-        paginator,
-        config,
-        fetchQuery,
-      })) as filterUtils.FilterWith<'onFetch'>
+      filter = automationFetchFilter(
+        getFilterParams({
+          client,
+          paginator,
+          config,
+          fetchQuery,
+        }),
+      ) as filterUtils.FilterWith<'onFetch'>
       const elements = [objectTypeInstnce]
       await filter.onFetch(elements)
       const automationTypes = createAutomationTypes()
       expect(elements).toHaveLength(
-        1 // original objectTypeInstnce
-        + 1 // new automation
-        + 1 // automation top level type
-        + automationTypes.subTypes.length
+        1 + // original objectTypeInstnce
+          1 + // new automation
+          1 + // automation top level type
+          automationTypes.subTypes.length,
       )
 
       const automation = elements[1]
