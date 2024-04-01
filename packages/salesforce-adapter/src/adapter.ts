@@ -31,14 +31,15 @@ import {
   PartialFetchData,
   Element,
   ProgressReporter,
+  isInstanceElement,
 } from '@salto-io/adapter-api'
 import {
   filter,
   logDuration,
-  resolveChangeElement,
   restoreChangeElement,
   safeJsonStringify,
 } from '@salto-io/adapter-utils'
+import { resolveChangeElement } from '@salto-io/adapter-components'
 import { MetadataObject } from '@salto-io/jsforce'
 import _ from 'lodash'
 import { logger } from '@salto-io/logging'
@@ -102,6 +103,7 @@ import currencyIsoCodeFilter from './filters/currency_iso_code'
 import enumFieldPermissionsFilter from './filters/field_permissions_enum'
 import splitCustomLabels from './filters/split_custom_labels'
 import flowsFilter from './filters/flows_filter'
+import hideTypesFolder from './filters/hide_types_folder'
 import customMetadataToObjectTypeFilter from './filters/custom_metadata_to_object_type'
 import installedPackageGeneratedDependencies from './filters/installed_package_generated_dependencies'
 import createMissingInstalledPackagesInstancesFilter from './filters/create_missing_installed_packages_instances'
@@ -264,6 +266,7 @@ export const allFilters: Array<
   { creator: removeUnixTimeZeroFilter },
   { creator: metadataInstancesAliasesFilter },
   { creator: importantValuesFilter },
+  { creator: hideTypesFolder },
   // createChangedAtSingletonInstanceFilter should run last
   { creator: changedAtSingletonFilter },
 ]
@@ -639,6 +642,20 @@ export default class SalesforceAdapter implements AdapterOperations {
       }
       return { isPartial: true, deletedElements: deletedElemIds }
     }
+
+    if (withChangesDetection) {
+      const relevantFetchedElementIds = elements
+        .filter(
+          (element) =>
+            isCustomObjectSync(element) || isInstanceElement(element),
+        )
+        .map((element) => element.elemID.getFullName())
+      ;(relevantFetchedElementIds.length > 100 ? log.trace : log.debug)(
+        'Fetched the following elements in quick fetch: %s',
+        safeJsonStringify(relevantFetchedElementIds),
+      )
+    }
+    metadataQuery.logData()
     return {
       elements,
       errors: onFetchFilterResult.errors ?? [],

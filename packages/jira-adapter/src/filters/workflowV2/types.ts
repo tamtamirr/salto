@@ -33,6 +33,7 @@ const log = logger(module)
 
 export const CHUNK_SIZE = 25
 export const VALIDATOR_LIST_FIELDS = new Set(['statusIds', 'groupsExemptFromValidation', 'fieldsRequired'])
+export const TRIGGER_LIST_FIELDS = new Set(['enabledTriggers'])
 export const CONDITION_LIST_FIELDS = new Set(['roleIds', 'groupIds', 'statusIds'])
 export const ID_TO_UUID_PATH_NAME_TO_RECURSE = new Set([
   'statuses',
@@ -41,6 +42,13 @@ export const ID_TO_UUID_PATH_NAME_TO_RECURSE = new Set([
   'statusMigrations',
 ])
 export const CONDITION_GROUPS_PATH_NAME_TO_RECURSE = new Set(['transitions', 'conditions', 'conditionGroups'])
+export const EMPTY_STRINGS_PATH_NAME_TO_RECURSE = new Set([
+  'transitions',
+  'conditions',
+  'validators',
+  'actions',
+  'triggers',
+])
 
 export enum TASK_STATUS {
   COMPLETE = 'COMPLETE',

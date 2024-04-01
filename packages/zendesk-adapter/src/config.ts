@@ -97,6 +97,7 @@ export type ZendeskFetchConfig = definitions.UserFetchConfig & {
   extractReferencesFromFreeText?: boolean
   convertJsonIdsToReferences?: boolean
   omitInactive?: OmitInactiveConfig
+  omitTicketStatusTicketField?: boolean
 }
 
 export type ZendeskDeployConfig = definitions.UserDeployConfig &
@@ -2781,8 +2782,8 @@ export const DEFAULT_CONFIG: ZendeskConfig = {
     handleIdenticalAttachmentConflicts: false,
     omitInactive: {
       default: true,
-      customizations: {},
     },
+    omitTicketStatusTicketField: false,
   },
   [DEPLOY_CONFIG]: {
     createMissingOrganizations: false,
@@ -2860,9 +2861,6 @@ const OmitInactiveType = createMatchingObjectType<OmitInactiveConfig>({
     },
     customizations: {
       refType: new MapType(BuiltinTypes.BOOLEAN),
-      annotations: {
-        _required: true,
-      },
     },
   },
   annotations: {
@@ -2942,6 +2940,7 @@ export type ChangeValidatorName =
   | 'inactiveTicketFormInView'
   | 'immutableTypeAndKeyForUserFields'
   | 'localeModification'
+  | 'emptyAutomationOrder'
 
 type ChangeValidatorConfig = Partial<Record<ChangeValidatorName, boolean>>
 
@@ -3019,6 +3018,7 @@ const changeValidatorConfigType = createMatchingObjectType<ChangeValidatorConfig
     inactiveTicketFormInView: { refType: BuiltinTypes.BOOLEAN },
     immutableTypeAndKeyForUserFields: { refType: BuiltinTypes.BOOLEAN },
     localeModification: { refType: BuiltinTypes.BOOLEAN },
+    emptyAutomationOrder: { refType: BuiltinTypes.BOOLEAN },
   },
   annotations: {
     [CORE_ANNOTATIONS.ADDITIONAL_PROPERTIES]: false,
@@ -3047,6 +3047,7 @@ export const configType = createMatchingObjectType<Partial<ZendeskConfig>>({
           extractReferencesFromFreeText: { refType: BuiltinTypes.BOOLEAN },
           convertJsonIdsToReferences: { refType: BuiltinTypes.BOOLEAN },
           omitInactive: { refType: OmitInactiveType },
+          omitTicketStatusTicketField: { refType: BuiltinTypes.BOOLEAN },
         },
         omitElemID: true,
       }),
@@ -3079,6 +3080,7 @@ export const configType = createMatchingObjectType<Partial<ZendeskConfig>>({
       `${FETCH_CONFIG}.extractReferencesFromFreeText`,
       `${FETCH_CONFIG}.convertJsonIdsToReferences`,
       `${FETCH_CONFIG}.omitInactive.customizations`,
+      `${FETCH_CONFIG}.omitTicketStatusTicketField`,
       DEPLOY_CONFIG,
     ),
     [CORE_ANNOTATIONS.ADDITIONAL_PROPERTIES]: false,

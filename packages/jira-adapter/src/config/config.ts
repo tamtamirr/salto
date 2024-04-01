@@ -61,7 +61,7 @@ type JiraFetchFilters = definitions.DefaultFetchCriteria & {
   type?: string
 }
 
-type JiraFetchConfig = definitions.UserFetchConfig<JiraFetchFilters> & {
+type JiraFetchConfig = definitions.UserFetchConfig<{ fetchCriteria: JiraFetchFilters }> & {
   fallbackToInternalId?: boolean
   addTypeToFieldName?: boolean
   convertUsersIds?: boolean
@@ -76,6 +76,7 @@ type JiraFetchConfig = definitions.UserFetchConfig<JiraFetchFilters> & {
   enableMissingReferences?: boolean
   enableIssueLayouts?: boolean
   enableNewWorkflowAPI?: boolean
+  showImportantValues?: boolean // temp, should be removed
 }
 
 export type MaskingConfig = {
@@ -159,6 +160,7 @@ export const PARTIAL_DEFAULT_CONFIG: Omit<JiraConfig, 'apiDefinitions'> = {
     addAlias: true,
     enableIssueLayouts: true,
     enableNewWorkflowAPI: false,
+    showImportantValues: false,
   },
   deploy: {
     forceDelete: false,
@@ -200,6 +202,7 @@ export type ChangeValidatorName =
   | 'screen'
   | 'issueTypeScheme'
   | 'issueTypeSchemeDefaultType'
+  | 'teamManagedProject'
   | 'projectDeletion'
   | 'status'
   | 'privateApi'
@@ -214,6 +217,7 @@ export type ChangeValidatorName =
   | 'statusMigrationChange'
   | 'workflowSchemeMigration'
   | 'workflowStatusMappings'
+  | 'inboundTransition'
   | 'issueTypeSchemeMigration'
   | 'activeSchemeChange'
   | 'masking'
@@ -257,6 +261,7 @@ const changeValidatorConfigType = createMatchingObjectType<ChangeValidatorConfig
     screen: { refType: BuiltinTypes.BOOLEAN },
     issueTypeScheme: { refType: BuiltinTypes.BOOLEAN },
     issueTypeSchemeDefaultType: { refType: BuiltinTypes.BOOLEAN },
+    teamManagedProject: { refType: BuiltinTypes.BOOLEAN },
     projectDeletion: { refType: BuiltinTypes.BOOLEAN },
     status: { refType: BuiltinTypes.BOOLEAN },
     privateApi: { refType: BuiltinTypes.BOOLEAN },
@@ -271,6 +276,7 @@ const changeValidatorConfigType = createMatchingObjectType<ChangeValidatorConfig
     statusMigrationChange: { refType: BuiltinTypes.BOOLEAN },
     workflowSchemeMigration: { refType: BuiltinTypes.BOOLEAN },
     workflowStatusMappings: { refType: BuiltinTypes.BOOLEAN },
+    inboundTransition: { refType: BuiltinTypes.BOOLEAN },
     issueTypeSchemeMigration: { refType: BuiltinTypes.BOOLEAN },
     activeSchemeChange: { refType: BuiltinTypes.BOOLEAN },
     masking: { refType: BuiltinTypes.BOOLEAN },
@@ -305,6 +311,8 @@ const changeValidatorConfigType = createMatchingObjectType<ChangeValidatorConfig
 })
 const jiraDeployConfigType = definitions.createUserDeployConfigType(JIRA, changeValidatorConfigType, {
   ...defaultMissingUserFallbackField,
+  taskMaxRetries: { refType: BuiltinTypes.NUMBER },
+  taskRetryDelay: { refType: BuiltinTypes.NUMBER },
   forceDelete: { refType: BuiltinTypes.BOOLEAN },
 })
 
@@ -337,6 +345,7 @@ const fetchConfigType = definitions.createUserFetchConfigType({
     enableMissingReferences: { refType: BuiltinTypes.BOOLEAN },
     enableIssueLayouts: { refType: BuiltinTypes.BOOLEAN },
     enableNewWorkflowAPI: { refType: BuiltinTypes.BOOLEAN },
+    showImportantValues: { refType: BuiltinTypes.BOOLEAN },
   },
   fetchCriteriaType: fetchFiltersType,
   omitElemID: true,

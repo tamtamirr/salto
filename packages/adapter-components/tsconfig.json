@@ -6,13 +6,14 @@
     "declaration": true,
     "resolveJsonModule": true
   },
-  "include": ["src/**/*", "test/**/*", "index.ts"],
+  "include": ["src/**/*", "test/**/*", "index.ts", "test/**/*.json"],
   "references": [
     { "path": "../dag" },
     { "path": "../lowerdash" },
     { "path": "../logging" },
     { "path": "../adapter-api" },
     { "path": "../adapter-utils" },
-    { "path": "../test-utils" }
+    { "path": "../test-utils" },
+    { "path": "../parser" }
   ]
 }

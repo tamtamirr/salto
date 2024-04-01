@@ -98,6 +98,14 @@ export class HTTPError extends Error {
 
 export class TimeoutError extends Error {}
 
+export type ClientDefaults<TRateLimitConfig extends ClientRateLimitConfig> = {
+  retry: Required<ClientRetryConfig>
+  rateLimit: Required<TRateLimitConfig>
+  maxRequestsPerMinute: number
+  pageSize: Required<ClientPageSizeConfig>
+  timeout?: ClientTimeoutConfig
+}
+
 const isMethodWithData = (params: ClientParams): params is ClientDataParams => 'data' in params
 
 // Determines if the given HTTP method uses 'data' as the second parameter, based on APIConnection
@@ -116,13 +124,7 @@ export abstract class AdapterHTTPClient<TCredentials, TRateLimitConfig extends C
     clientName: string,
     { credentials, connection, config }: ClientOpts<TCredentials, TRateLimitConfig>,
     createConnection: ConnectionCreator<TCredentials>,
-    defaults: {
-      retry: Required<ClientRetryConfig>
-      rateLimit: Required<TRateLimitConfig>
-      maxRequestsPerMinute: number
-      pageSize: Required<ClientPageSizeConfig>
-      timeout?: ClientTimeoutConfig
-    },
+    defaults: ClientDefaults<TRateLimitConfig>,
   ) {
     super(clientName, config, defaults)
     this.conn = createClientConnection({
@@ -234,9 +236,10 @@ export abstract class AdapterHTTPClient<TCredentials, TRateLimitConfig extends C
     }
 
     const { url, queryParams, headers, responseType } = params
+    const data = isMethodWithData(params) ? params.data : undefined
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const logResponse = (res: Response<any>): void => {
+    const logResponse = (res: Response<any>, error?: any): void => {
       log.debug('Received response for %s on %s', method.toUpperCase(), url)
 
       const responseText = safeJsonStringify({
@@ -248,11 +251,20 @@ export abstract class AdapterHTTPClient<TCredentials, TRateLimitConfig extends C
           ? `<omitted buffer of length ${res.data.length}>`
           : this.clearValuesFromResponseData(res.data, url),
         headers: this.extractHeaders(res.headers),
+        data: Buffer.isBuffer(data) ? `<omitted buffer of length ${data.length}>` : data,
       })
 
-      log.debug('Response size for %s on %s is %d', method.toUpperCase(), url, responseText.length)
-
-      log.trace('Full HTTP response for %s on %s: %s', method.toUpperCase(), url, responseText)
+      if (error === undefined) {
+        log.trace(
+          'Full HTTP response for %s on %s (size %d): %s',
+          method.toUpperCase(),
+          url,
+          responseText.length,
+          responseText,
+        )
+      } else {
+        log.warn(`failed to ${method} ${url} with error: ${error}, stack: ${error.stack}, ${responseText}`)
+      }
     }
 
     try {
@@ -284,14 +296,18 @@ export abstract class AdapterHTTPClient<TCredentials, TRateLimitConfig extends C
         headers: this.extractHeaders(res.headers),
       }
     } catch (e) {
-      log.warn(
-        `failed to ${method} ${url} ${safeJsonStringify(queryParams)}: ${e}, data: ${safeJsonStringify(e?.response?.data)}, stack: ${e.stack}`,
+      logResponse(
+        {
+          data: e?.response?.data ?? data,
+          status: e?.response?.status ?? 'undefined',
+          headers: e?.response?.headers ?? headers,
+        },
+        e,
       )
       if (e.code === 'ETIMEDOUT') {
         throw new TimeoutError(`Failed to ${method} ${url} with error: ${e}`)
       }
       if (e.response !== undefined) {
-        logResponse(e.response)
         throw new HTTPError(`Failed to ${method} ${url} with error: ${e}`, {
           status: e.response.status,
           data: e.response.data,

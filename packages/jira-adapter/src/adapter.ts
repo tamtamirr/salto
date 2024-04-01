@@ -127,13 +127,14 @@ import wrongUserPermissionSchemeFilter from './filters/permission_scheme/wrong_u
 import maskingFilter from './filters/masking'
 import avatarsFilter from './filters/avatars'
 import iconUrlFilter from './filters/icon_url'
+import objectTypeIconFilter from './filters/assets/object_type_icon'
 import filtersFilter from './filters/filter'
 import removeEmptyValuesFilter from './filters/remove_empty_values'
 import jqlReferencesFilter from './filters/jql/jql_references'
 import userFilter from './filters/user'
 import changePortalGroupFieldsFilter from './filters/change_portal_group_fields'
 import { JIRA, PROJECT_TYPE, SERVICE_DESK } from './constants'
-import { paginate, removeScopedObjects } from './client/pagination'
+import { paginate, filterResponseEntries } from './client/pagination'
 import { dependencyChanger } from './dependency_changers'
 import { getChangeGroupIds } from './group_change'
 import fetchCriteria from './fetch_criteria'
@@ -177,6 +178,7 @@ import scriptedFragmentsDeployFilter from './filters/script_runner/scripted_frag
 import fetchJsmTypesFilter from './filters/jsm_types_fetch_filter'
 import assetsInstancesDeploymentFilter from './filters/assets/assets_instances_deployment'
 import deployAttributesFilter from './filters/assets/attribute_deploy_filter'
+import objectSchemaDeployFilter from './filters/assets/object_schema_deployment'
 import deployJsmTypesFilter from './filters/jsm_types_deploy_filter'
 import jsmPathFilter from './filters/jsm_paths'
 import portalSettingsFilter from './filters/portal_settings'
@@ -192,6 +194,7 @@ import assetsObjectTypeOrderFilter from './filters/assets/assets_object_type_ord
 import defaultAttributesFilter from './filters/assets/label_object_type_attribute'
 import changeAttributesPathFilter from './filters/assets/change_attributes_path'
 import asyncApiCallsFilter from './filters/async_api_calls'
+import addImportantValuesFilter from './filters/add_important_values'
 import ScriptRunnerClient from './client/script_runner_client'
 import { weakReferenceHandlers } from './weak_references'
 import { jiraJSMAssetsEntriesFunc, jiraJSMEntriesFunc } from './jsm_utils'
@@ -224,6 +227,7 @@ export const DEFAULT_FILTERS = [
   // Should run before automationDeploymentFilter
   brokenReferences,
   automationDeploymentFilter,
+  addImportantValuesFilter,
   webhookFilter,
   // Should run before duplicateIdsFilter
   fieldNameFilter,
@@ -271,6 +275,8 @@ export const DEFAULT_FILTERS = [
   // must run after workflowFilter
   emptyValidatorWorkflowFilter,
   // must run before fieldReferencesFilter
+  formsFilter,
+  objectTypeIconFilter,
   groupNameFilter,
   workflowGroupsFilter,
   workflowSchemeFilter,
@@ -315,7 +321,6 @@ export const DEFAULT_FILTERS = [
   referenceBySelfLinkFilter,
   // Must run after referenceBySelfLinkFilter
   removeSelfFilter,
-  formsFilter,
   serviceUrlJsmFilter, // Must run before fieldReferencesFilter
   fieldReferencesFilter,
   // Must run after fieldReferencesFilter
@@ -384,6 +389,7 @@ export const DEFAULT_FILTERS = [
   defaultAttributesFilter,
   assetsObjectTypeOrderFilter,
   deployAttributesFilter,
+  objectSchemaDeployFilter, // Must run before deployJsmTypesFilter
   deployJsmTypesFilter,
   hideTypesFilter, // Must run after defaultAttributesFilter and assetsObjectTypeOrderFilter, which also create types.
   // Must be last
@@ -436,7 +442,7 @@ export default class JiraAdapter implements AdapterOperations {
     const paginator = createPaginator({
       client: this.client,
       paginationFuncCreator: paginate,
-      customEntryExtractor: removeScopedObjects,
+      customEntryExtractor: filterResponseEntries,
       asyncRun: config.fetch.asyncPagination ?? true,
     })
 
@@ -665,6 +671,7 @@ export default class JiraAdapter implements AdapterOperations {
           getElemIdFunc: this.getElemIdFunc,
           additionalRequestContext: serviceDeskProjRecord,
           getEntriesResponseValuesFunc: jiraJSMEntriesFunc(projectInstance),
+          shouldIgnorePermissionsError: true,
         })
       }),
     )

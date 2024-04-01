@@ -21,7 +21,9 @@ import { shouldRecurseIntoEntry } from '../../elements/instance_elements' // TOD
 
 const log = logger(module)
 
-type NestedResourceFetcher = (item: ValueGeneratedItem) => Promise<Record<string, ValueGeneratedItem[]>>
+type NestedResourceFetcher = (
+  item: ValueGeneratedItem,
+) => Promise<Record<string, ValueGeneratedItem[] | ValueGeneratedItem>>
 
 // TODO remove the old code when possible - originally called getExtraFieldValues
 export const recurseIntoSubresources =
@@ -47,7 +49,7 @@ export const recurseIntoSubresources =
               // TODO avoid crashing if fails on sub-element (SALTO-5427)
               const typeFetcher = typeFetcherCreator({
                 typeName: recurseDef.typeName,
-                context: nestedRequestContext,
+                context: { ...item.context, ...nestedRequestContext },
               })
               if (typeFetcher === undefined) {
                 log.debug('no resource fetcher defined for type %s, cannot recurse into resource', recurseDef.typeName)

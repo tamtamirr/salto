@@ -38,14 +38,10 @@ import {
   elements as elementUtils,
   client as clientUtils,
   combineElementFixers,
+  resolveChangeElement,
   fetch as fetchUtils,
 } from '@salto-io/adapter-components'
-import {
-  applyFunctionToChangeData,
-  logDuration,
-  resolveChangeElement,
-  restoreChangeElement,
-} from '@salto-io/adapter-utils'
+import { applyFunctionToChangeData, logDuration, restoreChangeElement } from '@salto-io/adapter-utils'
 import { logger } from '@salto-io/logging'
 import { collections, objects } from '@salto-io/lowerdash'
 import OktaClient from './client/client'
@@ -71,6 +67,7 @@ import standardRolesFilter from './filters/standard_roles'
 import userTypeFilter from './filters/user_type'
 import userSchemaFilter from './filters/user_schema'
 import oktaExpressionLanguageFilter from './filters/expression_language'
+import accessPolicyRuleConstraintsFilter from './filters/access_policy_rule_constraints'
 import defaultPolicyRuleDeployment from './filters/default_rule_deployment'
 import authorizationRuleFilter from './filters/authorization_server_rule'
 import privateApiDeployFilter from './filters/private_api_deploy'
@@ -86,6 +83,7 @@ import unorderedListsFilter from './filters/unordered_lists'
 import addAliasFilter from './filters/add_alias'
 import profileMappingPropertiesFilter from './filters/profile_mapping_properties'
 import profileMappingAdditionFilter from './filters/profile_mapping_addition'
+import profileMappingRemovalFilter from './filters/profile_mapping_removal'
 import omitAuthenticatorMappingFilter from './filters/omit_authenticator_mapping'
 import groupPushFilter from './filters/group_push'
 import addImportantValues from './filters/add_important_values'
@@ -121,6 +119,7 @@ const DEFAULT_FILTERS = [
   oktaExpressionLanguageFilter,
   profileEnrollmentAttributesFilter,
   addImportantValues,
+  accessPolicyRuleConstraintsFilter,
   defaultPolicyRuleDeployment,
   schemaFieldsRemovalFilter,
   appLogoFilter,
@@ -134,6 +133,7 @@ const DEFAULT_FILTERS = [
   serviceUrlFilter,
   appDeploymentFilter,
   profileMappingAdditionFilter,
+  profileMappingRemovalFilter,
   // should run after fieldReferences
   ...Object.values(commonFilters),
   // should run after commonFilters,

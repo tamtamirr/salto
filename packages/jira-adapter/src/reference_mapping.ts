@@ -77,6 +77,7 @@ import {
   WORKFLOW_CONFIGURATION_TYPE,
   DELETE_LINK_TYPES,
   OBJECT_SCHEMA_TYPE,
+  OBJECT_TYPE_ICON_TYPE,
 } from './constants'
 import { getFieldsLookUpName } from './filters/fields/field_type_references_filter'
 import { getRefType } from './references/workflow_properties'
@@ -946,6 +947,28 @@ export const referencesRules: JiraFieldReferenceDefinition[] = [
     target: { typeContext: 'workflowStatusPropertiesContext' },
   },
   {
+    src: { field: 'value', parentTypes: ['WorkflowReferenceStatus_properties'] },
+    jiraSerializationStrategy: 'groupStrategyById',
+    target: { typeContext: 'workflowStatusPropertiesContext' },
+  },
+  {
+    src: { field: 'value', parentTypes: ['WorkflowReferenceStatus_properties'] },
+    jiraSerializationStrategy: 'groupStrategyByOriginalName',
+    jiraMissingRefStrategy: 'typeAndValue',
+    target: { typeContext: 'workflowStatusPropertiesContext' },
+  },
+  {
+    src: { field: 'value', parentTypes: ['WorkflowTransitions_properties'] },
+    jiraSerializationStrategy: 'groupStrategyById',
+    target: { typeContext: 'workflowStatusPropertiesContext' },
+  },
+  {
+    src: { field: 'value', parentTypes: ['WorkflowTransitions_properties'] },
+    jiraSerializationStrategy: 'groupStrategyByOriginalName',
+    jiraMissingRefStrategy: 'typeAndValue',
+    target: { typeContext: 'workflowStatusPropertiesContext' },
+  },
+  {
     src: { field: 'optionIds', parentTypes: ['PriorityScheme'] },
     serializationStrategy: 'id',
     jiraMissingRefStrategy: 'typeAndValue',
@@ -1317,6 +1340,17 @@ export const referencesRules: JiraFieldReferenceDefinition[] = [
     src: { field: 'schemaId', parentTypes: [AUTOMATION_COMPONENT_VALUE_TYPE] },
     serializationStrategy: 'id',
     target: { type: OBJECT_SCHEMA_TYPE },
+  },
+  {
+    src: { field: 'portalRequestTypeIds', parentTypes: ['FormPortal'] },
+    serializationStrategy: 'id',
+    jiraMissingRefStrategy: 'typeAndValue',
+    target: { type: REQUEST_TYPE_NAME },
+  },
+  {
+    src: { field: 'iconId', parentTypes: [OBJECT_TYPE_TYPE] },
+    serializationStrategy: 'id',
+    target: { type: OBJECT_TYPE_ICON_TYPE },
   },
 ]
 

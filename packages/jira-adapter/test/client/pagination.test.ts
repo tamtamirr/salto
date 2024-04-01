@@ -18,7 +18,7 @@ import MockAdapter from 'axios-mock-adapter'
 import { client as clientUtils, elements as elementUtils } from '@salto-io/adapter-components'
 import { collections } from '@salto-io/lowerdash'
 import JiraClient from '../../src/client/client'
-import { removeScopedObjects } from '../../src/client/pagination'
+import { filterResponseEntries } from '../../src/client/pagination'
 
 const { toArrayAsync } = collections.asynciterable
 const { createPaginator, getAllPagesWithOffsetAndTotal } = clientUtils
@@ -56,12 +56,16 @@ describe('pageByOffset', () => {
           { name: 'scoped', scope: {} },
           { name: 'nested scope', nested: [{ name: 'valid' }, { name: 'bad', scope: {} }] },
           { name: 'globalScoped', scope: { type: 'GLOBAL' } },
+          { name: 'typed', type: 'classic' },
+          { name: 'typedSimple', type: 'simple' },
+          { name: 'typedSelfSimple', type: 'simple', self: 'https://myJira.atlassian.net/rest/agile/1.0/board/1' },
+          { name: 'badSelf', type: 'simple', self: 'https://myJira.atlassian.net/rest/agile/2.0/board/1' },
         ])
       const args = { url: 'http://myjira.net/thing' }
       const paginator = createPaginator({
         client,
         paginationFuncCreator: getAllPagesWithOffsetAndTotal,
-        customEntryExtractor: removeScopedObjects,
+        customEntryExtractor: filterResponseEntries,
       })
       responses = await toArrayAsync(paginator(args, extractPageEntriesByNestedField()))
     })
@@ -74,15 +78,65 @@ describe('pageByOffset', () => {
     })
     it('should keep non-scoped entities', () => {
       const [page] = responses
-      expect(page[0]).toEqual({ name: 'thing' })
+      expect(page).toContainEqual({ name: 'thing' })
     })
     it('should omit nested scoped entities from the response', () => {
       const [page] = responses
-      expect(page[1]).toEqual({ name: 'nested scope', nested: [{ name: 'valid' }] })
+      expect(page).toContainEqual({ name: 'nested scope', nested: [{ name: 'valid' }] })
     })
     it('should keep global scoped entities', () => {
       const [page] = responses
-      expect(page[2]).toEqual({ name: 'globalScoped', scope: { type: 'GLOBAL' } })
+      expect(page).toContainEqual({ name: 'globalScoped', scope: { type: 'GLOBAL' } })
+    })
+    it('should keep non-simple type scopes', () => {
+      const [page] = responses
+      expect(page).toContainEqual({ name: 'typed', type: 'classic' })
+    })
+    it('should keep simple type scopes with non board self', () => {
+      const [page] = responses
+      expect(page).toContainEqual(
+        expect.objectContaining({ type: 'simple', self: 'https://myJira.atlassian.net/rest/agile/2.0/board/1' }),
+      )
+    })
+    it('should omit team boards from the response', () => {
+      expect(responses).toHaveLength(1)
+      const [page] = responses
+      expect(page).not.toContainEqual(
+        expect.objectContaining({ type: 'simple', self: 'https://myJira.atlassian.net/rest/agile/1.0/board/1' }),
+      )
+    })
+  })
+  describe('when there are unrelated calendars in the response', () => {
+    let responses: clientUtils.ResponseValue[][]
+    beforeEach(async () => {
+      mockAxios
+        .onGet()
+        .reply(200, [
+          { name: 'thing' },
+          { canCreate: false, calendars: [] },
+          { canCreate: false, anotherField: 'value' },
+          { canCreate: true, calendars: [] },
+        ])
+      const args = { url: 'http://myjira.net/thing' }
+      const paginator = createPaginator({
+        client,
+        paginationFuncCreator: getAllPagesWithOffsetAndTotal,
+        customEntryExtractor: filterResponseEntries,
+      })
+      responses = await toArrayAsync(paginator(args, extractPageEntriesByNestedField()))
+    })
+    it('should omit the global calendars response where canCreate is false', () => {
+      expect(responses).toHaveLength(1)
+      const [page] = responses
+      expect(page).not.toContainEqual(expect.objectContaining({ canCreate: false, calendars: [] }))
+    })
+    it('should keep specific calendars response where canCreate is true', () => {
+      const [page] = responses
+      expect(page).toContainEqual({ canCreate: true, calendars: [] })
+    })
+    it("should keep objects with canCreate = false if they don't have calendars", () => {
+      const [page] = responses
+      expect(page).toContainEqual({ canCreate: false, anotherField: 'value' })
     })
   })
 
@@ -94,7 +148,7 @@ describe('pageByOffset', () => {
       const paginator = createPaginator({
         client,
         paginationFuncCreator: getAllPagesWithOffsetAndTotal,
-        customEntryExtractor: removeScopedObjects,
+        customEntryExtractor: filterResponseEntries,
       })
       responses = await toArrayAsync(paginator(args, extractPageEntriesByNestedField()))
     })
@@ -112,7 +166,7 @@ describe('pageByOffset', () => {
       const paginator = createPaginator({
         client,
         paginationFuncCreator: getAllPagesWithOffsetAndTotal,
-        customEntryExtractor: removeScopedObjects,
+        customEntryExtractor: filterResponseEntries,
       })
       responseIter = paginator(args, extractPageEntriesByNestedField())
     })

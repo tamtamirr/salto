@@ -137,6 +137,7 @@ const errorMessagesToRetry = [
   'ECONNREFUSED',
   'Internal_Error',
   'UNABLE_TO_LOCK_ROW', // we saw this in both fetch and deploy
+  'no healthy upstream',
 ]
 
 type RateLimitBucketName = keyof ClientRateLimitConfig
@@ -1173,6 +1174,7 @@ export default class SalesforceClient {
     const { job } = batch
     await new Promise((resolve) => job.on('close', resolve))
     const result = (await batch.then()) as BatchResultInfo[]
+    log.trace('client.bulkLoadOperation result: %o', result)
     return flatValues(result)
   }
 }

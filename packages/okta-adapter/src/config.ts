@@ -86,11 +86,16 @@ const DEFAULT_FIELDS_TO_OMIT: configUtils.FieldToOmitType[] = [
   { fieldName: 'createdBy' },
   { fieldName: 'lastUpdatedBy' },
 ]
+const REQUEST_DEFAULTS: Omit<configUtils.FetchRequestConfig, 'url'> = {
+  queryParams: { limit: '200' },
+}
 const TRANSFORMATION_DEFAULTS: configUtils.TransformationDefaultConfig = {
   idFields: DEFAULT_ID_FIELDS,
   fieldsToOmit: DEFAULT_FIELDS_TO_OMIT,
   nestStandaloneInstances: true,
 }
+
+const DEFAULT_INCLUDE_PROFILE_MAPPING_PROPERTIES = false
 
 // Policy type is split to different kinds of policies
 // The full list of policy types is taken from here:
@@ -302,6 +307,7 @@ const DEFAULT_TYPE_CUSTOMIZATIONS: OktaSwaggerApiConfig['types'] = {
   api__v1__groups: {
     request: {
       url: '/api/v1/groups',
+      queryParams: { limit: '10000' }, // maximum page size allowed
     },
   },
   Group: {
@@ -358,7 +364,6 @@ const DEFAULT_TYPE_CUSTOMIZATIONS: OktaSwaggerApiConfig['types'] = {
   api__v1__apps: {
     request: {
       url: '/api/v1/apps',
-      queryParams: { limit: '200' },
       recurseInto: [
         {
           type: 'api__v1__apps___appId___groups@uuuuuu_00123_00125uu',
@@ -431,7 +436,6 @@ const DEFAULT_TYPE_CUSTOMIZATIONS: OktaSwaggerApiConfig['types'] = {
   'api__v1__apps___appId___groups@uuuuuu_00123_00125uu': {
     request: {
       url: 'api/v1/apps/{appId}/groups',
-      queryParams: { limit: '200' },
     },
   },
   ApplicationGroupAssignment: {
@@ -904,9 +908,20 @@ const DEFAULT_TYPE_CUSTOMIZATIONS: OktaSwaggerApiConfig['types'] = {
       serviceUrl: '/admin/customizations/footer',
     },
     deployRequests: {
+      add: {
+        url: '/api/v1/brands',
+        method: 'post',
+      },
       modify: {
         url: '/api/v1/brands/{brandId}',
         method: 'put',
+        urlParamsToFields: {
+          brandId: 'id',
+        },
+      },
+      remove: {
+        url: '/api/v1/brands/{brandId}',
+        method: 'delete',
         urlParamsToFields: {
           brandId: 'id',
         },
@@ -1039,7 +1054,6 @@ const DEFAULT_TYPE_CUSTOMIZATIONS: OktaSwaggerApiConfig['types'] = {
   api__v1__groups__rules: {
     request: {
       url: '/api/v1/groups/rules',
-      queryParams: { limit: '200' },
     },
   },
   GroupRule: {
@@ -1310,7 +1324,14 @@ const DEFAULT_TYPE_CUSTOMIZATIONS: OktaSwaggerApiConfig['types'] = {
           mappingId: 'id',
         },
       },
-      // TODO SALTO-4769 add support in remove
+      remove: {
+        // ProfileMappings are removed automatically by Okta when either side of the mapping is removed.
+        // We use an empty URL here to mark this action as supported in case a user removed the mapping
+        // alongside either side.
+        // A separate Change Validator ensures that mappings aren't removed by themselves.
+        url: '',
+        method: 'delete', // This is just for typing, we intercept it in a filter and use `get`.
+      },
     },
   },
   ProfileMappingSource: {
@@ -1802,6 +1823,7 @@ export const DUCKTYPE_API_DEFINITIONS: OktaDuckTypeApiConfig = {
 export const DEFAULT_API_DEFINITIONS: OktaSwaggerApiConfig = {
   swagger: DEFAULT_SWAGGER_CONFIG,
   typeDefaults: {
+    request: REQUEST_DEFAULTS,
     transformation: TRANSFORMATION_DEFAULTS,
   },
   types: DEFAULT_TYPE_CUSTOMIZATIONS,
@@ -1815,7 +1837,7 @@ export const DEFAULT_CONFIG: OktaConfig = {
     convertUsersIds: DEFAULT_CONVERT_USERS_IDS_VALUE,
     enableMissingReferences: true,
     includeGroupMemberships: false,
-    includeProfileMappingProperties: true,
+    includeProfileMappingProperties: DEFAULT_INCLUDE_PROFILE_MAPPING_PROPERTIES,
     getUsersStrategy: DEFAULT_GET_USERS_STRATEGY,
   },
   [API_DEFINITIONS_CONFIG]: DEFAULT_API_DEFINITIONS,
@@ -1867,6 +1889,8 @@ export type ChangeValidatorName =
   | 'groupPushToApplicationUniqueness'
   | 'appGroupAssignment'
   | 'appUrls'
+  | 'profileMappingRemoval'
+  | 'brandRemoval'
 
 type ChangeValidatorConfig = Partial<Record<ChangeValidatorName, boolean>>
 
@@ -1893,6 +1917,8 @@ const changeValidatorConfigType = createMatchingObjectType<ChangeValidatorConfig
     groupPushToApplicationUniqueness: { refType: BuiltinTypes.BOOLEAN },
     appGroupAssignment: { refType: BuiltinTypes.BOOLEAN },
     appUrls: { refType: BuiltinTypes.BOOLEAN },
+    profileMappingRemoval: { refType: BuiltinTypes.BOOLEAN },
+    brandRemoval: { refType: BuiltinTypes.BOOLEAN },
   },
   annotations: {
     [CORE_ANNOTATIONS.ADDITIONAL_PROPERTIES]: false,

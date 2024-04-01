@@ -20,10 +20,15 @@ import {
   WALK_NEXT_STEP,
   WalkOnFunc,
   isResolvedReferenceExpression,
-  resolveValues,
   walkOnElement,
+  walkOnValue,
 } from '@salto-io/adapter-utils'
-import { elements as adapterElements, config as configUtils, client as clientUtils } from '@salto-io/adapter-components'
+import {
+  elements as adapterElements,
+  config as configUtils,
+  client as clientUtils,
+  resolveValues,
+} from '@salto-io/adapter-components'
 import {
   CORE_ANNOTATIONS,
   Element,
@@ -64,13 +69,15 @@ import {
   WorkflowVersion,
   CONDITION_LIST_FIELDS,
   VALIDATOR_LIST_FIELDS,
+  TRIGGER_LIST_FIELDS,
   ID_TO_UUID_PATH_NAME_TO_RECURSE,
   isAdditionOrModificationWorkflowChange,
   CONDITION_GROUPS_PATH_NAME_TO_RECURSE,
   WorkflowStatus,
+  EMPTY_STRINGS_PATH_NAME_TO_RECURSE,
 } from './types'
 import { DEFAULT_API_DEFINITIONS } from '../../config/api_config'
-import { WORKFLOW_CONFIGURATION_TYPE, WORKFLOW_TYPE_NAME } from '../../constants'
+import { JIRA, WORKFLOW_CONFIGURATION_TYPE } from '../../constants'
 import JiraClient from '../../client/client'
 import { defaultDeployChange, deployChanges } from '../../deployment/standard_deployment'
 import { getLookUpName } from '../../reference_mapping'
@@ -137,6 +144,9 @@ const convertTransitionParametersFields = (
     transition.validators?.forEach((validator: Values) => {
       convertFunc(validator?.parameters, VALIDATOR_LIST_FIELDS)
     })
+    transition.triggers?.forEach((trigger: Values) => {
+      convertFunc(trigger?.parameters, TRIGGER_LIST_FIELDS)
+    })
   })
 }
 
@@ -149,6 +159,23 @@ export const convertParametersFieldsToList = (parameters: Values, listFields: Se
     .forEach(([key, value]) => {
       parameters[key] = convertIdsStringToList(value)
     })
+}
+
+const removeParametersEmptyStrings: WalkOnFunc = ({ value, path }): WALK_NEXT_STEP => {
+  if (_.isPlainObject(value) && path.name === 'parameters') {
+    _.forOwn(value, (val, key) => {
+      if (val === '') {
+        delete value[key]
+      }
+    })
+  }
+  if (
+    EMPTY_STRINGS_PATH_NAME_TO_RECURSE.has(path.name) ||
+    (_.isPlainObject(value) && (value.transitions || value.conditions || value.parameters || value.actions))
+  ) {
+    return WALK_NEXT_STEP.RECURSE
+  }
+  return WALK_NEXT_STEP.SKIP
 }
 
 const createWorkflowInstances = async ({
@@ -190,8 +217,12 @@ const createWorkflowInstances = async ({
           const [error] = transformTransitions(workflow, workflowIdToStatuses[workflow.id])
           if (error) {
             errors.push(error)
-            return undefined
           }
+          walkOnValue({
+            elemId: new ElemID(JIRA, WORKFLOW_CONFIGURATION_TYPE, 'instance', workflow.name),
+            value: workflow,
+            func: removeParametersEmptyStrings,
+          })
           return toBasicInstance({
             entry: workflow,
             type: workflowConfigurationType,
@@ -486,9 +517,6 @@ const filter: FilterCreator = ({ config, client, paginator, fetchQuery, elements
         return { errors: [] }
       }
       const workflowConfiguration = findObject(elements, WORKFLOW_CONFIGURATION_TYPE)
-      const workflowType = findObject(elements, WORKFLOW_TYPE_NAME)
-      // eslint-disable-next-line no-console
-      console.log('workflowType', workflowType)
       if (workflowConfiguration === undefined) {
         log.error('WorkflowConfiguration type was not found')
         return {

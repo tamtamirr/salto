@@ -120,11 +120,12 @@ export type MultiEnvSource = {
   clear(args?: { nacl?: boolean; staticResources?: boolean; cache?: boolean }): Promise<void>
   load: (args: SourceLoadParams) => Promise<EnvsChanges>
   getSearchableNames(env: string): Promise<string[]>
-  getStaticFile: (
-    args: string | { filePath: string; encoding: BufferEncoding; env: string },
-    encoding?: BufferEncoding,
-    env?: string,
-  ) => Promise<StaticFile | undefined>
+  getStaticFile: (args: {
+    filePath: string
+    encoding: BufferEncoding
+    env: string
+    isTemplate?: boolean
+  }) => Promise<StaticFile | undefined>
   getAll: (env: string) => Promise<AsyncIterable<Element>>
   promote: (env: string, idsToMove: ElemID[], idsToRemove?: Record<string, ElemID[]>) => Promise<EnvsChanges>
   getElementIdsBySelectors: (
@@ -168,7 +169,7 @@ const buildMultiEnvSource = (
   const getActiveSources = (env: string): Record<string, NaclFilesSource> => _.pick(sources, [commonSourceName, env])
 
   const getStaticFile = async (
-    args: string | { filePath: string; encoding: BufferEncoding; env: string },
+    args: string | { filePath: string; encoding: BufferEncoding; env: string; isTemplate?: boolean },
     encoding?: BufferEncoding,
     envName?: string,
   ): Promise<StaticFile> => {
@@ -192,7 +193,11 @@ const buildMultiEnvSource = (
     const sourcesFiles = (
       await Promise.all(
         Object.values(getActiveSources(environmentName)).map(src =>
-          src.getStaticFile({ filePath, encoding: fileEncoding }),
+          src.getStaticFile({
+            filePath,
+            encoding: fileEncoding,
+            isTemplate: _.isObject(args) ? args.isTemplate : undefined,
+          }),
         ),
       )
     ).filter(values.isDefined)
@@ -211,8 +216,12 @@ const buildMultiEnvSource = (
           deserializeSingleElement(
             s,
             async staticFile =>
-              (await getStaticFile({ filePath: staticFile.filepath, encoding: staticFile.encoding, env: envName })) ??
-              staticFile,
+              (await getStaticFile({
+                filePath: staticFile.filepath,
+                encoding: staticFile.encoding,
+                env: envName,
+                isTemplate: staticFile.isTemplate,
+              })) ?? staticFile,
           ),
         persistent,
       }),

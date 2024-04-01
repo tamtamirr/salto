@@ -17,6 +17,7 @@ import _ from 'lodash'
 import { ElemID, InstanceElement, ObjectType, isEqualElements } from '@salto-io/adapter-api'
 import { generateInstancesWithInitialTypes } from '../../../src/fetch/element/instance_element'
 import { queryWithDefault } from '../../../src/definitions'
+import { InstanceFetchApiDefinitions } from '../../../src/definitions/system/fetch'
 
 describe('instance element', () => {
   const typeID = new ElemID('myAdapter', 'myType')
@@ -26,7 +27,11 @@ describe('instance element', () => {
         adapterName: 'myAdapter',
         entries: [],
         typeName: 'myType',
-        defQuery: queryWithDefault({ customizations: { myType: { element: { topLevel: { isTopLevel: true } } } } }),
+        defQuery: queryWithDefault<InstanceFetchApiDefinitions, string>({
+          customizations: { myType: { element: { topLevel: { isTopLevel: true } } } },
+        }),
+        customNameMappingFunctions: {},
+        definedTypes: {},
       })
       expect(res.errors).toBeUndefined()
       expect(res.instances).toHaveLength(0)
@@ -40,7 +45,9 @@ describe('instance element', () => {
           adapterName: 'myAdapter',
           entries: [],
           typeName: 'myType',
-          defQuery: queryWithDefault({ customizations: {} }),
+          defQuery: queryWithDefault<InstanceFetchApiDefinitions, string>({ customizations: {} }),
+          customNameMappingFunctions: {},
+          definedTypes: {},
         }),
       ).toThrow('type myAdapter:myType is not defined as top-level, cannot create instances')
     })
@@ -53,7 +60,11 @@ describe('instance element', () => {
         adapterName: 'myAdapter',
         entries,
         typeName: 'myType',
-        defQuery: queryWithDefault({ customizations: { myType: { element: { topLevel: { isTopLevel: true } } } } }),
+        defQuery: queryWithDefault<InstanceFetchApiDefinitions, string>({
+          customizations: { myType: { element: { topLevel: { isTopLevel: true } } } },
+        }),
+        customNameMappingFunctions: {},
+        definedTypes: {},
       })
       expect(res.errors).toBeUndefined()
       expect(res.instances).toHaveLength(2)
@@ -94,7 +105,10 @@ describe('instance element', () => {
           { str: 'CCC', arr: [{ unknown: 'text' }] },
         ],
         typeName: 'myType',
-        defQuery: queryWithDefault({
+        defQuery: queryWithDefault<
+          InstanceFetchApiDefinitions<{ customNameMappingOptions: 'customTest' | 'Uri' }>,
+          string
+        >({
           customizations: {
             myType: {
               resource: {
@@ -104,13 +118,18 @@ describe('instance element', () => {
                 topLevel: {
                   isTopLevel: true,
                   elemID: {
-                    parts: [{ fieldName: 'str' }],
+                    parts: [{ fieldName: 'str', mapping: 'customTest' }],
                   },
                 },
               },
             },
           },
         }),
+        customNameMappingFunctions: {
+          customTest: name => `custom_${name}`,
+          Uri: name => `uri_${name}`,
+        },
+        definedTypes: {},
       })
       expect(res.errors).toBeUndefined()
       expect(res.instances).toHaveLength(2)
@@ -127,26 +146,28 @@ describe('instance element', () => {
         unknown: 'unknown',
       })
       expect(res.instances.map(e => e.elemID.getFullName()).sort()).toEqual([
-        'myAdapter.myType.instance.A',
-        'myAdapter.myType.instance.CCC',
+        'myAdapter.myType.instance.custom_A',
+        'myAdapter.myType.instance.custom_CCC',
       ])
     })
-    it('should omit nulls and undefined values from instances and nacl-case field names', () => {
+    it('should nacl-case field names', () => {
       const res = generateInstancesWithInitialTypes({
         adapterName: 'myAdapter',
-        entries: [{ str: 'A', nullVal: null, missing: undefined, 'with spaces': 'a' }],
+        entries: [{ str: 'A', 'with spaces': 'a' }],
         typeName: 'myType',
-        defQuery: queryWithDefault({
+        defQuery: queryWithDefault<InstanceFetchApiDefinitions, string>({
           customizations: {
             myType: { element: { topLevel: { isTopLevel: true } } },
           },
         }),
+        customNameMappingFunctions: {},
+        definedTypes: {},
       })
       expect(res.errors).toBeUndefined()
       expect(res.instances).toHaveLength(1)
       expect(res.types).toHaveLength(1)
       expect(res.types.map(e => e.elemID.getFullName())).toEqual(['myAdapter.myType'])
-      expect(Object.keys(res.types[0].fields).sort()).toEqual(['missing', 'nullVal', 'str', 'with_spaces@s'])
+      expect(Object.keys(res.types[0].fields).sort()).toEqual(['str', 'with_spaces@s'])
       expect(res.instances[0].value).toEqual({ str: 'A', 'with_spaces@s': 'a' })
     })
   })

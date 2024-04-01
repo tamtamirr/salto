@@ -15,7 +15,6 @@
  */
 import {
   BuiltinTypes,
-  Change,
   ElemID,
   getChangeData,
   InstanceElement,
@@ -28,23 +27,15 @@ import {
   TypeReference,
   Value,
 } from '@salto-io/adapter-api'
-import {
-  walkOnElement,
-  WALK_NEXT_STEP,
-  WalkOnFunc,
-  setPath,
-  walkOnValue,
-  applyFunctionToChangeData,
-} from '@salto-io/adapter-utils'
+import { walkOnElement, WALK_NEXT_STEP, WalkOnFunc, setPath, walkOnValue } from '@salto-io/adapter-utils'
 import { collections } from '@salto-io/lowerdash'
 import _ from 'lodash'
 import { JiraConfig } from '../../config/config'
-import { ACCOUNT_ID_STRING, ACCOUNT_IDS_FIELDS_NAMES, AUTOMATION_TYPE, BOARD_TYPE_NAME } from '../../constants'
+import { ACCOUNT_ID_STRING, ACCOUNT_ID_FIELDS_NAMES, AUTOMATION_TYPE, BOARD_TYPE_NAME } from '../../constants'
 import { FilterCreator } from '../../filter'
 import { accountIdInfoType, accountIdInfoListType } from './types'
 
 const { awu } = collections.asynciterable
-const { makeArray } = collections.array
 
 export const OWNER_STYLE_TYPES = ['Filter', 'Dashboard']
 export const NON_DEPLOYABLE_TYPES = ['Board']
@@ -61,6 +52,7 @@ export const DEPLOYABLE_TYPES = [
   'ProjectRoleUser',
   'CustomFieldContextDefaultValue',
   'Workflow',
+  'WorkflowConfiguration',
   'ScheduledJob',
   'EscalationService',
 ]
@@ -162,18 +154,22 @@ const accountIdsScenarios = (
   callback: WalkOnUsersCallback,
   config: JiraConfig,
 ): WALK_NEXT_STEP => {
-  const accountIdFields = config.fetch.enableScriptRunnerAddon ? ['accountIds', 'FIELD_USER_IDS'] : ['accountIds']
+  const accountIdsFields = config.fetch.enableScriptRunnerAddon ? ['accountIds', 'FIELD_USER_IDS'] : ['accountIds']
   // main scenario, field is within the ACCOUNT_IDS_FIELDS_NAMES
-  ACCOUNT_IDS_FIELDS_NAMES.forEach(fieldName => {
+  ACCOUNT_ID_FIELDS_NAMES.forEach(fieldName => {
     if (Object.prototype.hasOwnProperty.call(value, fieldName)) {
       callback({ value, path, fieldName })
     }
   })
   // main scenario, sub branch of multiple account ids
-  accountIdFields.forEach(accountIds => {
-    makeArray(value[accountIds]).forEach((_value, index) => {
-      callback({ value: value[accountIds], path: path.createNestedID(accountIds), fieldName: index.toString() })
-    })
+  accountIdsFields.forEach(accountIds => {
+    const accountIdsValue = value[accountIds]
+    // there is a scenario where accountIds is a string which should not fall under any scenario
+    if (_.isArray(accountIdsValue)) {
+      accountIdsValue.forEach((_value, index) => {
+        callback({ value: value[accountIds], path: path.createNestedID(accountIds), fieldName: index.toString() })
+      })
+    }
   })
   // second scenario: the type has ACCOUNT_ID_STRING and the value holds the actual account id
   if (value.type === ACCOUNT_ID_STRING) {
@@ -277,7 +273,7 @@ const cacheAndSimplifyAccountId =
   }
 
 const convertType = async (objectType: ObjectType): Promise<void> => {
-  ACCOUNT_IDS_FIELDS_NAMES.forEach(async fieldName => {
+  ACCOUNT_ID_FIELDS_NAMES.forEach(async fieldName => {
     if (
       Object.prototype.hasOwnProperty.call(objectType.fields, fieldName) &&
       (await objectType.fields[fieldName].getType()).elemID.isEqual(BuiltinTypes.STRING.elemID)
@@ -318,26 +314,21 @@ const filter: FilterCreator = ({ config }) => {
       changes
         .filter(isInstanceChange)
         .filter(isAdditionOrModificationChange)
-        .filter(change => isDeployableAccountIdType(getChangeData(change)))
-        .forEach(change =>
-          applyFunctionToChangeData<Change<InstanceElement>>(change, async element => {
-            walkOnElement({ element, func: walkOnUsers(cacheAndSimplifyAccountId(cache), config) })
-            return element
-          }),
-        )
+        .map(getChangeData)
+        .filter(isDeployableAccountIdType)
+        .forEach(element => walkOnElement({ element, func: walkOnUsers(cacheAndSimplifyAccountId(cache), config) }))
     },
     onDeploy: async changes => {
       changes
         .filter(isInstanceChange)
         .filter(isAdditionOrModificationChange)
-        .forEach(change =>
-          applyFunctionToChangeData<Change<InstanceElement>>(change, async element => {
-            cache[element.elemID.getFullName()]?.forEach(cacheInfo => {
-              setPath(element, cacheInfo.path, cacheInfo.object)
-            })
-            return element
-          }),
-        )
+        .map(getChangeData)
+        .forEach(element => {
+          cache[element.elemID.getFullName()]?.forEach(cacheInfo => {
+            setPath(element, cacheInfo.path, cacheInfo.object)
+          })
+          return element
+        })
     },
   }
 }

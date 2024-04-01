@@ -21,6 +21,7 @@ import {
   FieldDefinition,
   GENERIC_ID_PREFIX,
   GENERIC_ID_SUFFIX,
+  InstanceElement,
   LIST_ID_PREFIX,
   ListType,
   MAP_ID_PREFIX,
@@ -35,9 +36,11 @@ import {
   isPrimitiveType,
   isTypeReference,
 } from '@salto-io/adapter-api'
+import { getSubtypes } from '@salto-io/adapter-utils'
 import { logger } from '@salto-io/logging'
 import { values as lowerdashValues } from '@salto-io/lowerdash'
 import { ElementAndResourceDefFinder } from '../../definitions/system/fetch/types'
+import { FetchApiDefinitionsOptions } from '../../definitions/system/fetch'
 
 const { isDefined } = lowerdashValues
 const log = logger(module)
@@ -53,11 +56,11 @@ export const toNestedTypeName = (parentName: string, nestedTypeName: string): st
  * - when extracting a standalone field, the provided typename will be used as the extracted instances' type
  *   (and the referring field's type as well)
  */
-export const computeTypesToRename = ({
+export const computeTypesToRename = <Options extends FetchApiDefinitionsOptions>({
   defQuery,
   typeNameOverrides,
 }: {
-  defQuery: ElementAndResourceDefFinder
+  defQuery: ElementAndResourceDefFinder<Options>
   typeNameOverrides?: Record<string, string>
 }): Record<string, string> =>
   typeNameOverrides ??
@@ -219,19 +222,19 @@ export const markServiceIdField = (
 }
 
 /**
- * Adjust field definitions based on the defined customization.
+ * Adjust field types based on the defined customization.
  */
-export const adjustFieldTypes = ({
+export const overrideFieldTypes = <Options extends FetchApiDefinitionsOptions>({
   definedTypes,
   defQuery,
   finalTypeNames,
 }: {
   definedTypes: Record<string, ObjectType>
-  defQuery: ElementAndResourceDefFinder
-  finalTypeNames: Set<string>
+  defQuery: ElementAndResourceDefFinder<Options>
+  finalTypeNames?: Set<string>
 }): void => {
   Object.entries(definedTypes).forEach(([typeName, type]) => {
-    if (finalTypeNames.has(typeName)) {
+    if (finalTypeNames?.has(typeName)) {
       log.trace('type %s is marked as final, not adjusting', type.elemID.getFullName())
       return
     }
@@ -239,19 +242,53 @@ export const adjustFieldTypes = ({
     const { element: elementDef, resource: resourceDef } = defQuery.query(typeName) ?? {}
 
     Object.entries(elementDef?.fieldCustomizations ?? {}).forEach(([fieldName, customization]) => {
-      if (customization.fieldType !== undefined) {
-        overrideFieldType({ type, definedTypes, fieldName, fieldTypeName: customization.fieldType })
+      const { fieldType, restrictions } = customization
+      if (fieldType !== undefined) {
+        overrideFieldType({ type, definedTypes, fieldName, fieldTypeName: fieldType })
       }
       const field = type.fields[fieldName]
       if (field === undefined) {
         log.debug('field %s.%s is undefined, not applying customizations', typeName, fieldName)
         return
       }
-      const { hide, restrictions, standalone, omit } = customization
       if (restrictions) {
         log.debug('applying restrictions to field %s.%s', type.elemID.name, fieldName)
         field.annotate({ [CORE_ANNOTATIONS.RESTRICTION]: createRestriction(restrictions) })
       }
+    })
+    // mark service ids after applying field customizations, in order to set the right type
+    // (serviceid for strings / serviceid_number for numbers)
+    resourceDef?.serviceIDFields?.forEach(fieldName => markServiceIdField(fieldName, type.fields, typeName))
+  })
+}
+
+/**
+ * Hide and omit fields based on the defined customization.
+ */
+export const hideAndOmitFields = <Options extends FetchApiDefinitionsOptions>({
+  definedTypes,
+  defQuery,
+  finalTypeNames,
+}: {
+  definedTypes: Record<string, ObjectType>
+  defQuery: ElementAndResourceDefFinder<Options>
+  finalTypeNames?: Set<string>
+}): void => {
+  Object.entries(definedTypes).forEach(([typeName, type]) => {
+    if (finalTypeNames?.has(typeName)) {
+      log.trace('type %s is marked as final, not adjusting', type.elemID.getFullName())
+      return
+    }
+
+    const { element: elementDef } = defQuery.query(typeName) ?? {}
+
+    Object.entries(elementDef?.fieldCustomizations ?? {}).forEach(([fieldName, customization]) => {
+      const field = type.fields[fieldName]
+      if (field === undefined) {
+        log.debug('field %s.%s is undefined, not applying customizations', typeName, fieldName)
+        return
+      }
+      const { hide, standalone, omit } = customization
       if (hide) {
         log.debug('hiding field %s.%s', type.elemID.name, fieldName)
 
@@ -263,8 +300,24 @@ export const adjustFieldTypes = ({
         delete type.fields[fieldName]
       }
     })
-    // mark service ids after applying field customizations, in order to set the right type
-    // (serviceid for strings / serviceid_number for numbers)
-    resourceDef?.serviceIDFields?.forEach(fieldName => markServiceIdField(fieldName, type.fields, typeName))
   })
+}
+
+/**
+ * Filter for types that are either used by instance or defined in fetch definitions
+ */
+export const getReachableTypes = <Options extends FetchApiDefinitionsOptions>({
+  instances,
+  types,
+  defQuery,
+}: {
+  instances: InstanceElement[]
+  types: ObjectType[]
+  defQuery: ElementAndResourceDefFinder<Options>
+}): ObjectType[] => {
+  const rootTypeNames = new Set(defQuery.allKeys().concat(instances.map(inst => inst.elemID.typeName)))
+  const rootTypes = types.filter(type => rootTypeNames.has(type.elemID.name))
+  const rootTypesSubtypes = new Set(getSubtypes(rootTypes).map(type => type.elemID.name))
+
+  return types.filter(type => rootTypeNames.has(type.elemID.name) || rootTypesSubtypes.has(type.elemID.name))
 }
