@@ -25,7 +25,7 @@ import {
   createMatchingObjectType,
 } from '@salto-io/adapter-utils'
 import { logger } from '@salto-io/logging'
-import { configType } from './types'
+import { configType } from './fetch_scope_config'
 import * as constants from './constants'
 import { CPQ_NAMESPACE, CUSTOM_OBJECT_ID_FIELD } from './constants'
 
