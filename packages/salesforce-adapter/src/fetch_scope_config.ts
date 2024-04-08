@@ -31,7 +31,6 @@ import {
 } from '@salto-io/adapter-api'
 import { definitions } from '@salto-io/adapter-components'
 import { types } from '@salto-io/lowerdash'
-import { SUPPORTED_METADATA_TYPES } from './fetch_profile/metadata_types'
 import * as constants from './constants'
 
 type UserDeployConfig = definitions.UserDeployConfig
@@ -370,14 +369,6 @@ export type DataManagementConfig = {
 export type FetchParameters = {
   metadata?: MetadataParams
   data?: DataManagementConfig
-  fetchAllCustomSettings?: boolean // TODO - move this into optional features
-  optionalFeatures?: OptionalFeatures
-  target?: string[]
-  maxInstancesPerType?: number
-  preferActiveFlowVersions?: boolean
-  addNamespacePrefixToFullName?: boolean
-  warningSettings?: WarningSettings
-  additionalImportantValues?: ImportantValues
 }
 
 export type DeprecatedMetadataParams = {
@@ -912,35 +903,6 @@ export const changeValidatorConfigType =
     },
   })
 
-const fetchConfigType = createMatchingObjectType<FetchParameters>({
-  elemID: new ElemID(constants.SALESFORCE, 'fetchConfig'),
-  fields: {
-    metadata: { refType: metadataConfigType },
-    data: { refType: dataManagementType },
-    optionalFeatures: { refType: optionalFeaturesType },
-    fetchAllCustomSettings: { refType: BuiltinTypes.BOOLEAN },
-    target: {
-      refType: new ListType(BuiltinTypes.STRING),
-      annotations: {
-        [CORE_ANNOTATIONS.RESTRICTION]: createRestriction({
-          enforce_value: true,
-          values: SUPPORTED_METADATA_TYPES,
-        }),
-      },
-    },
-    maxInstancesPerType: { refType: BuiltinTypes.NUMBER },
-    preferActiveFlowVersions: { refType: BuiltinTypes.BOOLEAN },
-    addNamespacePrefixToFullName: { refType: BuiltinTypes.BOOLEAN },
-    warningSettings: { refType: warningSettingsType },
-    additionalImportantValues: {
-      // Exported type is downcast to TypeElement
-      refType: new ListType(importantValueType),
-    },
-  },
-  annotations: {
-    [CORE_ANNOTATIONS.ADDITIONAL_PROPERTIES]: false,
-  },
-})
 
 const defaultGeneralSettings: GeneralFetchParameters = {
   metadata: {
