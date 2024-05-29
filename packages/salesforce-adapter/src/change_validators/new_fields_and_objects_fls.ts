@@ -16,39 +16,69 @@
 import {
   ChangeError,
   ChangeValidator,
-  Element,
+  Field,
   getChangeData,
   isAdditionChange,
-  isField,
+  isFieldChange,
   isObjectType,
+  ObjectType,
 } from '@salto-io/adapter-api'
 import { isCustom } from '../transformers/transformer'
 import { apiNameSync, getFLSProfiles } from '../filters/utils'
 import { SalesforceConfig } from '../types'
 
-const createFLSInfo = (
-  element: Element,
+const profileNameOrNumberOfProfiles = (profiles: string[]): string =>
+  profiles.length === 1
+    ? `the following profile: ${profiles[0]}`
+    : `${profiles.length} profiles`
+
+const createObjectFLSInfo = (
+  field: ObjectType,
   flsProfiles: string[],
-): ChangeError => {
-  const typeOrField = isField(element) ? 'CustomField' : 'CustomObject'
-  return {
-    message: `${typeOrField} visibility in Profiles.`,
-    detailedMessage: `Deploying this new ${typeOrField} will make it accessible by the following Profiles: [${flsProfiles.join(', ')}].`,
-    severity: 'Info',
-    elemID: element.elemID,
-  }
-}
+): ChangeError => ({
+  message: `Read/write access to this Custom Object will be granted to ${profileNameOrNumberOfProfiles(flsProfiles)}`,
+  detailedMessage: `Deploying this new Custom Object will make it and it's Custom Fields accessible by the following Profiles: [${flsProfiles.join(', ')}].`,
+  severity: 'Info',
+  elemID: field.elemID,
+})
+
+const createFieldFLSInfo = (
+  field: Field,
+  flsProfiles: string[],
+): ChangeError => ({
+  message: `Read/write access to this Custom Field will be granted to ${profileNameOrNumberOfProfiles(flsProfiles)}`,
+  detailedMessage: `Deploying this new Custom Field will make it accessible by the following Profiles: [${flsProfiles.join(', ')}].`,
+  severity: 'Info',
+  elemID: field.elemID,
+})
 
 const changeValidator =
   (config: SalesforceConfig): ChangeValidator =>
   async (changes) => {
     const flsProfiles = getFLSProfiles(config)
-    return changes
+
+    const addedCustomObjects = changes
       .filter(isAdditionChange)
-      .map((change) => getChangeData(change))
-      .filter((element) => isObjectType(element) || isField(element))
-      .filter((element) => isCustom(apiNameSync(element)))
-      .map((element) => createFLSInfo(element, flsProfiles))
+      .map(getChangeData)
+      .filter(isObjectType)
+      .filter((objectType) => isCustom(apiNameSync(objectType)))
+    const addedCustomObjectsApiNames = new Set(
+      addedCustomObjects.map((customObject) => apiNameSync(customObject)),
+    )
+    const addedCustomObjectsInfos = addedCustomObjects.map((customObject) =>
+      createObjectFLSInfo(customObject, flsProfiles),
+    )
+    const addedCustomFieldsInfos = changes
+      .filter(isAdditionChange)
+      .filter(isFieldChange)
+      .map(getChangeData)
+      // Do not create FLS info on fields that are part of a new custom object
+      .filter(
+        (field) => !addedCustomObjectsApiNames.has(apiNameSync(field.parent)),
+      )
+      .map((field) => createFieldFLSInfo(field, flsProfiles))
+
+    return [...addedCustomFieldsInfos, ...addedCustomObjectsInfos]
   }
 
 export default changeValidator

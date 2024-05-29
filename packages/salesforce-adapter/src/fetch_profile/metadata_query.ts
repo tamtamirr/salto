@@ -17,6 +17,8 @@ import { regex, values } from '@salto-io/lowerdash'
 import _ from 'lodash'
 import { ReadOnlyElementsSource } from '@salto-io/adapter-api'
 import { FileProperties } from '@salto-io/jsforce'
+import { logger } from '@salto-io/logging'
+import { safeJsonStringify } from '@salto-io/adapter-utils'
 import {
   CUSTOM_OBJECT,
   DEFAULT_NAMESPACE,
@@ -50,6 +52,7 @@ import {
 } from '../last_change_date_of_types_with_nested_instances'
 
 const { isDefined } = values
+const log = logger(module)
 
 // According to Salesforce Metadata API docs, folder names can only contain alphanumeric characters and underscores.
 const VALID_FOLDER_PATH_RE = /^[a-zA-Z\d_/]+$/
@@ -99,6 +102,7 @@ type BuildFetchWithChangesDetectionMetadataQueryParams =
   BuildMetadataQueryParams & {
     elementsSource: ReadOnlyElementsSource
     lastChangeDateOfTypesWithNestedInstances: LastChangeDateOfTypesWithNestedInstances
+    customObjectsWithDeletedFields: Set<string>
   }
 
 export const buildMetadataQuery = ({
@@ -182,6 +186,7 @@ export const buildMetadataQuery = ({
         })
       return _.keyBy(folderPaths, (path) => _.last(path.split('/')) ?? path)
     },
+    logData: () => ({}),
   }
 }
 
@@ -231,12 +236,24 @@ export const buildMetadataQueryForFetchWithChangesDetection = async (
       lastChangeDateOfTypesWithNestedInstancesFromSingleton[type][parentName]
     const lastChangeDate =
       lastChangeDateOfTypesWithNestedInstances[type][parentName]
+    if (parentName === 'Parent') {
+      log.debug('lastChangeDate of Parent: %s', lastChangeDate)
+    }
+    // Standard Objects with no CustomFields and sub instances will have no lastChangeDate
+    if (lastChangeDate === undefined) {
+      return false
+    }
     return isValidDateString(dateFromSingleton) &&
       isValidDateString(lastChangeDate)
       ? new Date(dateFromSingleton).getTime() <
           new Date(lastChangeDate).getTime()
       : true
   }
+
+  const missingOrInvalidChangedAtInstances: MetadataInstance[] = []
+  const updatedInstances: (MetadataInstance & {
+    changedAtFromSingleton: string | undefined
+  })[] = []
 
   const isIncludedInFetchWithChangesDetection = (
     instance: MetadataInstance,
@@ -245,11 +262,31 @@ export const buildMetadataQueryForFetchWithChangesDetection = async (
       instance.metadataType,
       instance.name,
     ])
-    return isValidDateString(dateFromSingleton) &&
-      isValidDateString(instance.changedAt)
-      ? new Date(dateFromSingleton).getTime() <
-          new Date(instance.changedAt).getTime()
-      : true
+    if (
+      !(
+        isValidDateString(dateFromSingleton) &&
+        isValidDateString(instance.changedAt)
+      )
+    ) {
+      missingOrInvalidChangedAtInstances.push(instance)
+      return true
+    }
+    if (
+      new Date(dateFromSingleton).getTime() <
+      new Date(instance.changedAt).getTime()
+    ) {
+      log.trace(
+        'The instance %s of type %s will be fetched since it was updated',
+        instance.name,
+        instance.metadataType,
+      )
+      updatedInstances.push({
+        ...instance,
+        changedAtFromSingleton: dateFromSingleton,
+      })
+      return true
+    }
+    return false
   }
   return {
     ...metadataQuery,
@@ -260,6 +297,12 @@ export const buildMetadataQueryForFetchWithChangesDetection = async (
         return false
       }
       const { metadataType, name } = instance
+      if (
+        metadataType === CUSTOM_OBJECT &&
+        params.customObjectsWithDeletedFields.has(name)
+      ) {
+        return true
+      }
       if (isTypeWithNestedInstances(metadataType)) {
         return isInstanceWithNestedInstancesIncluded(metadataType)
       }
@@ -270,6 +313,24 @@ export const buildMetadataQueryForFetchWithChangesDetection = async (
         )
       }
       return isIncludedInFetchWithChangesDetection(instance)
+    },
+    logData: () => {
+      ;(updatedInstances.length > 100 ? log.trace : log.debug)(
+        'The following instances were fetched in fetch with changes detection since they were updated: %s',
+        safeJsonStringify(updatedInstances),
+      )
+      ;(missingOrInvalidChangedAtInstances.length > 100
+        ? log.trace
+        : log.debug)(
+        'The following instances were fetched in fetch with changes detection due to invalid or missing changedAt: %s',
+        safeJsonStringify(missingOrInvalidChangedAtInstances),
+      )
+      if (params.customObjectsWithDeletedFields.size > 0) {
+        log.debug(
+          'The following custom objects have deleted fields and were fetched in fetch with changes detection: %s',
+          Array.from(params.customObjectsWithDeletedFields),
+        )
+      }
     },
   }
 }

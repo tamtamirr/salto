@@ -72,7 +72,7 @@ export const PERMISSIONS = 'Permissions'
 export const PERMISSION_SCHEME_TYPE_NAME = 'PermissionScheme'
 export const ACCOUNT_ID_INFO_TYPE = 'AccountIdInfo'
 export const ACCOUNT_ID_STRING = 'ACCOUNT_ID'
-export const ACCOUNT_IDS_FIELDS_NAMES = [
+export const ACCOUNT_ID_FIELDS_NAMES = [
   'leadAccountId',
   'authorAccountId',
   'accountId',
@@ -140,10 +140,14 @@ export const OBJECT_TYPE_ORDER_TYPE = 'ObjectTypeOrder'
 export const OBJECT_SCHMEA_REFERENCE_TYPE_TYPE = 'ObjectSchemaReferenceType'
 export const OBJECT_SCHMEA_DEFAULT_REFERENCE_TYPE_TYPE = 'ObjectSchemaDefaultReferenceType'
 export const OBJECT_TYPE_LABEL_ATTRIBUTE_TYPE = 'ObjectTypeLabelAttribute'
+export const OBJECT_TYPE_ICON_TYPE = 'ObjectTypeIcon'
 export const DELETE_LINK_TYPES = 'DeleteLinkTypes'
 export const APPLICATION_PROPERTY_TYPE = 'ApplicationProperty'
 export const FIELD_TYPE = 'Field'
 export const FIELD_CONFIGURATION_SCHEME_TYPE = 'FieldConfigurationScheme'
+export const FIELD_CONFIGURATION_DESCRIPTION_MAX_LENGTH = 255
+export const FIELD_CONFIGURATION_ITEM_DESCRIPTION_MAX_LENGTH = 1000
+export const AUTOMATION_RETRY_PERIODS = [0, 1000 * 60, 1000 * 60 * 5] // 0, 1 minute, 5 minutes, increasing exponentially
 // almost constant functions
 export const fetchFailedWarnings = (name: string): string =>
   `Salto could not access the ${name} resource. Elements from that type were not fetched. Please make sure that this type is enabled in your service, and that the supplied user credentials have sufficient permissions to access this data. You can also exclude this data from Salto's fetches by changing the environment configuration. Learn more at https://help.salto.io/en/articles/6947061-salto-could-not-access-the-resource`

@@ -31,15 +31,17 @@ import {
   isSaltoError,
   ChangeValidator,
   DependencyChanger,
+  TypeMap,
+  FixElementsFunc,
 } from '@salto-io/adapter-api'
-import { logDuration, restoreChangeElement, safeJsonStringify } from '@salto-io/adapter-utils'
+import { logDuration, safeJsonStringify } from '@salto-io/adapter-utils'
 import { logger } from '@salto-io/logging'
 import { collections, objects } from '@salto-io/lowerdash'
 import { Client } from '../../client/client_creator'
 import { AdapterParams } from './types'
 import { Filter, FilterResult, filterRunner } from '../../filter_utils'
-import { getUpdatedCofigFromConfigChanges } from '../../config'
 import {
+  getUpdatedConfigFromConfigChanges,
   APIDefinitionsOptions,
   ResolveClientOptionsType,
   ResolveCustomNameMappingOptionsType,
@@ -55,14 +57,23 @@ import { ElementQuery, createElementQuery } from '../../fetch/query'
 import {
   createChangeValidator,
   deployNotSupportedValidator,
+  createCheckDeploymentBasedOnDefinitionsValidator,
   getDefaultChangeValidators,
+  DEFAULT_CHANGE_VALIDATORS,
 } from '../../deployment/change_validators'
-import { ParsedTypes, generateTypes } from '../../elements/swagger' // TODO switch to new infra (SALTO-5422)
+import { generateOpenApiTypes } from '../../openapi/type_elements/type_elements'
 import { generateLookupFunc } from '../../references'
 import { overrideInstanceTypeForDeploy, restoreInstanceTypeFromChange } from '../../deployment'
 import { createChangeElementResolver } from '../../resolve_utils'
 import { getChangeGroupIdsFuncWithDefinitions } from '../../deployment/grouping'
 import { combineDependencyChangers } from '../../deployment/dependency'
+import { FieldReferenceResolver, FieldReferenceDefinition } from '../../references/reference_mapping'
+import {
+  ResolveReferenceContextStrategiesType,
+  ResolveReferenceIndexNames,
+  ResolveReferenceSerializationStrategyLookup,
+} from '../../definitions/system/api'
+import { restoreChangeElement } from '../../restore_utils'
 
 const log = logger(module)
 const { awu } = collections.asynciterable
@@ -85,6 +96,16 @@ export class AdapterImpl<
   protected changeValidators: Record<string, ChangeValidator>
   protected dependencyChangers: DependencyChanger[]
   protected definitions: RequiredDefinitions<Options>
+  protected referenceResolver: (
+    def: FieldReferenceDefinition<
+      ResolveReferenceContextStrategiesType<Options>,
+      ResolveReferenceSerializationStrategyLookup<Options>
+    >,
+  ) => FieldReferenceResolver<
+    ResolveReferenceContextStrategiesType<Options>,
+    ResolveReferenceSerializationStrategyLookup<Options>,
+    ResolveReferenceIndexNames<Options>
+  >
 
   public constructor({
     adapterName,
@@ -97,6 +118,8 @@ export class AdapterImpl<
     getElemIdFunc,
     additionalChangeValidators,
     dependencyChangers,
+    referenceResolver,
+    fixElements,
   }: AdapterParams<Credentials, Options, Co>) {
     this.adapterName = adapterName
     this.clients = clients
@@ -117,6 +140,7 @@ export class AdapterImpl<
           config: this.userConfig,
           getElemIdFunc: this.getElemIdFunc,
           elementSource,
+          sharedContext: {},
         },
         filterCreators,
         objects.concatObjects,
@@ -125,31 +149,34 @@ export class AdapterImpl<
     this.configInstance = configInstance
     this.changeValidators = {
       ...getDefaultChangeValidators(),
-      ...(this.definitions.deploy?.instances === undefined ? { deployNotSupported: deployNotSupportedValidator } : {}),
+      ...(this.definitions.deploy?.instances === undefined
+        ? { deployNotSupported: deployNotSupportedValidator }
+        : {
+            createCheckDeploymentBasedOnDefinitions: createCheckDeploymentBasedOnDefinitionsValidator({
+              deployDefinitions: this.definitions.deploy,
+            }),
+          }),
       ...additionalChangeValidators,
     }
     // TODO combine with infra changers after SALTO-5571
     this.dependencyChangers = dependencyChangers ?? []
+
+    this.referenceResolver = referenceResolver
+
+    this.fixElements = fixElements
   }
 
   @logDuration('generating types from swagger')
-  private async getAllSwaggerTypes(): Promise<ParsedTypes> {
+  private async getAllSwaggerTypes(): Promise<TypeMap> {
     return _.defaults(
       {},
       ...(await Promise.all(
         collections.array.makeArray(this.definitions.sources?.openAPI).map(def =>
-          generateTypes(
-            this.adapterName,
-            // TODO re-implement with definitions and add missing functionality (SALTO-5422)
-            {
-              supportedTypes: {},
-              typeDefaults: { transformation: { idFields: [] } },
-              types: {},
-              swagger: {
-                url: def.url,
-              },
-            },
-          ),
+          generateOpenApiTypes({
+            adapterName: this.adapterName,
+            openApiDefs: def,
+            defQuery: queryWithDefault(this.definitions.fetch.instances),
+          }),
         ),
       )),
     )
@@ -190,12 +217,24 @@ export class AdapterImpl<
 
     const result = (await this.createFiltersRunner().onFetch(elements)) || {}
 
+    const changeValidatorsToOmitFromConfig = [
+      ...Object.keys(DEFAULT_CHANGE_VALIDATORS),
+      'createCheckDeploymentBasedOnDefinitions',
+      'deployNotSupported',
+    ]
+    const changeValidatorNames = Object.keys(this.changeValidators).filter(
+      name => !changeValidatorsToOmitFromConfig.includes(name),
+    )
+
     const updatedConfig =
       this.configInstance && configChanges
-        ? getUpdatedCofigFromConfigChanges({
+        ? getUpdatedConfigFromConfigChanges({
             configChanges,
             currentConfig: this.configInstance,
-            configType: createUserConfigType({ adapterName: this.adapterName }),
+            configType: createUserConfigType({
+              adapterName: this.adapterName,
+              changeValidatorNames,
+            }),
           })
         : undefined
 
@@ -235,8 +274,10 @@ export class AdapterImpl<
       }
     }
 
-    // TODO SALTO-5406 allow passing in a custom fieldReferenceResolverCreator
-    const lookupFunc = generateLookupFunc(this.definitions.references?.rules ?? [])
+    const lookupFunc =
+      this.definitions.references === undefined
+        ? generateLookupFunc([])
+        : generateLookupFunc(this.definitions.references?.rules ?? [], def => this.referenceResolver(def))
 
     const changesToDeploy = instanceChanges.map(change => ({
       action: change.action,
@@ -297,7 +338,10 @@ export class AdapterImpl<
   }
 
   public get deployModifiers(): DeployModifiers {
-    const changeValidator = createChangeValidator({ validators: this.changeValidators })
+    const changeValidator = createChangeValidator({
+      validators: this.changeValidators,
+      validatorsActivationConfig: this.userConfig.deploy?.changeValidators,
+    })
 
     if (this.definitions.deploy?.instances !== undefined) {
       return {
@@ -311,4 +355,6 @@ export class AdapterImpl<
       changeValidator,
     }
   }
+
+  fixElements: FixElementsFunc | undefined = undefined
 }

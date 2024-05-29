@@ -35,13 +35,16 @@ import {
 } from '@salto-io/adapter-api'
 import {
   config as configUtils,
+  definitions,
   elements as elementUtils,
   client as clientUtils,
   combineElementFixers,
   resolveChangeElement,
   fetch as fetchUtils,
+  openapi,
+  restoreChangeElement,
 } from '@salto-io/adapter-components'
-import { applyFunctionToChangeData, logDuration, restoreChangeElement } from '@salto-io/adapter-utils'
+import { applyFunctionToChangeData, logDuration } from '@salto-io/adapter-utils'
 import { logger } from '@salto-io/logging'
 import { collections, objects } from '@salto-io/lowerdash'
 import OktaClient from './client/client'
@@ -67,6 +70,7 @@ import standardRolesFilter from './filters/standard_roles'
 import userTypeFilter from './filters/user_type'
 import userSchemaFilter from './filters/user_schema'
 import oktaExpressionLanguageFilter from './filters/expression_language'
+import accessPolicyRuleConstraintsFilter from './filters/access_policy_rule_constraints'
 import defaultPolicyRuleDeployment from './filters/default_rule_deployment'
 import authorizationRuleFilter from './filters/authorization_server_rule'
 import privateApiDeployFilter from './filters/private_api_deploy'
@@ -76,6 +80,8 @@ import userFilter from './filters/user'
 import serviceUrlFilter from './filters/service_url'
 import schemaFieldsRemovalFilter from './filters/schema_field_removal'
 import appLogoFilter from './filters/app_logo'
+import brandThemeAdditionFilter from './filters/brand_theme_addition'
+import brandThemeRemovalFilter from './filters/brand_theme_removal'
 import brandThemeFilesFilter from './filters/brand_theme_files'
 import groupMembersFilter from './filters/group_members'
 import unorderedListsFilter from './filters/unordered_lists'
@@ -84,10 +90,20 @@ import profileMappingPropertiesFilter from './filters/profile_mapping_properties
 import profileMappingAdditionFilter from './filters/profile_mapping_addition'
 import profileMappingRemovalFilter from './filters/profile_mapping_removal'
 import omitAuthenticatorMappingFilter from './filters/omit_authenticator_mapping'
+import policyPrioritiesFilter from './filters/policy_priority'
 import groupPushFilter from './filters/group_push'
 import addImportantValues from './filters/add_important_values'
 import groupPushPathFilter from './filters/group_push_path'
-import { APP_LOGO_TYPE_NAME, BRAND_LOGO_TYPE_NAME, FAV_ICON_TYPE_NAME, OKTA } from './constants'
+import renameDefaultAccessPolicy from './filters/rename_default_access_policy'
+import appUserSchemaRemovalFilter from './filters/app_user_schema_removal'
+import {
+  APP_LOGO_TYPE_NAME,
+  BRAND_LOGO_TYPE_NAME,
+  FAV_ICON_TYPE_NAME,
+  OKTA,
+  POLICY_PRIORITY_TYPE_NAMES,
+  POLICY_RULE_PRIORITY_TYPE_NAMES,
+} from './constants'
 import { getLookUpName } from './reference_mapping'
 import { User, getUsers, getUsersFromInstances } from './user_utils'
 import { isClassicEngineOrg } from './utils'
@@ -95,7 +111,7 @@ import { createFixElementFunctions } from './fix_elements'
 
 const { awu } = collections.asynciterable
 
-const { generateTypes, getAllInstances } = elementUtils.swagger
+const { getAllInstances } = elementUtils.swagger
 const { getAllElements } = elementUtils.ducktype
 const { computeGetArgs } = fetchUtils.resource
 const { findDataField } = elementUtils
@@ -103,6 +119,7 @@ const { createPaginator } = clientUtils
 const log = logger(module)
 
 const DEFAULT_FILTERS = [
+  renameDefaultAccessPolicy,
   standardRolesFilter,
   deleteFieldsFilter,
   userTypeFilter,
@@ -112,20 +129,25 @@ const DEFAULT_FILTERS = [
   authorizationRuleFilter,
   // should run before fieldReferencesFilter
   urlReferencesFilter,
+  appUserSchemaRemovalFilter,
   userFilter,
   groupMembersFilter,
   groupPushFilter,
   oktaExpressionLanguageFilter,
   profileEnrollmentAttributesFilter,
   addImportantValues,
+  accessPolicyRuleConstraintsFilter,
   defaultPolicyRuleDeployment,
   schemaFieldsRemovalFilter,
   appLogoFilter,
+  brandThemeAdditionFilter,
+  brandThemeRemovalFilter,
   brandThemeFilesFilter,
   fieldReferencesFilter,
   // should run after fieldReferencesFilter
+  policyPrioritiesFilter,
   addAliasFilter,
-  // should run after fieldReferencesFilter
+  // should run after fieldReferencesFilter and userFilter
   unorderedListsFilter,
   // should run before appDeploymentFilter and after userSchemaFilter
   serviceUrlFilter,
@@ -141,7 +163,13 @@ const DEFAULT_FILTERS = [
   defaultDeployFilter,
 ]
 
-const SKIP_RESOLVE_TYPE_NAMES = [APP_LOGO_TYPE_NAME, BRAND_LOGO_TYPE_NAME, FAV_ICON_TYPE_NAME]
+const SKIP_RESOLVE_TYPE_NAMES = [
+  APP_LOGO_TYPE_NAME,
+  BRAND_LOGO_TYPE_NAME,
+  FAV_ICON_TYPE_NAME,
+  ...POLICY_RULE_PRIORITY_TYPE_NAMES,
+  ...POLICY_PRIORITY_TYPE_NAMES,
+]
 
 export interface OktaAdapterParams {
   filterCreators?: FilterCreator[]
@@ -208,7 +236,7 @@ export default class OktaAdapter implements AdapterOperations {
         filterCreators,
         objects.concatObjects,
       )
-    this.fixElementsFunc = combineElementFixers(createFixElementFunctions({ client, config }))
+    this.fixElementsFunc = combineElementFixers(createFixElementFunctions({ client, config, elementsSource }))
   }
 
   @logDuration('generating types from swagger')
@@ -216,7 +244,7 @@ export default class OktaAdapter implements AdapterOperations {
     allTypes: TypeMap
     parsedConfigs: Record<string, configUtils.RequestableTypeSwaggerConfig>
   }> {
-    return generateTypes(OKTA, this.userConfig[API_DEFINITIONS_CONFIG])
+    return openapi.generateTypes(OKTA, this.userConfig[API_DEFINITIONS_CONFIG])
   }
 
   @logDuration('generating instances from service')
@@ -304,7 +332,7 @@ export default class OktaAdapter implements AdapterOperations {
     }
   }
 
-  private async handleClassicEngineOrg(): Promise<configUtils.ConfigChangeSuggestion | undefined> {
+  private async handleClassicEngineOrg(): Promise<definitions.ConfigChangeSuggestion | undefined> {
     const { isClassicOrg: isClassicOrgByConfig } = this.userConfig[FETCH_CONFIG]
     const isClassicOrg = isClassicOrgByConfig ?? (await isClassicEngineOrg(this.client))
     if (isClassicOrg) {
@@ -346,7 +374,7 @@ export default class OktaAdapter implements AdapterOperations {
     const configChanges = (getElementsConfigChanges ?? []).concat(classicOrgConfigSuggestion ?? [])
     const updatedConfig =
       !_.isEmpty(configChanges) && this.configInstance
-        ? configUtils.getUpdatedCofigFromConfigChanges({
+        ? definitions.getUpdatedConfigFromConfigChanges({
             configChanges,
             currentConfig: this.configInstance,
             configType,

@@ -36,8 +36,7 @@ import {
 } from '@salto-io/adapter-api'
 import { collections } from '@salto-io/lowerdash'
 import { registerTestFunction, registerThrowingFunction } from '../utils'
-import { Functions } from '../../src/parser/functions'
-import { SourceRange, parse, SourceMap, tokenizeContent, ParseResult } from '../../src/parser'
+import { Functions, SourceRange, parse, SourceMap, tokenizeContent, ParseResult } from '../../src/parser'
 import { LexerErrorTokenReachedError } from '../../src/parser/internal/native/lexer'
 
 const { awu } = collections.asynciterable
@@ -230,6 +229,10 @@ describe('Salto parser', () => {
 multiline
 template {{$\{te@mp.late.instance.multiline_stuff@us}}}
 value
+'''
+        escapedTemplateMarker = '''
+multiline
+\${{$\{te@mp.late.instance.multiline_stuff@us}}} and {{$\{te@mp.late.instance.multiline_stuff@us}}}\${{$\{te@mp.late.instance.multiline_stuff@us}}}{{$\{te@mp.late.instance.multiline_stuff@us}}} hello
 '''
       }
       
@@ -733,6 +736,29 @@ value
           '}}\nvalue',
         ])
       })
+
+      it('should parse references in multiline that exists on the same line as an escaped template marker as TemplateExpression', () => {
+        expect(multilineRefObj.annotations.escapedTemplateMarker).toBeInstanceOf(TemplateExpression)
+        expect(multilineRefObj.annotations.escapedTemplateMarker.parts).toEqual([
+          'multiline\n${{',
+          expect.objectContaining({
+            elemID: new ElemID('te@mp', 'late', 'instance', 'multiline_stuff@us'),
+          }),
+          '}} and {{',
+          expect.objectContaining({
+            elemID: new ElemID('te@mp', 'late', 'instance', 'multiline_stuff@us'),
+          }),
+          '}}${{',
+          expect.objectContaining({
+            elemID: new ElemID('te@mp', 'late', 'instance', 'multiline_stuff@us'),
+          }),
+          '}}{{',
+          expect.objectContaining({
+            elemID: new ElemID('te@mp', 'late', 'instance', 'multiline_stuff@us'),
+          }),
+          '}} hello',
+        ])
+      })
     })
 
     describe('escape quote', () => {
@@ -774,6 +800,26 @@ value
       .filter(element => !isContainerType(element))
       .toArray()
     expect(elements[0].annotations.str.length).toEqual(stringLength)
+  })
+
+  it('parse multiline string with a U+200D unicode before a \\n', async () => {
+    // we have this test as this unicode character joins characters together. in our case, the problem is when this
+    // joiner is the last character in the string - because we add a \n before the closing ''', parsing that unicode
+    // character “correctly” means joining the \n with whatever came before the \u+200D, which makes it not a \n anymore
+    // This test makes sure that we parse it correctly.
+    const body = `
+    type salesforce.escapedQuotes {
+      str = '''
+
+        this is a unicode test ‍
+      '''
+    }
+ `
+    const parsed = await parse(Buffer.from(body), 'none', functions)
+    const elements = await awu(parsed.elements)
+      .filter(element => !isContainerType(element))
+      .toArray()
+    expect(elements[0].annotations.str).toEqual('\n        this is a unicode test ‍')
   })
 
   describe('simple error tests', () => {

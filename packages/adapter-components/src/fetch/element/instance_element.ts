@@ -19,13 +19,13 @@ import { generateType } from './type_element'
 import { createInstance, getInstanceCreationFunctions, recursiveNaclCase } from './instance_utils'
 import { extractStandaloneInstances } from './standalone'
 import { GenerateTypeArgs } from '../../definitions/system/fetch/types'
-import { InvalidSingletonType } from '../../config/shared' // TODO move
+import { InvalidSingletonType } from './type_utils'
 import { FetchApiDefinitionsOptions } from '../../definitions/system/fetch'
 
 const log = logger(module)
 
 /**
- * Create all intsances with initial types, including standalone instances, for the given typename and entries.
+ * Create all instances with initial types, including standalone instances, for the given typename and entries.
  * Note: it is recommended to re-generate types after all instances of all types have been created,
  * since there might be some overlaps between subtypes.
  */
@@ -46,7 +46,7 @@ export const generateInstancesWithInitialTypes = <Options extends FetchApiDefini
     return elementDef?.topLevel?.custom(elementDef)(args)
   }
 
-  if (elementDef.topLevel.singleton && entries.length !== 1) {
+  if (elementDef.topLevel.singleton && entries.length > 1) {
     log.warn(`Expected one instance for singleton type: ${typeName} but received: ${entries.length}`)
     throw new InvalidSingletonType(
       `Could not fetch type ${typeName}, singleton types should not have more than one instance`,
@@ -62,7 +62,7 @@ export const generateInstancesWithInitialTypes = <Options extends FetchApiDefini
     getElemIdFunc,
     customNameMappingFunctions,
   })
-  // TODO should also nacl-case field names on predefined fields similarly (SALTO-5422)
+
   const instances = entries
     .map(value => recursiveNaclCase(value))
     .map((entry, index) =>
@@ -79,6 +79,7 @@ export const generateInstancesWithInitialTypes = <Options extends FetchApiDefini
   // TODO filter instances by fetch query before extracting standalone fields (SALTO-5425)
 
   const instancesWithStandalone = extractStandaloneInstances({
+    adapterName,
     instances,
     defQuery,
     getElemIdFunc,

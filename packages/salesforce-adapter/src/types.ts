@@ -23,13 +23,17 @@ import {
   createRestriction,
   ElemID,
   FieldDefinition,
+  importantValueType,
   InstanceElement,
   ListType,
   MapType,
   ObjectType,
-  importantValueType,
+  ReadOnlyElementsSource,
 } from '@salto-io/adapter-api'
-import { definitions } from '@salto-io/adapter-components'
+import {
+  definitions,
+  WeakReferencesHandler as ComponentsWeakReferencesHandler,
+} from '@salto-io/adapter-components'
 import { types } from '@salto-io/lowerdash'
 import { SUPPORTED_METADATA_TYPES } from './fetch_profile/metadata_types'
 import * as constants from './constants'
@@ -45,6 +49,7 @@ export const FETCH_CONFIG = 'fetch'
 export const DEPLOY_CONFIG = 'deploy'
 export const METADATA_CONFIG = 'metadata'
 export const CUSTOM_REFS_CONFIG = 'customReferences'
+export const FIX_ELEMENTS_CONFIG = 'fixElements'
 export const METADATA_INCLUDE_LIST = 'include'
 export const METADATA_EXCLUDE_LIST = 'exclude'
 const METADATA_TYPE = 'metadataType'
@@ -123,10 +128,11 @@ export type OptionalFeatures = {
   toolingDepsOfCurrentNamespace?: boolean
   useLabelAsAlias?: boolean
   fixRetrieveFilePaths?: boolean
-  organizationWideSharingDefaults?: boolean
   extendedCustomFieldInformation?: boolean
   importantValues?: boolean
   hideTypesFolder?: boolean
+  omitStandardFieldsNonDeployableValues?: boolean
+  latestSupportedApiVersion?: boolean
 }
 
 export type ChangeValidatorName =
@@ -162,6 +168,8 @@ export type ChangeValidatorName =
   | 'artificialTypes'
   | 'metadataTypes'
   | 'taskOrEventFieldsModifications'
+  | 'newFieldsAndObjectsFLS'
+  | 'elementApiVersion'
 
 type ChangeValidatorConfig = Partial<Record<ChangeValidatorName, boolean>>
 
@@ -202,11 +210,20 @@ export type BrokenOutgoingReferencesSettings = {
   perTargetTypeOverrides?: Record<string, OutgoingReferenceBehavior>
 }
 
-const customReferencesTypeNames = ['profiles'] as const
-type customReferencesTypes = (typeof customReferencesTypeNames)[number]
+const customReferencesHandlersNames = [
+  'profiles',
+  'managedElements',
+  'permisisonSets',
+] as const
+export type CustomReferencesHandlers =
+  (typeof customReferencesHandlersNames)[number]
 
 export type CustomReferencesSettings = Partial<
-  Record<customReferencesTypes, boolean>
+  Record<CustomReferencesHandlers, boolean>
+>
+
+export type FixElementsSettings = Partial<
+  Record<CustomReferencesHandlers, boolean>
 >
 
 const objectIdSettings = new ObjectType({
@@ -319,7 +336,17 @@ const brokenOutgoingReferencesSettingsType = new ObjectType({
 const customReferencesSettingsType = new ObjectType({
   elemID: new ElemID(constants.SALESFORCE, 'saltoCustomReferencesSettings'),
   fields: Object.fromEntries(
-    customReferencesTypeNames.map((name) => [
+    customReferencesHandlersNames.map((name) => [
+      name,
+      { refType: BuiltinTypes.BOOLEAN },
+    ]),
+  ),
+})
+
+const fixElementsSettingsType = new ObjectType({
+  elemID: new ElemID(constants.SALESFORCE, 'saltoFixElementsSettings'),
+  fields: Object.fromEntries(
+    customReferencesHandlersNames.map((name) => [
       name,
       { refType: BuiltinTypes.BOOLEAN },
     ]),
@@ -349,7 +376,6 @@ export type DataManagementConfig = {
   saltoManagementFieldSettings?: SaltoManagementFieldSettings
   brokenOutgoingReferencesSettings?: BrokenOutgoingReferencesSettings
   omittedFields?: string[]
-  [CUSTOM_REFS_CONFIG]?: CustomReferencesSettings
 }
 
 export type FetchParameters = {
@@ -452,6 +478,8 @@ export type SalesforceConfig = {
   [CLIENT_CONFIG]?: SalesforceClientConfig
   [ENUM_FIELD_PERMISSIONS]?: boolean
   [DEPLOY_CONFIG]?: UserDeployConfig
+  [CUSTOM_REFS_CONFIG]?: CustomReferencesSettings
+  [FIX_ELEMENTS_CONFIG]?: FixElementsSettings
 }
 
 type DataManagementConfigSuggestions = {
@@ -466,7 +494,7 @@ export type MetadataConfigSuggestion = {
   reason?: string
 }
 
-export type RetrieveSizeConfigSuggstion = {
+export type RetrieveSizeConfigSuggestion = {
   type: typeof MAX_ITEMS_IN_RETRIEVE_REQUEST
   value: number
   reason?: string
@@ -475,7 +503,7 @@ export type RetrieveSizeConfigSuggstion = {
 export type ConfigChangeSuggestion =
   | DataManagementConfigSuggestions
   | MetadataConfigSuggestion
-  | RetrieveSizeConfigSuggstion
+  | RetrieveSizeConfigSuggestion
 
 export const isDataManagementConfigSuggestions = (
   suggestion: ConfigChangeSuggestion,
@@ -487,9 +515,9 @@ export const isMetadataConfigSuggestions = (
 ): suggestion is MetadataConfigSuggestion =>
   suggestion.type === 'metadataExclude'
 
-export const isRetrieveSizeConfigSuggstion = (
+export const isRetrieveSizeConfigSuggestion = (
   suggestion: ConfigChangeSuggestion,
-): suggestion is RetrieveSizeConfigSuggstion =>
+): suggestion is RetrieveSizeConfigSuggestion =>
   suggestion.type === MAX_ITEMS_IN_RETRIEVE_REQUEST
 
 export type FetchElements<T> = {
@@ -647,9 +675,6 @@ const dataManagementType = new ObjectType({
     },
     omittedFields: {
       refType: new ListType(BuiltinTypes.STRING),
-    },
-    [CUSTOM_REFS_CONFIG]: {
-      refType: customReferencesSettingsType,
     },
   } as Record<keyof DataManagementConfig, FieldDefinition>,
   annotations: {
@@ -831,10 +856,11 @@ const optionalFeaturesType = createMatchingObjectType<OptionalFeatures>({
     toolingDepsOfCurrentNamespace: { refType: BuiltinTypes.BOOLEAN },
     useLabelAsAlias: { refType: BuiltinTypes.BOOLEAN },
     fixRetrieveFilePaths: { refType: BuiltinTypes.BOOLEAN },
-    organizationWideSharingDefaults: { refType: BuiltinTypes.BOOLEAN },
     extendedCustomFieldInformation: { refType: BuiltinTypes.BOOLEAN },
     importantValues: { refType: BuiltinTypes.BOOLEAN },
     hideTypesFolder: { refType: BuiltinTypes.BOOLEAN },
+    omitStandardFieldsNonDeployableValues: { refType: BuiltinTypes.BOOLEAN },
+    latestSupportedApiVersion: { refType: BuiltinTypes.BOOLEAN },
   },
   annotations: {
     [CORE_ANNOTATIONS.ADDITIONAL_PROPERTIES]: false,
@@ -879,6 +905,8 @@ const changeValidatorConfigType =
       artificialTypes: { refType: BuiltinTypes.BOOLEAN },
       metadataTypes: { refType: BuiltinTypes.BOOLEAN },
       taskOrEventFieldsModifications: { refType: BuiltinTypes.BOOLEAN },
+      newFieldsAndObjectsFLS: { refType: BuiltinTypes.BOOLEAN },
+      elementApiVersion: { refType: BuiltinTypes.BOOLEAN },
     },
     annotations: {
       [CORE_ANNOTATIONS.ADDITIONAL_PROPERTIES]: false,
@@ -906,7 +934,7 @@ const fetchConfigType = createMatchingObjectType<FetchParameters>({
     addNamespacePrefixToFullName: { refType: BuiltinTypes.BOOLEAN },
     warningSettings: { refType: warningSettingsType },
     additionalImportantValues: {
-      // Exported type is downcasted to TypeElement
+      // Exported type is downcast to TypeElement
       refType: new ListType(importantValueType),
     },
   },
@@ -1006,6 +1034,12 @@ export const configType = createMatchingObjectType<SalesforceConfig>({
         changeValidatorConfigType,
       ),
     },
+    [CUSTOM_REFS_CONFIG]: {
+      refType: customReferencesSettingsType,
+    },
+    [FIX_ELEMENTS_CONFIG]: {
+      refType: fixElementsSettingsType,
+    },
   },
   annotations: {
     [CORE_ANNOTATIONS.ADDITIONAL_PROPERTIES]: false,
@@ -1019,6 +1053,7 @@ export type MetadataQuery<T = MetadataInstance> = {
   isFetchWithChangesDetection: () => boolean
   isPartialFetch: () => boolean
   getFolderPathsByName: (folderType: string) => Record<string, string>
+  logData: () => void
 }
 
 export type TypeFetchCategory = 'Always' | 'IfReferenced' | 'Never'
@@ -1040,6 +1075,9 @@ export type FetchProfile = {
   readonly metadataQuery: MetadataQuery
   readonly dataManagement?: DataManagement
   readonly isFeatureEnabled: (name: keyof OptionalFeatures) => boolean
+  readonly isCustomReferencesHandlerEnabled: (
+    name: CustomReferencesHandlers,
+  ) => boolean
   readonly shouldFetchAllCustomSettings: () => boolean
   readonly maxInstancesPerType: number
   readonly preferActiveFlowVersions: boolean
@@ -1058,3 +1096,10 @@ export type LastChangeDateOfTypesWithNestedInstances = {
 } & {
   [key in TypeWithNestedInstances]: string | undefined
 }
+
+export type ProfileRelatedMetadataType =
+  (typeof constants.PROFILE_RELATED_METADATA_TYPES)[number]
+
+export type WeakReferencesHandler = ComponentsWeakReferencesHandler<{
+  elementsSource: ReadOnlyElementsSource
+}>

@@ -36,8 +36,6 @@ import { FetchRequestDefinition } from '../../definitions/system/fetch'
 const log = logger(module)
 
 export type Requester<ClientOptions extends string> = {
-  // TODO improve both functions to allow returning partial errors as the return value (SALTO-5427)
-
   request: (args: {
     requestDef: FetchRequestDefinition<ClientOptions>
     contexts: ContextParams[]
@@ -134,7 +132,14 @@ export const getRequester = <Options extends APIDefinitionsOptions>({
     // order of precedence in case of overlaps: pagination defaults < endpoint < resource-specific request
     const mergedEndpointDef = _.merge({}, clientArgs, mergedRequestDef.endpoint)
 
-    const extractor = createExtractor(requestDef, typeName)
+    const extractorCreator = (context: ContextParams): ItemExtractor =>
+      createExtractor(
+        {
+          ...requestDef,
+          context: { ...requestDef.context, ...context },
+        },
+        typeName,
+      )
 
     const callArgs = mergedEndpointDef.omitBody
       ? _.pick(mergedEndpointDef, ['queryArgs', 'headers'])
@@ -158,7 +163,7 @@ export const getRequester = <Options extends APIDefinitionsOptions>({
     })
 
     const itemsWithContext = pagesWithContext
-      .map(({ context, pages }) => ({ items: extractor(pages), context }))
+      .map(({ context, pages }) => ({ items: extractorCreator(context)(pages), context }))
       .flatMap(({ items, context }) => items.flatMap(item => ({ ...item, context })))
     return itemsWithContext.filter(item => {
       if (!lowerdashValues.isPlainRecord(item.value)) {
@@ -182,9 +187,14 @@ export const getRequester = <Options extends APIDefinitionsOptions>({
     (
       await Promise.all(
         (requestDefQuery.query(callerIdentifier.typeName) ?? []).map(requestDef => {
-          const allArgs = findAllUnresolvedArgs(getMergedRequestDefinition(requestDef).merged)
+          const mergedDef = getMergedRequestDefinition(requestDef).merged
+          const allArgs = findAllUnresolvedArgs(mergedDef)
           const relevantArgRoots = _.uniq(allArgs.map(arg => arg.split('.')[0]).filter(arg => arg.length > 0))
-          const contexts = computeArgCombinations(contextPossibleArgs, relevantArgRoots)
+          const contextFunc =
+            mergedDef.context?.custom !== undefined
+              ? mergedDef.context.custom(mergedDef.context)
+              : (v: ContextParams) => v
+          const contexts = computeArgCombinations(contextPossibleArgs, relevantArgRoots).map(contextFunc)
           return request({
             contexts,
             requestDef,

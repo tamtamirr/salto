@@ -16,6 +16,7 @@
 import { client as clientUtils, definitions } from '@salto-io/adapter-components'
 import { logger } from '@salto-io/logging'
 import Joi from 'joi'
+import _ from 'lodash'
 import { createSchemeGuard, safeJsonStringify } from '@salto-io/adapter-utils'
 import { handleDeploymentErrors } from '../deployment/deployment_error_handling'
 import { createConnection } from './connection'
@@ -37,6 +38,8 @@ const DEFAULT_MAX_CONCURRENT_API_REQUESTS: Required<definitions.ClientRateLimitC
 const DEFAULT_PAGE_SIZE: Required<definitions.ClientPageSizeConfig> = {
   get: 1000,
 }
+
+const RATE_LIMIT_HEADER_PREFIX = 'x-ratelimit-'
 
 export type graphQLResponseType = {
   data: unknown
@@ -113,6 +116,20 @@ export default class JiraClient extends clientUtils.AdapterHTTPClient<Credential
     }
   }
 
+  // eslint-disable-next-line class-methods-use-this
+  protected extractHeaders(headers: Record<string, string> | undefined): Record<string, string> | undefined {
+    const rateLimitHeaders = _.pickBy(headers, (_val, key) => key.toLowerCase().startsWith(RATE_LIMIT_HEADER_PREFIX))
+    if (rateLimitHeaders !== undefined && rateLimitHeaders['x-ratelimit-nearlimit']) {
+      log.trace('temp performance log, rate limit near limit reached')
+    }
+    return headers !== undefined
+      ? {
+          ...super.extractHeaders(headers),
+          ...rateLimitHeaders,
+        }
+      : undefined
+  }
+
   // Sends a post request to a JIRA JSP page
   public async jspPost(
     args: clientUtils.ClientDataParams & { data: Record<string, string> },
@@ -120,6 +137,19 @@ export default class JiraClient extends clientUtils.AdapterHTTPClient<Credential
     return this.post({
       ...args,
       data: new URLSearchParams(args.data),
+      headers: {
+        ...JSP_API_HEADERS,
+        ...(args.headers ?? {}),
+      },
+    })
+  }
+
+  // Sends a get request to a JIRA JSP page
+  public async jspGet(
+    args: clientUtils.ClientDataParams,
+  ): Promise<clientUtils.Response<clientUtils.ResponseValue | clientUtils.ResponseValue[]>> {
+    return this.get({
+      ...args,
       headers: {
         ...JSP_API_HEADERS,
         ...(args.headers ?? {}),

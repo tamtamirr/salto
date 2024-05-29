@@ -177,6 +177,11 @@ export const mockTypes = {
       dirName: 'aura',
     },
   }),
+  CustomApplication: createMetadataObjectType({
+    annotations: {
+      metadataType: 'CustomApplication',
+    },
+  }),
   CustomObject: createMetadataObjectType({
     annotations: {
       metadataType: 'CustomObject',
@@ -624,7 +629,7 @@ export const mockTypes = {
       SBQQ__Template__c: {
         refType: Types.primitiveDataTypes.MasterDetail,
         annotations: {
-          referenceTo: ['SBQQ__Template__c'],
+          [FIELD_ANNOTATIONS.REFERENCE_TO]: ['SBQQ__Template__c'],
           [FIELD_ANNOTATIONS.QUERYABLE]: true,
         },
       },
@@ -661,6 +666,14 @@ export const mockTypes = {
           [FIELD_ANNOTATIONS.UPDATEABLE]: true,
         },
       },
+    },
+  }),
+  StandardValueSet: createMetadataObjectType({
+    annotations: {
+      metadataType: 'StandardValueSet',
+      dirName: 'standardValueSets',
+      suffix: 'svs',
+      hasMetaFile: true,
     },
   }),
 }
@@ -838,6 +851,22 @@ export const mockDefaultValues = {
     description: 'Test Workflow Field Update Description',
     assignedTo: 'TestUser',
     status: 'Completed',
+  },
+  StandardValueSet: {
+    [INSTANCE_FULL_NAME_FIELD]: 'TestStandardValueSet',
+    sorted: false,
+    standardValue: [
+      {
+        fullName: 'TestStandardValue1',
+        default: true,
+        label: 'Test Standard Value 1',
+      },
+      {
+        fullName: 'TestStandardValue2',
+        default: false,
+        label: 'Test Standard Value 2',
+      },
+    ],
   },
 }
 

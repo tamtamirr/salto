@@ -28,8 +28,17 @@ import {
   isInstanceElement,
 } from '@salto-io/adapter-api'
 import { values as lowerDashValues } from '@salto-io/lowerdash'
-import { getParent, invertNaclCase, mapKeysRecursive, naclCase, pathNaclCase } from '@salto-io/adapter-utils'
+import {
+  getParent,
+  inspectValue,
+  invertNaclCase,
+  mapKeysRecursive,
+  naclCase,
+  pathNaclCase,
+} from '@salto-io/adapter-utils'
 import _ from 'lodash'
+import { logger } from '@salto-io/logging'
+import { resolveValues } from '@salto-io/adapter-components'
 import { FilterCreator } from '../../filter'
 import { FORM_TYPE, JSM_DUCKTYPE_API_DEFINITIONS, PROJECT_TYPE, SERVICE_DESK } from '../../constants'
 import { getCloudId } from '../automation/cloud_id'
@@ -37,8 +46,10 @@ import { createFormType, isCreateFormResponse, isDetailedFormsResponse, isFormsR
 import { deployChanges } from '../../deployment/standard_deployment'
 import JiraClient from '../../client/client'
 import { setTypeDeploymentAnnotations, addAnnotationRecursively } from '../../utils'
+import { getLookUpName } from '../../reference_mapping'
 
 const { isDefined } = lowerDashValues
+const log = logger(module)
 
 const deployForms = async (change: Change<InstanceElement>, client: JiraClient): Promise<void> => {
   const form = getChangeData(change)
@@ -61,7 +72,14 @@ const deployForms = async (change: Change<InstanceElement>, client: JiraClient):
       form.value.id = resp.data.id
       form.value.design.settings.templateId = resp.data.id
     }
-    const data = mapKeysRecursive(form.value, ({ key }) => invertNaclCase(key))
+    const resolvedForm = await resolveValues(form, getLookUpName)
+    const data = mapKeysRecursive(resolvedForm.value, ({ key }) => invertNaclCase(key))
+    // RequestType Id is a string, but the forms API expects a number
+    if (Array.isArray(data.publish?.portal?.portalRequestTypeIds)) {
+      data.publish.portal.portalRequestTypeIds = data.publish.portal.portalRequestTypeIds.map((id: string) =>
+        Number(id),
+      )
+    }
     await client.put({
       url: `/gateway/api/proforma/cloudid/${cloudId}/api/2/projects/${project.value.id}/forms/${form.value.id}`,
       data,
@@ -100,44 +118,55 @@ const filter: FilterCreator = ({ config, client, fetchQuery }) => ({
       .filter(project => project.value.projectTypeKey === SERVICE_DESK)
 
     const errors: SaltoError[] = []
+    const projectsWithoutForms: string[] = []
+    const projectsWithUntitledForms: Set<string> = new Set()
     const forms = (
       await Promise.all(
         jsmProjects.flatMap(async project => {
-          const url = `/gateway/api/proforma/cloudid/${cloudId}/api/1/projects/${project.value.id}/forms`
-          const res = await client.get({ url })
-          if (!isFormsResponse(res)) {
+          try {
+            const url = `/gateway/api/proforma/cloudid/${cloudId}/api/1/projects/${project.value.id}/forms`
+            const res = await client.get({ url })
+            if (!isFormsResponse(res)) {
+              log.debug(
+                `Didn't fetch forms for project ${project.value.name} with the following response: ${inspectValue(res)}`,
+              )
+              return undefined
+            }
+            return await Promise.all(
+              res.data.map(async formResponse => {
+                const detailedUrl = `/gateway/api/proforma/cloudid/${cloudId}/api/2/projects/${project.value.id}/forms/${formResponse.id}`
+                const detailedRes = await client.get({ url: detailedUrl })
+                if (!isDetailedFormsResponse(detailedRes.data)) {
+                  projectsWithUntitledForms.add(project.elemID.name)
+                  return undefined
+                }
+                const name = naclCase(`${project.value.key}_${formResponse.name}`)
+                const formValue = detailedRes.data
+                const parentPath = project.path ?? []
+                const jsmDuckTypeApiDefinitions = config[JSM_DUCKTYPE_API_DEFINITIONS]
+                if (jsmDuckTypeApiDefinitions === undefined) {
+                  return undefined
+                }
+                return new InstanceElement(
+                  name,
+                  formType,
+                  formValue,
+                  [...parentPath.slice(0, -1), 'forms', pathNaclCase(name)],
+                  {
+                    [CORE_ANNOTATIONS.PARENT]: [new ReferenceExpression(project.elemID, project)],
+                  },
+                )
+              }),
+            )
+          } catch (e) {
+            log.error(
+              `Failed to fetch forms for project ${project.value.name} with the following response: ${inspectValue(e)}`,
+            )
+            if (e.response?.status === 403) {
+              projectsWithoutForms.push(project.elemID.name)
+            }
             return undefined
           }
-          return Promise.all(
-            res.data.map(async formResponse => {
-              const detailedUrl = `/gateway/api/proforma/cloudid/${cloudId}/api/2/projects/${project.value.id}/forms/${formResponse.id}`
-              const detailedRes = await client.get({ url: detailedUrl })
-              if (!isDetailedFormsResponse(detailedRes.data)) {
-                const error = {
-                  message: `Unable to fetch form for project ${project.elemID.name} as it is missing a title.`,
-                  severity: 'Warning' as SeverityLevel,
-                }
-                errors.push(error)
-                return undefined
-              }
-              const name = naclCase(`${project.value.key}_${formResponse.name}`)
-              const formValue = detailedRes.data
-              const parentPath = project.path ?? []
-              const jsmDuckTypeApiDefinitions = config[JSM_DUCKTYPE_API_DEFINITIONS]
-              if (jsmDuckTypeApiDefinitions === undefined) {
-                return undefined
-              }
-              return new InstanceElement(
-                name,
-                formType,
-                formValue,
-                [...parentPath.slice(0, -1), 'forms', pathNaclCase(name)],
-                {
-                  [CORE_ANNOTATIONS.PARENT]: [new ReferenceExpression(project.elemID, project)],
-                },
-              )
-            }),
-          )
         }),
       )
     )
@@ -147,6 +176,23 @@ const filter: FilterCreator = ({ config, client, fetchQuery }) => ({
       form.value = mapKeysRecursive(form.value, ({ key }) => naclCase(key))
       elements.push(form)
     })
+    if (projectsWithoutForms.length > 0) {
+      const message = `Unable to fetch forms for the following projects: ${projectsWithoutForms.join(', ')}. This issue is likely due to insufficient permissions.`
+      log.debug(message)
+      errors.push({
+        message,
+        severity: 'Warning' as SeverityLevel,
+      })
+    }
+    const projectsWithUntitledFormsArr = Array.from(projectsWithUntitledForms)
+    if (projectsWithUntitledFormsArr.length > 0) {
+      const message = `Salto does not support fetching untitled forms, found in the following projects: ${projectsWithUntitledFormsArr.join(', ')}`
+      log.debug(message)
+      errors.push({
+        message,
+        severity: 'Warning' as SeverityLevel,
+      })
+    }
 
     return { errors }
   },

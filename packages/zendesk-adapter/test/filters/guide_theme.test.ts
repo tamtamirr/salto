@@ -24,9 +24,11 @@ import {
   ObjectType,
   ReferenceExpression,
   StaticFile,
+  TemplateExpression,
   toChange,
 } from '@salto-io/adapter-api'
 import { buildElementsSourceFromElements } from '@salto-io/adapter-utils'
+import { staticFileToTemplateExpression } from '@salto-io/parser/src/utils'
 import { DEFAULT_CONFIG, FETCH_CONFIG } from '../../src/config'
 import { BRAND_TYPE_NAME, GUIDE_THEME_TYPE_NAME, THEME_SETTINGS_TYPE_NAME, ZENDESK } from '../../src/constants'
 import { FilterCreator } from '../../src/filter'
@@ -43,6 +45,7 @@ jest.mock('jszip', () =>
       // Mocked data you expect after loading the zip file
       'file1.txt': { async: jest.fn(() => Buffer.from('file1content')), dir: false },
       'subfolder.dot/file2.txt': { async: jest.fn(() => Buffer.from('file2content')), dir: false },
+      'fileWithReference.js': { async: jest.fn(() => Buffer.from('var SUPER_DUPER_PREFIX_123 = 123')), dir: false },
     }
     const mockCorruptedFiles = {
       'file1.txt': {
@@ -80,7 +83,12 @@ const themeSettingsType = new ObjectType({
   },
 })
 
-const brand1 = new InstanceElement('brand', brandType, { id: 1, name: 'oneTwo', has_help_center: true })
+const brand1 = new InstanceElement('brand', brandType, {
+  id: 1,
+  name: 'oneTwo',
+  has_help_center: true,
+  brand_url: 'url',
+})
 const themeWithId = new InstanceElement('themeWithId', themeType, {
   id: 'park?',
   name: 'SixFlags',
@@ -93,7 +101,13 @@ const newThemeWithFiles = new InstanceElement('newThemeWithFiles', themeType, {
     files: {
       'file1_txt@v': {
         filename: 'file1.txt',
-        content: new StaticFile({ filepath: 'file1.txt', content: Buffer.from('file1content') }),
+        content: Buffer.from('file1content'),
+      },
+      'fileWithReference_js@v': {
+        filename: 'fileWithReference.js',
+        content: new TemplateExpression({
+          parts: ['var PREFIX_123 = ', new ReferenceExpression(brand1.elemID, brand1)],
+        }),
       },
     },
     folders: {},
@@ -110,6 +124,10 @@ const themeSettingsInstance2 = new InstanceElement(`${brand1.value.name}_setting
   liveTheme: new ReferenceExpression(newThemeWithFiles.elemID),
 })
 
+const articleInstance = new InstanceElement('article', new ObjectType({ elemID: new ElemID('test', 'article') }), {
+  id: 123,
+})
+
 describe('filterCreator', () => {
   describe('fetch', () => {
     describe('bad config', () => {
@@ -121,7 +139,15 @@ describe('filterCreator', () => {
 
         beforeEach(() => {
           const config = { ...DEFAULT_CONFIG }
-          config[FETCH_CONFIG].guide = { brands: ['.*'], themesForBrands: [] }
+          config[FETCH_CONFIG].guide = {
+            brands: ['.*'],
+            themes: {
+              brands: [],
+              referenceOptions: {
+                enableReferenceLookup: false,
+              },
+            },
+          }
           filter = filterCreator(createFilterCreatorParams({ config }))
         })
 
@@ -137,8 +163,22 @@ describe('filterCreator', () => {
 
       beforeEach(() => {
         const config = { ...DEFAULT_CONFIG }
-        config[FETCH_CONFIG].guide = { brands: ['.*'], themesForBrands: ['.*'] }
-        filter = filterCreator(createFilterCreatorParams({ config }))
+        config[FETCH_CONFIG].guide = {
+          brands: ['.*'],
+          themes: {
+            brands: ['.*'],
+            referenceOptions: {
+              enableReferenceLookup: true,
+              javascriptReferenceLookupStrategy: {
+                strategy: 'varNamePrefix',
+                prefix: 'SUPER_DUPER_PREFIX_',
+              },
+            },
+          },
+        }
+        filter = filterCreator(
+          createFilterCreatorParams({ config, elementsSource: buildElementsSourceFromElements([articleInstance]) }),
+        )
         mockDownload = jest.spyOn(DownloadModule, 'download')
       })
 
@@ -211,6 +251,12 @@ describe('filterCreator', () => {
               content: Buffer.from('file2content'),
             }),
           )
+          const templateExpression = await staticFileToTemplateExpression(
+            liveThemeWithId.value.root.files['fileWithReference_js@v'].content,
+          )
+          expect(templateExpression).toEqual({
+            parts: ['var SUPER_DUPER_PREFIX_123 = ', new ReferenceExpression(articleInstance.elemID)],
+          })
 
           expect(Object.keys(nonLiveThemeWithId.value.root)).toHaveLength(2)
           expect(nonLiveThemeWithId.value.root.files['file1_txt@v'].content).toEqual(
@@ -272,7 +318,15 @@ describe('filterCreator', () => {
     beforeEach(() => {
       jest.resetAllMocks()
       const config = { ...DEFAULT_CONFIG }
-      config[FETCH_CONFIG].guide = { brands: ['.*'], themesForBrands: ['.*'] }
+      config[FETCH_CONFIG].guide = {
+        brands: ['.*'],
+        themes: {
+          brands: ['.*'],
+          referenceOptions: {
+            enableReferenceLookup: false,
+          },
+        },
+      }
       filter = filterCreator(
         createFilterCreatorParams({ config, elementsSource: buildElementsSourceFromElements([themeSettingsInstance]) }),
       )
@@ -292,7 +346,7 @@ describe('filterCreator', () => {
         mockCreate.mockResolvedValue({ themeId: 'newId', errors: [] })
         mockPublish.mockResolvedValue([])
       })
-      it('should not fail', async () => {
+      it('should fail with an invalid theme', async () => {
         const invalidTheme = new InstanceElement('invalidTheme', themeType, {
           name: 'SevenFlags',
           brand_id: new ReferenceExpression(brand1.elemID, brand1),
@@ -300,7 +354,52 @@ describe('filterCreator', () => {
         })
         const changes = [toChange({ after: invalidTheme })]
         expect(await filter.deploy?.(changes)).toEqual({
-          deployResult: { appliedChanges: changes, errors: [] },
+          deployResult: {
+            appliedChanges: [],
+            errors: [
+              {
+                elemID: invalidTheme.elemID,
+                message: 'Invalid theme directory',
+                severity: 'Error',
+              },
+            ],
+          },
+          leftoverChanges: [],
+        })
+        expect((changes[0] as AdditionChange<InstanceElement>).data.after.value.id).toEqual('newId')
+        expect(mockCreate).toHaveBeenCalled()
+        expect(mockPublish).not.toHaveBeenCalled()
+      })
+
+      it('should fail with a file with unresolved reference', async () => {
+        const elemID = new ElemID('adapter', 'test', 'instance', 'not', 'top', 'level')
+        const invalidTheme = new InstanceElement('invalidTheme', themeType, {
+          name: 'SevenFlags',
+          brand_id: new ReferenceExpression(brand1.elemID, brand1),
+          root: {
+            files: {
+              'fileWithReference_js@v': {
+                filename: 'fileWithReference.js',
+                content: new TemplateExpression({
+                  parts: ['var SUPER_DUPER_PREFIX_123 = ', new ReferenceExpression(elemID, { invalid: 'ref' })],
+                }),
+              },
+            },
+            folders: {},
+          },
+        })
+        const changes = [toChange({ after: invalidTheme })]
+        expect(await filter.deploy?.(changes)).toEqual({
+          deployResult: {
+            appliedChanges: [],
+            errors: [
+              {
+                elemID: invalidTheme.elemID,
+                message: 'Error while resolving references in file fileWithReference.js',
+                severity: 'Error',
+              },
+            ],
+          },
           leftoverChanges: [],
         })
         expect((changes[0] as AdditionChange<InstanceElement>).data.after.value.id).toEqual('newId')
@@ -328,13 +427,36 @@ describe('filterCreator', () => {
             leftoverChanges: [],
           })
           expect((changes[0] as AdditionChange<InstanceElement>).data.after.value.id).toEqual('newId')
-          expect(mockCreate).toHaveBeenCalled()
+          expect(mockCreate).toHaveBeenCalledWith(
+            {
+              brandId: new ReferenceExpression(brand1.elemID, brand1),
+              staticFiles: [
+                {
+                  filename: 'file1.txt',
+                  content: Buffer.from('file1content'),
+                },
+                {
+                  filename: 'fileWithReference.js',
+                  content: Buffer.from('var PREFIX_123 = url'),
+                },
+              ],
+            },
+            expect.anything(),
+          )
           expect(mockPublish).not.toHaveBeenCalled()
         })
 
         it('should publish the theme if live is true', async () => {
           const config = { ...DEFAULT_CONFIG }
-          config[FETCH_CONFIG].guide = { brands: ['.*'], themesForBrands: ['.*'] }
+          config[FETCH_CONFIG].guide = {
+            brands: ['.*'],
+            themes: {
+              brands: ['.*'],
+              referenceOptions: {
+                enableReferenceLookup: false,
+              },
+            },
+          }
           filter = filterCreator(
             createFilterCreatorParams({
               config,
@@ -403,7 +525,7 @@ describe('filterCreator', () => {
         const after = newThemeWithFiles.clone()
         after.value.root.files['file1_txt@v'] = {
           filename: 'file1.txt',
-          content: new StaticFile({ filepath: 'file1.txt', content: Buffer.from('newContent') }),
+          content: Buffer.from('newContent'),
         }
         changes = [toChange({ before, after })]
       })
@@ -421,14 +543,37 @@ describe('filterCreator', () => {
             leftoverChanges: [],
           })
           expect((changes[0] as ModificationChange<InstanceElement>).data.after.value.id).toEqual('newId')
-          expect(mockCreate).toHaveBeenCalled()
+          expect(mockCreate).toHaveBeenCalledWith(
+            {
+              brandId: new ReferenceExpression(brand1.elemID, brand1),
+              staticFiles: [
+                {
+                  filename: 'file1.txt',
+                  content: Buffer.from('newContent'),
+                },
+                {
+                  filename: 'fileWithReference.js',
+                  content: Buffer.from('var PREFIX_123 = url'),
+                },
+              ],
+            },
+            expect.anything(),
+          )
           expect(mockDelete).toHaveBeenCalledWith('oldId', expect.anything())
           expect(mockPublish).not.toHaveBeenCalled()
         })
 
         it('should publish the theme if live is true', async () => {
           const config = { ...DEFAULT_CONFIG }
-          config[FETCH_CONFIG].guide = { brands: ['.*'], themesForBrands: ['.*'] }
+          config[FETCH_CONFIG].guide = {
+            brands: ['.*'],
+            themes: {
+              brands: ['.*'],
+              referenceOptions: {
+                enableReferenceLookup: false,
+              },
+            },
+          }
           filter = filterCreator(
             createFilterCreatorParams({
               config,
@@ -465,7 +610,15 @@ describe('filterCreator', () => {
         describe('error only in publish', () => {
           beforeEach(() => {
             const config = { ...DEFAULT_CONFIG }
-            config[FETCH_CONFIG].guide = { brands: ['.*'], themesForBrands: ['.*'] }
+            config[FETCH_CONFIG].guide = {
+              brands: ['.*'],
+              themes: {
+                brands: ['.*'],
+                referenceOptions: {
+                  enableReferenceLookup: false,
+                },
+              },
+            }
             filter = filterCreator(
               createFilterCreatorParams({
                 config,

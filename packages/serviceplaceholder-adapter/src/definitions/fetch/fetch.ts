@@ -108,7 +108,7 @@ const createCustomizations = (): Record<string, definitions.fetch.InstanceFetchA
           context: {
             args: {
               parent_id: {
-                fromField: 'id',
+                root: 'id',
               },
             },
           },
@@ -164,6 +164,47 @@ const createCustomizations = (): Record<string, definitions.fetch.InstanceFetchA
       },
     },
   },
+
+  made_up_type_a: {
+    requests: [
+      {
+        endpoint: {
+          path: '/api/v2/made_up_type_a',
+        },
+        transformation: {
+          root: 'made_up_type_a',
+        },
+      },
+    ],
+    resource: {
+      directFetch: true,
+    },
+    element: {
+      topLevel: {
+        isTopLevel: true,
+      },
+    },
+  },
+  made_up_type_b: {
+    requests: [
+      {
+        endpoint: {
+          path: '/api/v2/made_up_type_b',
+        },
+        transformation: {
+          root: 'made_up_type_b',
+        },
+      },
+    ],
+    resource: {
+      directFetch: true,
+    },
+    element: {
+      topLevel: {
+        isTopLevel: true,
+      },
+    },
+  },
 })
 
 export const createFetchDefinitions = (
@@ -177,6 +218,10 @@ export const createFetchDefinitions = (
       element: {
         topLevel: {
           elemID: { parts: DEFAULT_ID_PARTS },
+          serviceUrl: {
+            // TODO put default base url for serviceUrl filter (can override for specific types in customizations)
+            baseUrl: 'https://api.example.com',
+          },
         },
         fieldCustomizations: DEFAULT_FIELD_CUSTOMIZATIONS,
       },

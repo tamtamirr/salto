@@ -23,6 +23,7 @@ import {
   ObjectType,
   ReadOnlyElementsSource,
   ReferenceExpression,
+  TypeReference,
 } from '@salto-io/adapter-api'
 import { buildElementsSourceFromElements } from '../src/element_source'
 import { getImportantValues, toImportantValues } from '../src/important_values'
@@ -201,12 +202,21 @@ describe('getImportantValues', () => {
         other: 'bla',
       },
     })
+    const instNoImportant = inst.clone()
+    instNoImportant.refType = new TypeReference(objNoImportant.elemID, objNoImportant)
     const elementSourceNoImportant = buildElementsSourceFromElements([objNoImportant, userType])
-    const res = await getImportantValues({
-      element: inst,
-      elementSource: elementSourceNoImportant,
-    })
-    expect(res).toEqual([])
+    expect(
+      await getImportantValues({
+        element: instNoImportant,
+      }),
+    ).toEqual([])
+    instNoImportant.refType = new TypeReference(objNoImportant.elemID)
+    expect(
+      await getImportantValues({
+        element: instNoImportant,
+        elementSource: elementSourceNoImportant,
+      }),
+    ).toEqual([])
   })
   it('should return only indexed values', async () => {
     const res = await getImportantValues({
@@ -270,7 +280,7 @@ describe('getImportantValues', () => {
     })
     expect(res).toEqual([{ key: 'name', value: 'test inst' }])
   })
-  it('should return only  primitive values if indexed is true', async () => {
+  it('should return only primitive values if indexed is true', async () => {
     // check undefined, number, array of primitive, string --> need to return
     // reference, other obj --> should not return
     const obj2 = new ObjectType({
@@ -366,7 +376,7 @@ describe('getImportantValues', () => {
       { key: 'stringArray', value: ['1', '2'] },
       { key: 'undefinedVal', value: undefined },
       { key: 'reference', value: new ReferenceExpression(inst.elemID) },
-      { key: 'id', value: 12345 },
+      { key: 'obj.id', value: 12345 },
     ])
   })
 })

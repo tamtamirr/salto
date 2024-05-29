@@ -52,7 +52,9 @@ import {
   SALESFORCE,
 } from '../constants'
 import {
+  buildElementsSourceForFetch,
   instanceInternalId,
+  isInstanceOfCustomObjectSync,
   isReadOnlyField,
   isReferenceField,
   referenceFieldTargetTypes,
@@ -113,12 +115,19 @@ const createWarnings = async (
     missingRefsFromOriginType: MissingRef[],
   ): Promise<SaltoError> => {
     const typesOfMissingRefsTargets: string[] = _(missingRefsFromOriginType)
-      .map(
-        (missingRef) =>
+      .flatMap(
+        (missingRef: MissingRef): (string | ReferenceExpression)[] =>
           missingRef.origin.field?.annotations[FIELD_ANNOTATIONS.REFERENCE_TO],
       )
       .filter(isDefined)
-      .uniq()
+      .map((referenceTo: string | ReferenceExpression): string =>
+        // Ideally we would use the API name, but we don't have it here and reconstructing it is overkill for a warning
+        _.isString(referenceTo)
+          ? referenceTo
+          : referenceTo.elemID.getFullName(),
+      )
+      .sortBy()
+      .sortedUniq()
       .value()
     const numMissingInstances = _.uniqBy(
       missingRefsFromOriginType,
@@ -127,7 +136,7 @@ const createWarnings = async (
     const header = `Your Salto environment is configured to manage records of the ${originTypeName} object. ${numMissingInstances} ${originTypeName} records were not fetched because they have a lookup relationship to one of the following objects:`
     const perTargetTypeMsgs = typesOfMissingRefsTargets.join('\n')
     const perInstancesPreamble =
-      'and these objects are not part of your Salto configuration. \n\nHere are the records:'
+      'and these objects are not part of your Salto configuration.\n\nHere are the records:'
     const perMissingInstanceMsgs = missingRefs
       .filter((missingRef) => missingRef.origin.type === originTypeName)
       .map(
@@ -224,8 +233,8 @@ const createWarnings = async (
 }
 
 const replaceLookupsWithRefsAndCreateRefMap = async (
-  instances: InstanceElement[],
-  internalToInstance: Record<string, InstanceElement>,
+  referenceSources: InstanceElement[],
+  internalIdToReferenceTarget: Record<string, InstanceElement>,
   internalToTypeName: (internalId: string) => string,
   dataManagement: DataManagement,
 ): Promise<{
@@ -249,7 +258,9 @@ const replaceLookupsWithRefsAndCreateRefMap = async (
       const refTarget = refTo
         .map(
           (targetTypeName) =>
-            internalToInstance[serializeInternalID(targetTypeName, value)],
+            internalIdToReferenceTarget[
+              serializeInternalID(targetTypeName, value)
+            ],
         )
         .filter(isDefined)
         .pop()
@@ -264,6 +275,7 @@ const replaceLookupsWithRefsAndCreateRefMap = async (
         ) {
           return value
         }
+
         const targetTypeName =
           refTo.length === 1 ? refTo[0] : internalToTypeName(value)
 
@@ -329,7 +341,7 @@ const replaceLookupsWithRefsAndCreateRefMap = async (
     })
   }
 
-  await awu(instances).forEach(async (instance, index) => {
+  await awu(referenceSources).forEach(async (instance, index) => {
     instance.value = await replaceLookups(instance)
     if (index > 0 && index % 500 === 0) {
       log.debug(`Replaced lookup with references for ${index} instances`)
@@ -392,27 +404,31 @@ const filter: RemoteFilterCreator = ({ client, config }) => ({
     if (dataManagement === undefined) {
       return {}
     }
-    const allInstances = elements.filter(isInstanceElement)
-    const customObjectInstances = await awu(allInstances)
-      .filter(isInstanceOfCustomObject)
-      .toArray()
+    const fetchedInstances = elements.filter(isInstanceElement)
+    // In the partial fetch case, a fetched element may reference an element that was not fetched but exists in the workspace
+    const elementsSource = buildElementsSourceForFetch(elements, config)
+    const allElements = await awu(await elementsSource.getAll()).toArray()
+    const fetchedCustomObjectInstances = fetchedInstances.filter(
+      isInstanceOfCustomObjectSync,
+    )
+    const allInstances = allElements.filter(isInstanceElement)
     const internalToInstance = await keyByAsync(
       allInstances,
       serializeInstanceInternalID,
     )
-    const internalIdPrefixToType = await buildCustomObjectPrefixKeyMap(elements)
+    const internalIdPrefixToType =
+      await buildCustomObjectPrefixKeyMap(allElements)
     const { reverseReferencesMap, missingRefs } =
       await replaceLookupsWithRefsAndCreateRefMap(
-        customObjectInstances,
+        fetchedCustomObjectInstances,
         internalToInstance,
         (internalId: string): string =>
           internalIdPrefixToType[internalId.slice(0, KEY_PREFIX_LENGTH)],
         dataManagement,
       )
-    const instancesWithCollidingElemID = getInstancesWithCollidingElemID(
-      customObjectInstances,
-    )
-    const instancesWithEmptyId = customObjectInstances.filter(
+    const instancesWithCollidingElemID =
+      getInstancesWithCollidingElemID(fetchedInstances)
+    const instancesWithEmptyId = fetchedCustomObjectInstances.filter(
       (instance) => instance.elemID.name === ElemID.CONFIG_NAME,
     )
     const missingRefOriginInternalIDs = new Set(

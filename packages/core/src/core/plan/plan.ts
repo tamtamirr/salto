@@ -139,10 +139,16 @@ const compareValuesAndLazyResolveRefs = async (
   }
 
   if (_.isPlainObject(first) && _.isPlainObject(second)) {
-    if (!_.isEqual(new Set(Object.keys(first)), new Set(Object.keys(second)))) {
+    const firstKeys = Object.keys(first)
+    const secondKeys = Object.keys(second)
+    if (firstKeys.length !== secondKeys.length) {
       return false
     }
-    return !(await awu(Object.keys(first)).some(
+    const secondKeysSet = new Set(secondKeys)
+    if (firstKeys.some(k => !secondKeysSet.has(k))) {
+      return false
+    }
+    return !(await awu(firstKeys).some(
       async key =>
         !(await compareValuesAndLazyResolveRefs(
           first[key],
@@ -181,7 +187,7 @@ const isEqualsNode = async (
   compareOptions?: CompareOptions,
 ): Promise<boolean> => {
   if (!values.isDefined(node1) || !values.isDefined(node2)) {
-    // Theoratically we should return true if both are undefined, but practically
+    // Theoretically we should return true if both are undefined, but practically
     // this makes no sense, so we return false,
     return false
   }
@@ -231,7 +237,7 @@ const addDifferentElements =
     compareOptions?: CompareOptions,
   ): PlanTransformer =>
   graph =>
-    log.time(
+    log.timeDebug(
       async () => {
         const outputGraph = graph.clone()
         const sieve = new Set<string>()
@@ -271,9 +277,9 @@ const addDifferentElements =
 
         const addNodeIfDifferent = async (beforeNode?: ChangeDataType, afterNode?: ChangeDataType): Promise<void> => {
           // We can cast to string, at least one of the nodes should be defined.
-          const fullname = beforeNode?.elemID.getFullName() ?? (afterNode?.elemID.getFullName() as string)
-          if (!sieve.has(fullname)) {
-            sieve.add(fullname)
+          const fullName = beforeNode?.elemID.getFullName() ?? (afterNode?.elemID.getFullName() as string)
+          if (!sieve.has(fullName)) {
+            sieve.add(fullName)
             if (!(await isEqualsNode(beforeNode, afterNode, before, after, compareOptions))) {
               addElemToOutputGraph(beforeNode, afterNode)
             }
@@ -350,7 +356,7 @@ const addDifferentElements =
 const resolveNodeElements =
   (before: ReadOnlyElementsSource, after: ReadOnlyElementsSource): PlanTransformer =>
   graph =>
-    log.time(
+    log.timeDebug(
       async () => {
         const beforeItemsToResolve: ChangeDataType[] = []
         const afterItemsToResolve: ChangeDataType[] = []
@@ -365,12 +371,12 @@ const resolveNodeElements =
         })
 
         const resolvedBefore = _.keyBy(
-          await log.time(() => resolve(beforeItemsToResolve, before), 'Resolving before items'),
+          await log.timeDebug(() => resolve(beforeItemsToResolve, before), 'Resolving before items'),
           e => e.elemID.getFullName(),
         ) as Record<string, ChangeDataType>
 
         const resolvedAfter = _.keyBy(
-          await log.time(() => resolve(afterItemsToResolve, after), 'Resolving after items'),
+          await log.timeDebug(() => resolve(afterItemsToResolve, after), 'Resolving after items'),
           e => e.elemID.getFullName(),
         ) as Record<string, ChangeDataType>
 
@@ -459,7 +465,7 @@ export const getPlan = async ({
 }: GetPlanParameters): Promise<Plan> => {
   const numBeforeElements = await awu(await before.list()).length()
   const numAfterElements = await awu(await after.list()).length()
-  return log.time(
+  return log.timeDebug(
     async () => {
       const diffGraph = await buildDiffGraph(
         addDifferentElements(before, after, topLevelFilters, numBeforeElements + numAfterElements, compareOptions),

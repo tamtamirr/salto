@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 import { MockInterface, mockFunction } from '@salto-io/test-utils'
+import { SaltoError, isInstanceElement } from '@salto-io/adapter-api'
 import { HTTPReadClientInterface, HTTPWriteClientInterface } from '../../src/client'
 import { createMockQuery } from '../../src/fetch/query'
 import { noPagination } from '../../src/fetch/request/pagination'
@@ -47,7 +48,10 @@ describe('fetch', () => {
         if (url === '/api/v1/fields') {
           return {
             data: {
-              fields: [{ id: 456, name: 'field1' }],
+              fields: [
+                { id: 456, name: 'field1' },
+                { id: 789, name: 'field2' },
+              ],
             },
             status: 200,
             statusText: 'OK',
@@ -62,11 +66,30 @@ describe('fetch', () => {
             statusText: 'OK',
           }
         }
+        if (url === '/api/v1/fields/789/options') {
+          throw new Error('error fetching options')
+        }
+        if (url === '/api/v1/fields/456/default_option') {
+          return {
+            data: {
+              name: 'opt1',
+            },
+            status: 200,
+            statusText: 'OK',
+          }
+        }
+        if (url === '/api/v1/fields/789/default_option') {
+          throw new Error('error fetching default option')
+        }
         throw new Error(`unexpected endpoint called: ${url}`)
       })
     })
     // TODO split into multiple tests per component and add cases
     it('should generate elements correctly', async () => {
+      const customSaltoError: SaltoError = {
+        message: 'error fetching default option',
+        severity: 'Warning',
+      }
       const res = await getElements<{ customNameMappingOptions: 'custom' }>({
         adapterName: 'myAdapter',
         definitions: {
@@ -142,7 +165,18 @@ describe('fetch', () => {
                         context: {
                           args: {
                             parent_id: {
-                              fromField: 'id',
+                              root: 'id',
+                            },
+                          },
+                        },
+                      },
+                      default: {
+                        typeName: 'default_option',
+                        single: true,
+                        context: {
+                          args: {
+                            parent_id: {
+                              root: 'id',
                             },
                           },
                         },
@@ -179,10 +213,34 @@ describe('fetch', () => {
                   ],
                   resource: {
                     directFetch: false,
+                    onError: {
+                      action: 'configSuggestion',
+                      value: {
+                        reason: 'error fetching options',
+                        type: 'typeToExclude',
+                        value: 'some value',
+                      },
+                    },
                   },
                   element: {
                     topLevel: {
                       isTopLevel: true,
+                    },
+                  },
+                },
+                default_option: {
+                  requests: [
+                    {
+                      endpoint: {
+                        path: '/api/v1/fields/{parent_id}/default_option',
+                      },
+                    },
+                  ],
+                  resource: {
+                    directFetch: false,
+                    onError: {
+                      action: 'customSaltoError',
+                      value: customSaltoError,
                     },
                   },
                 },
@@ -195,17 +253,30 @@ describe('fetch', () => {
         },
         fetchQuery: createMockQuery(),
       })
-      expect(res.errors).toEqual([])
-      expect(res.configChanges).toHaveLength(0)
+      expect(res.errors).toHaveLength(1)
+      expect(res.errors).toEqual([customSaltoError])
+      expect(res.configChanges).toHaveLength(1)
+      expect(res.configChanges?.[0]).toEqual({
+        type: 'typeToExclude',
+        value: 'some value',
+        reason: 'error fetching options',
+      })
       expect(res.elements.map(e => e.elemID.getFullName()).sort()).toEqual([
         'myAdapter.field',
         'myAdapter.field.instance.field1Custom',
+        'myAdapter.field.instance.field2Custom',
+        'myAdapter.field__default',
         'myAdapter.group',
         'myAdapter.group.instance.group1Custom',
         'myAdapter.option',
         'myAdapter.option.instance.opt1Custom',
         'myAdapter.option.instance.opt2Custom',
       ])
+      expect(
+        res.elements
+          .filter(isInstanceElement)
+          .find(e => e.elemID.getFullName() === 'myAdapter.field.instance.field1Custom')?.value.default,
+      ).toEqual({ name: 'opt1' })
       // TODO continue
     })
   })

@@ -105,7 +105,7 @@ const getResolvedValue = async (
         'without elementsSource because value does not exist',
     )
   }
-  const value = (await elementsSource?.get(elemID)) ?? resolvedValue
+  const value = resolvedValue ?? (await elementsSource?.get(elemID))
   // When there's no value in the ElementSource & in the Ref
   // Fallback to a placeholder Type. This resembles the behavior
   // before the RefType change.
@@ -168,7 +168,7 @@ export const isReferenceExpression = (value: any): value is ReferenceExpression 
 export class VariableExpression extends ReferenceExpression {
   constructor(elemID: ElemID, resValue?: Value, topLevelParent?: Element) {
     super(elemID, resValue, topLevelParent)
-    // This is to prevent programing errors since the parser will always create
+    // This is to prevent programming errors since the parser will always create
     // VariableExpressions with idType === 'var'
     if (elemID.idType !== 'var') {
       throw new Error(

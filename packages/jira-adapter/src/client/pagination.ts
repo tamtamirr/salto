@@ -19,6 +19,8 @@ import { client as clientUtils } from '@salto-io/adapter-components'
 
 const { makeArray } = collections.array
 
+const JSM_IS_LAST_PAGE = 'isLastPage'
+const JSM_PAGINATION_URL_PATTERN = /^\/rest\/servicedeskapi\/servicedesk/
 const ITEM_INDEX_PAGINATION_URLS = [
   '/rest/api/3/users/search',
   '/rest/api/2/user/search',
@@ -45,19 +47,27 @@ const notTeamScopeObject = (obj: clientUtils.ResponseValue): boolean =>
 const notTeamBoard = (obj: clientUtils.ResponseValue): boolean =>
   !(_.isPlainObject(obj) && 'type' in obj && obj.type === 'simple' && 'self' in obj && isBoardSelfUrl(obj.self))
 
-const removeScopedObjectsImpl = <T extends clientUtils.ResponseValue>(response: T | T[]): T | T[] => {
+// filters out calendars that are unrelated to the porject.
+const notRelatedCalendars = (obj: clientUtils.ResponseValue): boolean =>
+  !(_.isPlainObject(obj) && 'canCreate' in obj && obj.canCreate === false && 'calendars' in obj)
+
+const filterResponseEntriesRecursively = <T extends clientUtils.ResponseValue>(response: T | T[]): T | T[] => {
   if (Array.isArray(response)) {
-    return response.filter(notTeamScopeObject).filter(notTeamBoard).flatMap(removeScopedObjectsImpl) as T[]
+    return response
+      .filter(notTeamScopeObject)
+      .filter(notTeamBoard)
+      .filter(notRelatedCalendars)
+      .flatMap(filterResponseEntriesRecursively) as T[]
   }
   if (_.isObject(response)) {
-    return _.mapValues(response, removeScopedObjectsImpl) as T
+    return _.mapValues(response, filterResponseEntriesRecursively) as T
   }
   return response
 }
 
-export const removeScopedObjects: clientUtils.PageEntriesExtractor = (
+export const filterResponseEntries: clientUtils.PageEntriesExtractor = (
   entry: clientUtils.ResponseValue,
-): clientUtils.ResponseValue[] => makeArray(removeScopedObjectsImpl([entry]))
+): clientUtils.ResponseValue[] => makeArray(filterResponseEntriesRecursively([entry]))
 
 export const paginate: clientUtils.PaginationFuncCreator = args => {
   if (ITEM_INDEX_PAGINATION_URLS.includes(args.getParams?.url)) {
@@ -67,6 +77,10 @@ export const paginate: clientUtils.PaginationFuncCreator = args => {
       firstIndex: 0,
       pageSizeArgName: args.getParams.pageSizeArgName,
     })
+  }
+  if (JSM_PAGINATION_URL_PATTERN.test(args.getParams?.url)) {
+    // special handling for endpoints that use JSM pagination
+    return clientUtils.getWithOffsetAndLimit(JSM_IS_LAST_PAGE)
   }
   return clientUtils.getAllPagesWithOffsetAndTotal()
 }

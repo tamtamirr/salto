@@ -103,8 +103,12 @@ const isAutomationsResponse = createSchemeGuard<AutomationResponse[]>(
   AUTOMATION_RESPONSE_SCHEME,
   'Received an invalid automation import response',
 )
+type Component = {
+  children: Component[]
+  conditions: Component[]
+}
 
-export type Component = {
+type AssetComponent = {
   value: {
     workspaceId?: string
     schemaId: ReferenceExpression
@@ -117,10 +121,30 @@ export type Component = {
 const ASSET_COMPONENT_SCHEME = Joi.object({
   value: Joi.object({
     schemaId: Joi.required(),
-  }).unknown(true),
+  })
+    .unknown(true)
+    .required(),
 }).unknown(true)
 
-export const isAssetComponent = createSchemeGuard<Component>(ASSET_COMPONENT_SCHEME)
+export const isAssetComponent = createSchemeGuard<AssetComponent>(ASSET_COMPONENT_SCHEME)
+
+type requestTypeComponent = {
+  value: {
+    requestType: ReferenceExpression
+    serviceDesk?: string
+  }
+}
+
+const REQUEST_TYPE_COMPONENT_SCHEME = Joi.object({
+  value: Joi.object({
+    requestType: Joi.required(),
+    serviceDesk: Joi.string().optional(),
+  })
+    .unknown(true)
+    .required(),
+}).unknown(true)
+
+const isRequestTypeComponent = createSchemeGuard<requestTypeComponent>(REQUEST_TYPE_COMPONENT_SCHEME)
 
 const generateRuleScopesResources = (instance: InstanceElement, cloudId: string): string[] => {
   if ((instance.value.projects ?? []).length === 0) {
@@ -341,36 +365,68 @@ const updateAutomationLabels = async (
     await removeAutomationLabels(getChangeData(change), removedLabels, client, cloudId)
   }
 }
-const addDetailedAssetsComponents = (instance: InstanceElement): void => {
-  if (!instance.value.components) {
+const proccessComponentPreDeploy = (component: Component, config: JiraConfig): void => {
+  if (config.fetch.enableJSMPremium && isAssetComponent(component)) {
+    const schema = component.value.schemaId.value
+    component.value.schemaLabel = schema.value.name
+    component.value.workspaceId = schema.value.workspaceId
+    if (component.value.objectTypeId !== undefined) {
+      const objectType = component.value.objectTypeId.value
+      component.value.objectTypeLabel = objectType.value.name
+    }
+  }
+  if (isRequestTypeComponent(component)) {
+    const requestType = component.value.requestType.value
+    if (requestType?.value !== undefined) {
+      component.value.serviceDesk = requestType.value.serviceDeskId
+    }
+  }
+  if (component.children) {
+    component.children.forEach(child => proccessComponentPreDeploy(child, config))
+  }
+  if (component.conditions) {
+    component.conditions.forEach(child => proccessComponentPreDeploy(child, config))
+  }
+}
+const modifyComponentsPreDeploy = (instance: InstanceElement, config: JiraConfig): void => {
+  if (!config.fetch.enableJSM) {
     return
   }
-  const assetsComponents: Component[] = instance.value.components.filter(isAssetComponent)
-  assetsComponents.forEach(component => {
-    try {
-      const schema = component.value.schemaId.value
-      component.value.schemaLabel = schema.value.name
-      component.value.workspaceId = schema.value.workspaceId
-      if (component.value.objectTypeId !== undefined) {
-        const objectType = component.value.objectTypeId.value
-        component.value.objectTypeLabel = objectType.value.name
-      }
-    } catch (e) {
-      log.warn(`Failed to update detailed assets components for ${instance.elemID.getFullName()}`)
-    }
-  })
+  if (instance.value.components !== undefined) {
+    instance.value.components.forEach((component: Component) => proccessComponentPreDeploy(component, config))
+  }
+  if (instance.value.trigger !== undefined) {
+    proccessComponentPreDeploy(instance.value.trigger, config)
+  }
 }
 
-const deleteDetailedAssetsComponents = (instance: InstanceElement): void => {
-  if (!instance.value.components) {
-    return
-  }
-  const assetsComponents: Component[] = instance.value.components.filter(isAssetComponent)
-  assetsComponents.forEach(component => {
+const proccessComponentPostDeploy = (component: Component, config: JiraConfig): void => {
+  if (config.fetch.enableJSMPremium && isAssetComponent(component)) {
     delete component.value.schemaLabel
     delete component.value.objectTypeLabel
     delete component.value.workspaceId
-  })
+  }
+  if (isRequestTypeComponent(component)) {
+    delete component.value.serviceDesk
+  }
+  if (component.children) {
+    component.children.forEach(child => proccessComponentPostDeploy(child, config))
+  }
+  if (component.conditions) {
+    component.conditions.forEach(child => proccessComponentPostDeploy(child, config))
+  }
+}
+
+const modifyComponentsPostDeploy = (instance: InstanceElement, config: JiraConfig): void => {
+  if (!config.fetch.enableJSM) {
+    return
+  }
+  if (instance.value.components !== undefined) {
+    instance.value.components.forEach((component: Component) => proccessComponentPostDeploy(component, config))
+  }
+  if (instance.value.trigger !== undefined) {
+    proccessComponentPostDeploy(instance.value.trigger, config)
+  }
 }
 
 const updateAutomation = async (
@@ -438,16 +494,12 @@ const filter: FilterCreator = ({ client, config }) => ({
     setTypeDeploymentAnnotations(automationType)
   },
   preDeploy: async changes => {
-    if (!config.fetch.enableJSM || !(config.fetch.enableJsmExperimental || config.fetch.enableJSMPremium)) {
-      return
-    }
-
     await awu(changes)
       .filter(isInstanceChange)
       .filter(isAdditionOrModificationChange)
       .map(getChangeData)
       .filter(instance => instance.elemID.typeName === AUTOMATION_TYPE)
-      .forEach(addDetailedAssetsComponents)
+      .forEach(instance => modifyComponentsPreDeploy(instance, config))
   },
   deploy: async changes => {
     const [relevantChanges, leftoverChanges] = _.partition(
@@ -474,16 +526,12 @@ const filter: FilterCreator = ({ client, config }) => ({
     }
   },
   onDeploy: async changes => {
-    if (!config.fetch.enableJSM || !(config.fetch.enableJsmExperimental || config.fetch.enableJSMPremium)) {
-      return
-    }
-
     await awu(changes)
       .filter(isInstanceChange)
       .filter(isAdditionOrModificationChange)
       .map(getChangeData)
       .filter(instance => instance.elemID.typeName === AUTOMATION_TYPE)
-      .forEach(deleteDetailedAssetsComponents)
+      .forEach(instance => modifyComponentsPostDeploy(instance, config))
   },
 })
 export default filter

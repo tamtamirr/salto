@@ -28,7 +28,7 @@ import {
 } from '@salto-io/adapter-api'
 import { logger } from '@salto-io/logging'
 import { decorators, collections, values } from '@salto-io/lowerdash'
-import { elements as elementUtils } from '@salto-io/adapter-components'
+import { soap } from '@salto-io/adapter-components'
 import _ from 'lodash'
 import { captureServiceIdInfo } from '../service_id_info'
 import { NetsuiteFetchQueries, NetsuiteQuery } from '../config/query'
@@ -78,7 +78,7 @@ import {
   SUITEAPP_UPDATING_FILES_GROUP_ID,
 } from '../group_changes'
 import { DeployResult, getElementValueOrAnnotations, getServiceId } from '../types'
-import { ADDITIONAL_DEPENDENCIES, APPLICATION_ID, CONFIG_FEATURES } from '../constants'
+import { ADDITIONAL_DEPENDENCIES, APPLICATION_ID, CONFIG_FEATURES, CUSTOM_RECORD_TYPE, ROLE } from '../constants'
 import { toConfigDeployResult, toSetConfigTypes } from '../suiteapp_config_elements'
 import {
   FeaturesDeployError,
@@ -115,13 +115,18 @@ type DependencyInfo = {
   dependencyGraph: Graph<SDFObjectNode>
 }
 
+const isRoleToCustomRecordType = (startNode: GraphNode<SDFObjectNode>, endNode: GraphNode<SDFObjectNode>): boolean =>
+  startNode.value.customizationInfo.typeName === ROLE && endNode.value.customizationInfo.typeName === CUSTOM_RECORD_TYPE
+
 const isLegalEdge = (
   startNode: GraphNode<SDFObjectNode>,
   endNode: GraphNode<SDFObjectNode>,
   serviceId: string,
 ): boolean =>
-  (startNode.value.changeType === 'addition' || startNode.value.addedObjects.has(serviceId)) &&
-  startNode.id !== endNode.id
+  startNode.id !== endNode.id &&
+  (startNode.value.changeType === 'addition' ||
+    startNode.value.addedObjects.has(serviceId) ||
+    isRoleToCustomRecordType(startNode, endNode))
 
 const determineAccountType = (accountId: string, envType: EnvType): EnvType | 'TEST' => {
   if (accountId.toUpperCase().startsWith('TSTDRV') || accountId.toUpperCase().startsWith('TD')) {
@@ -413,7 +418,7 @@ export default class NetsuiteClient {
       try {
         log.debug('deploying %d changes', dependencyGraph.nodes.size)
         // eslint-disable-next-line no-await-in-loop
-        await log.time(
+        await log.timeDebug(
           () => this.sdfClient.deploy(suiteAppId, { manifestDependencies, validateOnly }, dependencyGraph),
           'sdfDeploy',
         )
@@ -621,7 +626,7 @@ export default class NetsuiteClient {
       const desc = `client.${name}`
       try {
         // eslint-disable-next-line @typescript-eslint/return-await
-        return await log.time(call, desc)
+        return await log.timeDebug(call, desc)
       } catch (e) {
         log.error('failed to run Netsuite client command on: %o', e)
         throw e
@@ -629,7 +634,7 @@ export default class NetsuiteClient {
     },
   )
 
-  public async getNetsuiteWsdl(): Promise<elementUtils.soap.WSDL | undefined> {
+  public async getNetsuiteWsdl(): Promise<soap.WSDL | undefined> {
     return this.suiteAppClient?.getNetsuiteWsdl()
   }
 

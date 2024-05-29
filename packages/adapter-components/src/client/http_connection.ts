@@ -55,7 +55,7 @@ export type AuthenticatedAPIConnection = APIConnection & {
 
 export type RetryOptions = Partial<IAxiosRetryConfig>
 
-type LoginFunc<TCredentials> = (creds: TCredentials) => Promise<AuthenticatedAPIConnection>
+type LoginFunc<TCredentials> = (credentials: TCredentials) => Promise<AuthenticatedAPIConnection>
 
 export interface Connection<TCredentials> {
   login: LoginFunc<TCredentials>
@@ -75,11 +75,14 @@ const getRetryDelayFromHeaders = (headers: Record<string, string>): number | und
       log.warn(`Received invalid retry-after header value: ${retryAfterHeaderValue}`)
       return undefined
     }
+    log.trace(`Received retry-after header value: ${retryAfter}`)
     return retryAfter
   }
   // Handle rate limits as seen in Okta,
   // x-rate-limit-reset contains the time at which the rate limit resets
   // more information: https://developer.okta.com/docs/reference/rl-best-practices/
+  // it will not work for Jira (https://developer.atlassian.com/cloud/jira/platform/rate-limiting/)
+  // as they give it in a date format. currently we do not see it happening
   const rateLimitResetHeaderValue = lowercaseHeaders['x-rate-limit-reset']
   if (rateLimitResetHeaderValue !== undefined && lowercaseHeaders.date !== undefined) {
     const resetTime = parseInt(rateLimitResetHeaderValue, 10) * 1000
@@ -88,6 +91,9 @@ const getRetryDelayFromHeaders = (headers: Record<string, string>): number | und
       log.warn(`Received invalid x-rate-limit-reset values: ${rateLimitResetHeaderValue}, ${lowercaseHeaders.date}`)
       return undefined
     }
+    log.trace(
+      `Received x-rate-limit-reset value: ${rateLimitResetHeaderValue} matched with date: ${lowercaseHeaders.date}`,
+    )
     return resetTime - currentTime
   }
   return undefined
@@ -161,11 +167,11 @@ export const createClientConnection = <TCredentials>({
   createConnection(_.defaults({}, retryOptions, createRetryOptions(DEFAULT_RETRY_OPTS, DEFAULT_TIMEOUT_OPTS)), timeout)
 
 export const validateCredentials = async <TCredentials>(
-  creds: TCredentials,
+  credentials: TCredentials,
   createConnectionArgs: ConnectionParams<TCredentials>,
 ): Promise<AccountInfo> => {
   const conn = createClientConnection(createConnectionArgs)
-  const { accountInfo } = await conn.login(creds)
+  const { accountInfo } = await conn.login(credentials)
   return accountInfo
 }
 
@@ -176,8 +182,8 @@ export type AuthParams = {
 
 type AxiosConnectionParams<TCredentials> = {
   retryOptions: RetryOptions
-  authParamsFunc: (creds: TCredentials) => Promise<AuthParams>
-  baseURLFunc: (creds: TCredentials) => Promise<string>
+  authParamsFunc: (credentials: TCredentials) => Promise<AuthParams>
+  baseURLFunc: (credentials: TCredentials) => Promise<string>
   credValidateFunc: ({
     credentials,
     connection,
@@ -195,17 +201,17 @@ export const axiosConnection = <TCredentials>({
   credValidateFunc,
   timeout = 0,
 }: AxiosConnectionParams<TCredentials>): Connection<TCredentials> => {
-  const login = async (creds: TCredentials): Promise<AuthenticatedAPIConnection> => {
+  const login = async (credentials: TCredentials): Promise<AuthenticatedAPIConnection> => {
     const httpClient = axios.create({
-      baseURL: await baseURLFunc(creds),
-      ...(await authParamsFunc(creds)),
+      baseURL: await baseURLFunc(credentials),
+      ...(await authParamsFunc(credentials)),
       maxBodyLength: Infinity,
       timeout,
     })
     axiosRetry(httpClient, retryOptions)
 
     try {
-      const accountInfo = await credValidateFunc({ credentials: creds, connection: httpClient })
+      const accountInfo = await credValidateFunc({ credentials, connection: httpClient })
       return Object.assign(httpClient, { accountInfo })
     } catch (e) {
       log.error(`Login failed: ${e}, stack: ${e.stack}`)

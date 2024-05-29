@@ -25,6 +25,9 @@ import {
   PROFILE_ENROLLMENT_POLICY_TYPE_NAME,
   PROFILE_ENROLLMENT_RULE_TYPE_NAME,
   USER_SCHEMA_TYPE_NAME,
+  BRAND_TYPE_NAME,
+  BRAND_THEME_TYPE_NAME,
+  DOMAIN_TYPE_NAME,
 } from '../src/constants'
 
 export const mockDefaultValues: Record<string, Values> = {
@@ -37,7 +40,6 @@ export const mockDefaultValues: Record<string, Values> = {
   [ACCESS_POLICY_RULE_TYPE_NAME]: {
     status: 'ACTIVE',
     name: 'authentication rule',
-    priority: 0,
     system: false,
     conditions: {
       network: { connection: 'ANYWHERE' },
@@ -111,7 +113,6 @@ export const mockDefaultValues: Record<string, Values> = {
         slo: {
           enabled: false,
         },
-        signOnMode: 'SAML_2_0',
       },
       manualProvisioning: false,
       implicitAssignment: false,
@@ -153,7 +154,6 @@ export const mockDefaultValues: Record<string, Values> = {
   [PROFILE_ENROLLMENT_RULE_TYPE_NAME]: {
     status: 'ACTIVE',
     name: 'Catch-all Rule',
-    priority: 99,
     system: true,
     type: 'PROFILE_ENROLLMENT',
   },
@@ -198,5 +198,24 @@ export const mockDefaultValues: Record<string, Values> = {
         },
       },
     },
+  },
+  [BRAND_TYPE_NAME]: {
+    removePoweredByOkta: false,
+    agreeToCustomPrivacyPolicy: true,
+  },
+  [BRAND_THEME_TYPE_NAME]: {
+    primaryColorHex: '#1662dd',
+    primaryColorContrastHex: '#ffffff',
+    secondaryColorHex: '#ebebed',
+    secondaryColorContrastHex: '#000000',
+    signInPageTouchPointVariant: 'OKTA_DEFAULT',
+    endUserDashboardTouchPointVariant: 'OKTA_DEFAULT',
+    errorPageTouchPointVariant: 'OKTA_DEFAULT',
+    emailTemplateTouchPointVariant: 'OKTA_DEFAULT',
+    loadingPageTouchPointVariant: 'OKTA_DEFAULT',
+  },
+  [DOMAIN_TYPE_NAME]: {
+    certificateSourceType: 'OKTA_MANAGED',
+    validationStatus: 'NOT_STARTED',
   },
 }

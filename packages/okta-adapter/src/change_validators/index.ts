@@ -21,7 +21,6 @@ import { groupRuleStatusValidator } from './group_rule_status'
 import { groupRuleActionsValidator } from './group_rule_actions'
 import { groupPushToApplicationUniquenessValidator } from './group_push_to_application_uniqueness'
 import { defaultPoliciesValidator } from './default_policies'
-import { groupRuleAdministratorValidator } from './group_rule_administrator'
 import { customApplicationStatusValidator } from './custom_application_status'
 import { appGroupValidator } from './app_group'
 import { userTypeAndSchemaValidator } from './user_type_and_schema'
@@ -29,13 +28,16 @@ import { appIntegrationSetupValidator } from './app_integration_setup'
 import { assignedAccessPoliciesValidator } from './assigned_policies'
 import { groupSchemaModifyBaseValidator } from './group_schema_modify_base_fields'
 import { enabledAuthenticatorsValidator } from './enabled_authenticators'
-import { roleAssignmentValidator } from './role_assignment'
 import { usersValidator } from './user'
 import { appWithGroupPushValidator } from './app_with_group_push'
 import { appUserSchemaWithInactiveAppValidator } from './app_schema_with_inactive_app'
 import { appGroupAssignmentValidator } from './app_group_assignments'
 import { appUrlsValidator } from './app_urls'
 import { profileMappingRemovalValidator } from './profile_mapping_removal'
+import { brandRemovalValidator } from './brand_removal'
+import { appUserSchemaRemovalValidator } from './app_user_schema_removal'
+import { domainAdditionValidator } from './domain_addition'
+import { domainModificationValidator } from './domain_modification'
 import OktaClient from '../client/client'
 import {
   API_DEFINITIONS_CONFIG,
@@ -44,6 +46,8 @@ import {
   OktaConfig,
   PRIVATE_API_DEFINITIONS_CONFIG,
 } from '../config'
+import { dynamicOSVersionFeatureValidator } from './dynamic_os_version_feature'
+import { brandThemeRemovalValidator } from './brand_theme_removal'
 
 const { createCheckDeploymentBasedOnConfigValidator, getDefaultChangeValidators, createChangeValidator } =
   deployment.changeValidators
@@ -59,14 +63,12 @@ export default ({ client, config }: { client: OktaClient; config: OktaConfig }):
     groupRuleStatus: groupRuleStatusValidator,
     groupRuleActions: groupRuleActionsValidator,
     defaultPolicies: defaultPoliciesValidator,
-    groupRuleAdministrator: groupRuleAdministratorValidator,
     customApplicationStatus: customApplicationStatusValidator,
     userTypeAndSchema: userTypeAndSchemaValidator,
     appIntegrationSetup: appIntegrationSetupValidator(client),
     assignedAccessPolicies: assignedAccessPoliciesValidator,
     groupSchemaModifyBase: groupSchemaModifyBaseValidator,
     enabledAuthenticators: enabledAuthenticatorsValidator,
-    roleAssignment: roleAssignmentValidator,
     users: usersValidator(client, config),
     appUserSchemaWithInactiveApp: appUserSchemaWithInactiveAppValidator,
     appWithGroupPush: appWithGroupPushValidator,
@@ -74,6 +76,12 @@ export default ({ client, config }: { client: OktaClient; config: OktaConfig }):
     appGroupAssignment: appGroupAssignmentValidator,
     appUrls: appUrlsValidator,
     profileMappingRemoval: profileMappingRemovalValidator,
+    brandRemoval: brandRemovalValidator,
+    dynamicOSVersion: dynamicOSVersionFeatureValidator,
+    brandThemeRemoval: brandThemeRemovalValidator,
+    appUserSchemaRemoval: appUserSchemaRemovalValidator,
+    domainAddition: domainAdditionValidator,
+    domainModification: domainModificationValidator,
   }
 
   return createChangeValidator({

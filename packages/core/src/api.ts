@@ -185,7 +185,7 @@ export const deploy = async (
   )
 
   const postDeployAction = async (appliedChanges: ReadonlyArray<Change>): Promise<void> =>
-    log.time(async () => {
+    log.timeDebug(async () => {
       // This function is inside 'postDeployAction' because it assumes the state is already updated
       const getUpdatedElement = async (change: Change): Promise<ChangeDataType> => {
         const changeElem = getChangeData(change)
@@ -820,6 +820,17 @@ export const fixElements = async (
     .map(id => workspace.getValue(id))
     .filter(values.isDefined)
     .toArray()
+
+  log.debug(
+    'about to fixElements: %o, found by selectors: %o',
+    elements.map(element => element.elemID.getFullName()),
+    selectors.map(selector => selector.origin),
+  )
+
+  if (_.isEmpty(elements)) {
+    log.debug('fixElements found no elements to fix')
+    return { errors: [], changes: [] }
+  }
 
   const idToElement = _.keyBy(elements, e => e.elemID.getFullName())
 

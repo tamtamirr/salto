@@ -16,30 +16,38 @@
 import {
   AdditionChange,
   Change,
+  CORE_ANNOTATIONS,
+  Element,
+  Field,
   getChangeData,
   InstanceElement,
   isAdditionOrModificationChange,
   isInstanceElement,
   isModificationChange,
+  isObjectType,
   isReferenceExpression,
+  isTemplateExpression,
+  MapType,
   ModificationChange,
   SaltoElementError,
   SaltoError,
   StaticFile,
-  Element,
-  isObjectType,
-  Field,
-  MapType,
-  CORE_ANNOTATIONS,
-  ReferenceExpression,
+  TemplateExpression,
 } from '@salto-io/adapter-api'
+import {
+  applyFunctionToChangeData,
+  getInstancesFromElementSource,
+  inspectValue,
+  naclCase,
+  replaceTemplatesWithValues,
+} from '@salto-io/adapter-utils'
 import { logger } from '@salto-io/logging'
-import { values, values as lowerdashValues, collections } from '@salto-io/lowerdash'
+import { collections, values as lowerdashValues, values } from '@salto-io/lowerdash'
+import { parserUtils } from '@salto-io/parser'
 import JSZip from 'jszip'
 import _, { remove } from 'lodash'
-import { getInstancesFromElementSource, naclCase, inspectValue } from '@salto-io/adapter-utils'
 import ZendeskClient from '../client/client'
-import { FETCH_CONFIG, isGuideThemesEnabled } from '../config'
+import { FETCH_CONFIG, isGuideThemesEnabled, Themes } from '../config'
 import {
   GUIDE_THEME_TYPE_NAME,
   THEME_FILE_TYPE_NAME,
@@ -52,90 +60,67 @@ import { create } from './guide_themes/create'
 import { deleteTheme } from './guide_themes/delete'
 import { download } from './guide_themes/download'
 import { publish } from './guide_themes/publish'
+import {
+  createHandlebarTemplateExpression,
+  createHtmlTemplateExpression,
+  createJavascriptTemplateExpression,
+  TemplateEngineCreator,
+} from './template_engines/creator'
 import { getBrandsForGuideThemes, matchBrandSubdomainFunc } from './utils'
-import { parseHandlebarPotentialReferences } from './template_engines/handlebar_parser'
-import { parseHtmlPotentialReferences } from './template_engines/html_parser'
-import { extractGreedyIdsFromScripts } from './template_engines/javascript_extractor'
+import { prepRef } from './article/utils'
 
 const log = logger(module)
 const { isPlainRecord } = lowerdashValues
 const { awu } = collections.asynciterable
 
 type ThemeFile = { filename: string; content: StaticFile }
-type DeployThemeFile = { filename: string; content: Buffer }
+type DeployInputThemeFile = { filename: string; content: Buffer | TemplateExpression }
+type DeployOutputThemeFile = { filename: string; content: Buffer }
 
 export type ThemeDirectory = {
-  files: Record<string, ThemeFile | DeployThemeFile>
+  files: Record<string, ThemeFile | DeployInputThemeFile>
   folders: Record<string, ThemeDirectory>
 }
 
-const createTemplateParts = ({
+const createTemplateExpression = ({
   filePath,
   content,
   idsToElements,
   matchBrandSubdomain,
+  config,
 }: {
   filePath: string
   content: string
   idsToElements: Record<string, InstanceElement>
   matchBrandSubdomain: (url: string) => InstanceElement | undefined
-}): void => {
-  if (filePath.endsWith('.hbs')) {
-    try {
-      const potentialReferences = parseHandlebarPotentialReferences(content)
-      const handlebarReferences = potentialReferences.map(ref =>
-        idsToElements[ref.value] !== undefined
-          ? { value: new ReferenceExpression(idsToElements[ref.value].elemID, idsToElements[ref.value]), loc: ref.loc }
-          : ref,
-      )
-      if (handlebarReferences.length > 0) {
-        log.info('Found the following references in file %s in the theme: %o', filePath, handlebarReferences)
-      }
-      const { urls, scripts } = parseHtmlPotentialReferences(content, {
-        matchBrandSubdomain,
-        instancesById: idsToElements,
-        enableMissingReferences: false,
-      })
-      if (urls.length > 0 && urls.filter(url => typeof url.value !== 'string').length > 0) {
-        log.info('Found the following URLs file %s in the theme: %o', filePath, urls)
-      }
-      const scriptsWithReferences = scripts.map(script => ({
-        value: extractGreedyIdsFromScripts(idsToElements, script.value),
-        loc: script.loc,
-      }))
-      if (
-        scriptsWithReferences.length > 0 &&
-        scriptsWithReferences.filter(script => typeof script.value !== 'string').length > 0
-      ) {
-        log.info('Found the following script references in file %s in the theme: %o', filePath, urls)
-      }
-    } catch (e) {
-      log.warn('Error parsing references in file %s, %o', filePath, e)
-    }
+  config: Themes
+}): string | TemplateExpression => {
+  if (config.referenceOptions.enableReferenceLookup === false) {
+    return content
   }
-  if (filePath.endsWith('.html') || filePath.endsWith('.htm')) {
-    try {
-      const { urls } = parseHtmlPotentialReferences(content, {
+  try {
+    let createTemplateExpressionFunc: TemplateEngineCreator
+    if (filePath.endsWith('.hbs')) {
+      createTemplateExpressionFunc = createHandlebarTemplateExpression
+    } else if (filePath.endsWith('.html') || filePath.endsWith('.htm')) {
+      createTemplateExpressionFunc = createHtmlTemplateExpression
+    } else if (filePath.endsWith('.js')) {
+      createTemplateExpressionFunc = createJavascriptTemplateExpression
+    } else {
+      return content
+    }
+    return createTemplateExpressionFunc(
+      content,
+      {
+        idsToElements,
         matchBrandSubdomain,
-        instancesById: idsToElements,
-        enableMissingReferences: false,
-      })
-      if (urls.length > 0 && urls.filter(url => typeof url.value !== 'string').length > 0) {
-        log.info('Found the following URLs file %s in the theme: %o', filePath, urls)
-      }
-    } catch (e) {
-      log.warn('Error parsing references in file %s, %o', filePath, e)
-    }
-  }
-  if (filePath.endsWith('.js')) {
-    try {
-      const greedyIds = extractGreedyIdsFromScripts(idsToElements, content)
-      if (typeof greedyIds !== 'string') {
-        log.info('Found the following script references in file %s in the theme: %o', filePath, greedyIds)
-      }
-    } catch (e) {
-      log.warn('Error parsing references in file %s, %o', filePath, e)
-    }
+        enableMissingReferences: false, // Starting with false, to gain confidence in the feature
+      },
+      config.referenceOptions.javascriptReferenceLookupStrategy,
+    )
+  } catch (e) {
+    log.warn('Error parsing references in file %s, %o', filePath, e)
+    return content
   }
 }
 
@@ -145,12 +130,14 @@ export const unzipFolderToElements = async ({
   name,
   idsToElements,
   matchBrandSubdomain,
+  config,
 }: {
   buffer: Buffer
   currentBrandName: string
   name: string
   idsToElements: Record<string, InstanceElement>
   matchBrandSubdomain: (url: string) => InstanceElement | undefined
+  config: Themes
 }): Promise<ThemeDirectory> => {
   const zip = new JSZip()
   const unzippedContents = await zip.loadAsync(buffer)
@@ -173,10 +160,20 @@ export const unzipFolderToElements = async ({
       // It's a file
       const filepath = `${ZENDESK}/themes/brands/${currentBrandName}/${name}/${fullPath}`
       const content = await file.async('nodebuffer')
-      createTemplateParts({ filePath: fullPath, content: content.toString(), idsToElements, matchBrandSubdomain }) // Only logging for now
+      const templateExpression = createTemplateExpression({
+        filePath: fullPath,
+        content: content.toString(),
+        idsToElements,
+        matchBrandSubdomain,
+        config,
+      })
+      const staticFile =
+        typeof templateExpression === 'string'
+          ? new StaticFile({ filepath, content })
+          : parserUtils.templateExpressionToStaticFile(templateExpression, filepath)
       currentDir.files[naclCase(firstPart)] = {
         filename: fullPath,
-        content: new StaticFile({ filepath, content }),
+        content: staticFile,
       }
       return
     }
@@ -202,14 +199,15 @@ export const unzipFolderToElements = async ({
   return elements
 }
 
-const isDeployThemeFile = (file: ThemeFile | DeployThemeFile): file is DeployThemeFile => {
-  const isContentBuffer = Buffer.isBuffer(file.content)
-  if (isContentBuffer === false) {
-    log.error(`content for file ${file.filename} is not a buffer, will not add it to the deploy`)
+const isDeployInputThemeFile = (file: ThemeFile | DeployInputThemeFile): file is DeployInputThemeFile => {
+  const isValidContent = Buffer.isBuffer(file.content) || isTemplateExpression(file.content)
+  if (isValidContent === false) {
+    log.error(
+      `content for file ${file.filename} is not a buffer or a template expression, will not add it to the deploy`,
+    )
   }
-  return isContentBuffer
+  return isValidContent
 }
-
 const isThemeDirectory = (dir: unknown): dir is ThemeDirectory => {
   if (!isPlainRecord(dir)) {
     return false
@@ -217,24 +215,48 @@ const isThemeDirectory = (dir: unknown): dir is ThemeDirectory => {
   return isPlainRecord(dir.files) && isPlainRecord(dir.folders)
 }
 
-const extractFilesFromThemeDirectory = (themeDirectory: ThemeDirectory): DeployThemeFile[] => {
-  let files: DeployThemeFile[] = []
+const extractFilesFromThemeDirectory = (
+  themeDirectory: ThemeDirectory,
+): { files: DeployOutputThemeFile[]; errors: string[] } => {
+  let files: DeployOutputThemeFile[] = []
+  let errors: string[] = []
   if (!isThemeDirectory(themeDirectory)) {
     // TODO should be tested in SALTO-5320
     log.error('current theme directory is not valid: %o', inspectValue(themeDirectory))
-    return files
+    return { files, errors: ['Invalid theme directory'] }
   }
   // Add all files in the current directory
   Object.values(themeDirectory.files).forEach(fileRecord => {
-    if (isDeployThemeFile(fileRecord)) {
-      files.push(fileRecord)
+    if (isDeployInputThemeFile(fileRecord)) {
+      if (isTemplateExpression(fileRecord.content)) {
+        try {
+          replaceTemplatesWithValues({ values: [fileRecord], fieldName: 'content' }, {}, prepRef)
+        } catch (e) {
+          log.error('Error while resolving references in file %s', fileRecord.filename)
+          errors.push(`Error while resolving references in file ${fileRecord.filename}`)
+          return
+        }
+        if (isTemplateExpression(fileRecord.content)) {
+          log.error('Failed to resolve all references in file %s', fileRecord.filename)
+          errors.push(`Failed to resolve all references in file ${fileRecord.filename}`)
+          return
+        }
+        // The content is replaced and is now a string
+        fileRecord.content = Buffer.from(fileRecord.content as unknown as string)
+      }
+      files.push({
+        filename: fileRecord.filename,
+        content: fileRecord.content,
+      })
     }
   })
   // Recursively add files from subdirectories
   Object.values(themeDirectory.folders).forEach(subdirectory => {
-    files = files.concat(extractFilesFromThemeDirectory(subdirectory))
+    const { files: subFiles, errors: subErrors } = extractFilesFromThemeDirectory(subdirectory)
+    files = files.concat(subFiles)
+    errors = errors.concat(subErrors)
   })
-  return files
+  return { files, errors }
 }
 
 const getFullName = (instance: InstanceElement): string => instance.elemID.getFullName()
@@ -259,11 +281,12 @@ const createTheme = async (
 ): Promise<string[]> => {
   const live = isLiveTheme
   const { brand_id: brandId, root } = change.data.after.value
-  const staticFiles = extractFilesFromThemeDirectory(root)
+  const { files: staticFiles, errors: extractionErrors } = extractFilesFromThemeDirectory(root)
   const { themeId, errors: elementErrors } = await create({ brandId, staticFiles }, client)
   if (themeId === undefined) {
     return [
       ...elementErrors,
+      ...extractionErrors,
       // TODO check if we need this error
       `Missing theme id from create theme response for theme ${change.data.after.elemID.getFullName()}`,
     ]
@@ -273,7 +296,7 @@ const createTheme = async (
     const publishErrors = await publish(themeId, client)
     return publishErrors
   }
-  return elementErrors
+  return [...elementErrors, ...extractionErrors]
 }
 
 const updateTheme = async (
@@ -373,6 +396,11 @@ const filterCreator: FilterCreator = ({ config, client, elementsSource }) => ({
             name: theme.value.name,
             idsToElements,
             matchBrandSubdomain,
+            config: config[FETCH_CONFIG].guide?.themes || {
+              referenceOptions: {
+                enableReferenceLookup: false,
+              },
+            },
           })
           theme.value.root = themeElements
         } catch (e) {
@@ -427,19 +455,27 @@ const filterCreator: FilterCreator = ({ config, client, elementsSource }) => ({
       themeChanges
         .filter(isAdditionOrModificationChange)
         .map(async (change): Promise<{ appliedChange?: Change<InstanceElement>; errors: SaltoElementError[] }> => {
-          const isLiveTheme = liveThemesNames.has(getChangeData(change).elemID.getFullName())
-          const elementErrors = isModificationChange(change)
-            ? await updateTheme(change, client, isLiveTheme)
-            : await createTheme(change, client, isLiveTheme)
+          const clonedChange = await applyFunctionToChangeData<
+            AdditionChange<InstanceElement> | ModificationChange<InstanceElement>
+          >(change, inst => inst.clone())
+          const isLiveTheme = liveThemesNames.has(getChangeData(clonedChange).elemID.getFullName())
+          const elementErrors = isModificationChange(clonedChange)
+            ? await updateTheme(clonedChange, client, isLiveTheme)
+            : await createTheme(clonedChange, client, isLiveTheme)
+          if (getChangeData(clonedChange).value.id !== undefined) {
+            // The theme id is set in the createTheme function
+            getChangeData(change).value.id = getChangeData(clonedChange).value.id
+          }
           if (elementErrors.length > 0) {
             return {
               errors: elementErrors.map(e => ({
-                elemID: change.data.after.elemID,
+                elemID: clonedChange.data.after.elemID,
                 message: e,
                 severity: 'Error',
               })),
             }
           }
+          // We return the original change with the updated theme id (with TemplateExpressions)
           return { appliedChange: change, errors: [] }
         }),
     )

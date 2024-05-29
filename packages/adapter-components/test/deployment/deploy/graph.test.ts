@@ -36,14 +36,14 @@ describe('createDependencyGraph', () => {
         before: new InstanceElement('mod2', typeA, { a: 'before' }),
         after: new InstanceElement('mod2', typeA, { a: 'after' }),
       }),
-      toChange({ before: new InstanceElement('remo3', typeA, { a: 'before' }) }),
+      toChange({ before: new InstanceElement('remove3', typeA, { a: 'before' }) }),
       toChange({ after: new InstanceElement('add1', typeB) }),
       toChange({
         before: new InstanceElement('mod2', typeB, { a: 'before' }),
         after: new InstanceElement('mod2', typeB, { a: 'after' }),
       }),
-      toChange({ before: new InstanceElement('remo3', typeB, { a: 'before' }) }),
-      toChange({ before: new InstanceElement('remo3', typeC, { a: 'before' }) }),
+      toChange({ before: new InstanceElement('remove3', typeB, { a: 'before' }) }),
+      toChange({ before: new InstanceElement('remove3', typeC, { a: 'before' }) }),
       toChange({
         before: new InstanceElement('mod2', typeC, { a: 'before' }),
         after: new InstanceElement('mod2', typeC, { a: 'after' }),
@@ -76,6 +76,7 @@ describe('createDependencyGraph', () => {
         changeGroup: { changes, groupID: 'abc' },
         changes,
         elementSource: buildElementsSourceFromElements([]),
+        sharedContext: {},
       })
     })
 
@@ -128,6 +129,7 @@ describe('createDependencyGraph', () => {
         changes,
         elementSource: buildElementsSourceFromElements([]),
         dependencies: deployDef.dependencies,
+        sharedContext: {},
       })
     })
 
@@ -146,29 +148,29 @@ describe('createDependencyGraph', () => {
       ])
     })
     it('should create edges based on dependencies and actionDependencies', () => {
-      expect(graph.edges().sort()).toEqual([
+      expect(_.sortBy(graph.edges(), e => [e[1], e[0]])).toEqual([
         // A, add < B
-        ['typeA/add', 'typeB/activate'],
-        ['typeA/add', 'typeB/add'],
-        ['typeA/add', 'typeB/deactivate'],
-        ['typeA/add', 'typeB/modify'],
-        ['typeA/add', 'typeB/remove'],
+        ['typeB/activate', 'typeA/add'],
+        ['typeB/add', 'typeA/add'],
+        ['typeB/deactivate', 'typeA/add'],
+        ['typeB/modify', 'typeA/add'],
+        ['typeB/remove', 'typeA/add'],
 
         // B.add < activate, B.deactivate < remove
-        ['typeB/add', 'typeB/activate'],
-        ['typeB/deactivate', 'typeB/remove'],
+        ['typeB/activate', 'typeB/add'],
+        ['typeB/remove', 'typeB/deactivate'],
 
         // C < B (only available changes)
-        ['typeC/modify', 'typeB/activate'],
-        ['typeC/modify', 'typeB/add'],
-        ['typeC/modify', 'typeB/deactivate'],
-        ['typeC/modify', 'typeB/modify'],
-        ['typeC/modify', 'typeB/remove'],
-        ['typeC/remove', 'typeB/activate'],
-        ['typeC/remove', 'typeB/add'],
-        ['typeC/remove', 'typeB/deactivate'],
-        ['typeC/remove', 'typeB/modify'],
-        ['typeC/remove', 'typeB/remove'],
+        ['typeB/activate', 'typeC/modify'],
+        ['typeB/add', 'typeC/modify'],
+        ['typeB/deactivate', 'typeC/modify'],
+        ['typeB/modify', 'typeC/modify'],
+        ['typeB/remove', 'typeC/modify'],
+        ['typeB/activate', 'typeC/remove'],
+        ['typeB/add', 'typeC/remove'],
+        ['typeB/deactivate', 'typeC/remove'],
+        ['typeB/modify', 'typeC/remove'],
+        ['typeB/remove', 'typeC/remove'],
       ])
     })
   })
@@ -188,6 +190,7 @@ describe('createDependencyGraph', () => {
         changeGroup: { changes, groupID: 'abc' },
         changes,
         elementSource: buildElementsSourceFromElements([]),
+        sharedContext: {},
         dependencies: deployDef.dependencies,
       })
     })
@@ -196,7 +199,7 @@ describe('createDependencyGraph', () => {
       await expect(async () => {
         await graph.walkAsync(async () => undefined)
       }).rejects.toThrow(
-        'At least one error encountered during walk:\nError: Circular dependencies exist among these items: typeA/add->[typeB/add,typeB/modify,typeB/remove], typeB/add->[typeC/remove], typeB/modify->[typeC/remove], typeB/remove->[typeC/remove], typeC/remove->[typeA/add]',
+        'At least one error encountered during walk:\nError: Circular dependencies exist among these items: typeA/add->[typeC/remove], typeB/add->[typeA/add], typeB/modify->[typeA/add], typeB/remove->[typeA/add], typeC/remove->[typeB/add,typeB/modify,typeB/remove], typeC/modify->[typeB/add,typeB/modify,typeB/remove]',
       )
     })
   })

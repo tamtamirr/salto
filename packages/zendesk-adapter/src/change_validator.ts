@@ -80,11 +80,12 @@ import {
   notEnabledMissingReferencesValidator,
   conditionalTicketFieldsValidator,
   dynamicContentDeletionValidator,
-  guideThemeReadonlyValidator,
   dynamicContentPlaceholderModificationValidator,
   inactiveTicketFormInViewValidator,
   immutableTypeAndKeyForUserFieldsValidator,
   localeModificationValidator,
+  emptyAutomationOrderValidator,
+  viewCustomStatusConditionsValidator,
 } from './change_validators'
 import ZendeskClient from './client/client'
 import { ChangeValidatorName, ZendeskDeployConfig, ZendeskFetchConfig, ZendeskConfig } from './config'
@@ -164,7 +165,6 @@ export default ({
     organizationExistence: organizationExistenceValidator(client, fetchConfig, deployConfig),
     badFormatWebhookAction: badFormatWebhookActionValidator,
     guideDisabled: guideDisabledValidator(fetchConfig),
-    guideThemeReadonly: guideThemeReadonlyValidator,
     guideThemeDeleteLive: guideThemeDeleteLiveValidator,
     guideThemeUpdateMetadata: guideThemeUpdateMetadataValidator,
     additionOfTicketStatusForTicketForm: additionOfTicketStatusForTicketFormValidator,
@@ -177,7 +177,7 @@ export default ({
     defaultAutomationRemoval: defaultAutomationRemovalValidator,
     attachmentWithoutContent: attachmentWithoutContentValidator,
     duplicateRoutingAttributeValue: duplicateRoutingAttributeValueValidator,
-    triggerCategoryRemoval: triggerCategoryRemovalValidator(apiConfig, fetchConfig),
+    triggerCategoryRemoval: triggerCategoryRemovalValidator(fetchConfig),
     duplicateIdFieldValues: duplicateIdFieldValuesValidator(apiConfig),
     notEnabledMissingReferences: notEnabledMissingReferencesValidator(config),
     conditionalTicketFields: conditionalTicketFieldsValidator,
@@ -185,6 +185,8 @@ export default ({
     inactiveTicketFormInView: inactiveTicketFormInViewValidator,
     immutableTypeAndKeyForUserFields: immutableTypeAndKeyForUserFieldsValidator,
     localeModification: localeModificationValidator,
+    emptyAutomationOrder: emptyAutomationOrderValidator,
+    viewCustomStatusConditions: viewCustomStatusConditionsValidator,
     // *** Guide Order Validators ***
     childInOrder: childInOrderValidator,
     childrenReferences: childrenReferencesValidator,

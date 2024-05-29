@@ -34,10 +34,12 @@ import {
 } from '@salto-io/adapter-api'
 import {
   config as configUtils,
+  definitions,
   elements as elementUtils,
   client as clientUtils,
   combineElementFixers,
   fetch as fetchUtils,
+  openapi,
 } from '@salto-io/adapter-components'
 import { applyFunctionToChangeData, getElemIdFuncWrapper, logDuration } from '@salto-io/adapter-utils'
 import { logger } from '@salto-io/logging'
@@ -127,13 +129,14 @@ import wrongUserPermissionSchemeFilter from './filters/permission_scheme/wrong_u
 import maskingFilter from './filters/masking'
 import avatarsFilter from './filters/avatars'
 import iconUrlFilter from './filters/icon_url'
+import objectTypeIconFilter from './filters/assets/object_type_icon'
 import filtersFilter from './filters/filter'
 import removeEmptyValuesFilter from './filters/remove_empty_values'
 import jqlReferencesFilter from './filters/jql/jql_references'
 import userFilter from './filters/user'
 import changePortalGroupFieldsFilter from './filters/change_portal_group_fields'
 import { JIRA, PROJECT_TYPE, SERVICE_DESK } from './constants'
-import { paginate, removeScopedObjects } from './client/pagination'
+import { paginate, filterResponseEntries } from './client/pagination'
 import { dependencyChanger } from './dependency_changers'
 import { getChangeGroupIds } from './group_change'
 import fetchCriteria from './fetch_criteria'
@@ -204,7 +207,7 @@ import { JSM_ASSETS_DUCKTYPE_SUPPORTED_TYPES } from './config/api_config'
 const { getAllElements, addRemainingTypes } = elementUtils.ducktype
 const { findDataField } = elementUtils
 const { computeGetArgs } = fetchUtils.resource
-const { generateTypes, getAllInstances, loadSwagger, addDeploymentAnnotations } = elementUtils.swagger
+const { getAllInstances } = elementUtils.swagger
 const { createPaginator, getWithCursorPagination } = clientUtils
 const log = logger(module)
 
@@ -275,6 +278,7 @@ export const DEFAULT_FILTERS = [
   emptyValidatorWorkflowFilter,
   // must run before fieldReferencesFilter
   formsFilter,
+  objectTypeIconFilter,
   groupNameFilter,
   workflowGroupsFilter,
   workflowSchemeFilter,
@@ -405,8 +409,8 @@ export interface JiraAdapterParams {
 }
 
 type AdapterSwaggers = {
-  platform: elementUtils.swagger.LoadedSwagger
-  jira: elementUtils.swagger.LoadedSwagger
+  platform: openapi.LoadedSwagger
+  jira: openapi.LoadedSwagger
 }
 export default class JiraAdapter implements AdapterOperations {
   private createFiltersRunner: () => Required<Filter>
@@ -440,7 +444,7 @@ export default class JiraAdapter implements AdapterOperations {
     const paginator = createPaginator({
       client: this.client,
       paginationFuncCreator: paginate,
-      customEntryExtractor: removeScopedObjects,
+      customEntryExtractor: filterResponseEntries,
       asyncRun: config.fetch.asyncPagination ?? true,
     })
 
@@ -468,7 +472,7 @@ export default class JiraAdapter implements AdapterOperations {
       )
 
     this.fixElementsFunc = combineElementFixers(
-      Object.values(weakReferenceHandlers).map(handler => handler.removeWeakReferences({ elementsSource })),
+      _.mapValues(weakReferenceHandlers, handler => handler.removeWeakReferences({ elementsSource })),
     )
   }
 
@@ -477,7 +481,7 @@ export default class JiraAdapter implements AdapterOperations {
       await Promise.all(
         Object.entries(getApiDefinitions(this.userConfig.apiDefinitions)).map(async ([key, config]) => [
           key,
-          await loadSwagger(config.swagger.url),
+          await openapi.loadSwagger(config.swagger.url),
         ]),
       ),
     )
@@ -494,7 +498,7 @@ export default class JiraAdapter implements AdapterOperations {
     // in the configuration
     const results = await Promise.all(
       Object.keys(swaggers).map(key =>
-        generateTypes(
+        openapi.generateTypes(
           JIRA,
           apiDefinitions[key as keyof AdapterSwaggers],
           undefined,
@@ -669,6 +673,7 @@ export default class JiraAdapter implements AdapterOperations {
           getElemIdFunc: this.getElemIdFunc,
           additionalRequestContext: serviceDeskProjRecord,
           getEntriesResponseValuesFunc: jiraJSMEntriesFunc(projectInstance),
+          shouldIgnorePermissionsError: true,
         })
       }),
     )
@@ -697,7 +702,7 @@ export default class JiraAdapter implements AdapterOperations {
 
     return {
       elements: jiraJSMElements,
-      configChanges: elementUtils.ducktype.getUniqueConfigSuggestions(allConfigChangeSuggestions),
+      configChanges: fetchUtils.getUniqueConfigSuggestions(allConfigChangeSuggestions),
       errors: jsmErrors,
     }
   }
@@ -766,7 +771,7 @@ export default class JiraAdapter implements AdapterOperations {
 
     const updatedConfig =
       this.configInstance && configChanges
-        ? configUtils.getUpdatedCofigFromConfigChanges({
+        ? definitions.getUpdatedConfigFromConfigChanges({
             configChanges,
             currentConfig: this.configInstance,
             configType,
@@ -774,7 +779,7 @@ export default class JiraAdapter implements AdapterOperations {
         : undefined
     // This needs to happen after the onFetch since some filters
     // may add fields that deployment annotation should be added to
-    await addDeploymentAnnotations(
+    await openapi.addDeploymentAnnotations(
       elements.filter(isObjectType),
       Object.values(swaggers),
       this.userConfig.apiDefinitions,

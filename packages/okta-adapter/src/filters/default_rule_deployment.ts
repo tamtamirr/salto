@@ -39,6 +39,8 @@ type PolicyRule = {
   system: boolean
 }
 
+const SUPPORTED_TYPES = [ACCESS_POLICY_RULE_TYPE_NAME, PROFILE_ENROLLMENT_RULE_TYPE_NAME]
+
 const EXPECTED_POLICY_RULE_SCHEMA = Joi.object({
   id: Joi.string().required(),
   system: Joi.boolean().required(),
@@ -122,15 +124,27 @@ const deployDefaultPolicy = async (
  */
 const filterCreator: FilterCreator = ({ client, config }) => ({
   name: 'defaultPolicyRuleDeployment',
+  preDeploy: async changes => {
+    changes
+      .filter(isInstanceChange)
+      .filter(isAdditionChange)
+      .filter(
+        change =>
+          SUPPORTED_TYPES.includes(getChangeData(change).elemID.typeName) &&
+          getChangeData(change).value.system === true,
+      )
+      .map(change => getChangeData(change))
+      .forEach(instance => {
+        instance.value.priority = 99
+      })
+  },
   deploy: async changes => {
     const [relevantChanges, leftoverChanges] = _.partition(
       changes,
       change =>
         isInstanceChange(change) &&
         isAdditionChange(change) &&
-        [ACCESS_POLICY_RULE_TYPE_NAME, PROFILE_ENROLLMENT_RULE_TYPE_NAME].includes(
-          getChangeData(change).elemID.typeName,
-        ) &&
+        SUPPORTED_TYPES.includes(getChangeData(change).elemID.typeName) &&
         getChangeData(change).value.system === true,
     )
 
@@ -142,6 +156,20 @@ const filterCreator: FilterCreator = ({ client, config }) => ({
       leftoverChanges,
       deployResult,
     }
+  },
+  onDeploy: async changes => {
+    changes
+      .filter(isInstanceChange)
+      .filter(isAdditionChange)
+      .filter(
+        change =>
+          SUPPORTED_TYPES.includes(getChangeData(change).elemID.typeName) &&
+          getChangeData(change).value.system === true,
+      )
+      .map(change => getChangeData(change))
+      .forEach(instance => {
+        delete instance.value.priority
+      })
   },
 })
 

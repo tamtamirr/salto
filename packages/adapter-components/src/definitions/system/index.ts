@@ -20,6 +20,7 @@ export {
   ResolveClientOptionsType,
   ResolvePaginationOptionsType,
   ResolveCustomNameMappingOptionsType,
+  ResolveReferenceContextStrategiesType,
 } from './api'
 export * as deploy from './deploy'
 export * as fetch from './fetch'
@@ -35,5 +36,6 @@ export {
   TransformFunction,
   AdjustFunction,
   ContextParams,
+  GeneratedItem,
 } from './shared'
 export * from './utils'

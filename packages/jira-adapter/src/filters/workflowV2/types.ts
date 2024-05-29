@@ -25,15 +25,18 @@ import {
   isInstanceChange,
   ReferenceExpression,
 } from '@salto-io/adapter-api'
-import { logger } from '@salto-io/logging'
 import { WORKFLOW_CONFIGURATION_TYPE } from '../../constants'
 import { WorkflowV1Instance, isWorkflowV1Instance } from '../workflow/types'
 
-const log = logger(module)
-
 export const CHUNK_SIZE = 25
-export const VALIDATOR_LIST_FIELDS = new Set(['statusIds', 'groupsExemptFromValidation', 'fieldsRequired'])
-export const CONDITION_LIST_FIELDS = new Set(['roleIds', 'groupIds', 'statusIds'])
+export const TRANSITION_LIST_FIELDS = new Set([
+  'statusIds',
+  'groupsExemptFromValidation',
+  'fieldsRequired',
+  'enabledTriggers',
+  'roleIds',
+  'groupIds',
+])
 export const ID_TO_UUID_PATH_NAME_TO_RECURSE = new Set([
   'statuses',
   'transitions',
@@ -41,6 +44,14 @@ export const ID_TO_UUID_PATH_NAME_TO_RECURSE = new Set([
   'statusMigrations',
 ])
 export const CONDITION_GROUPS_PATH_NAME_TO_RECURSE = new Set(['transitions', 'conditions', 'conditionGroups'])
+export const EMPTY_STRINGS_PATH_NAME_TO_RECURSE = new Set([
+  'transitions',
+  'conditions',
+  'conditionGroups',
+  'validators',
+  'actions',
+  'triggers',
+])
 
 export enum TASK_STATUS {
   COMPLETE = 'COMPLETE',
@@ -61,6 +72,10 @@ export const STATUS_CATEGORY_ID_TO_KEY: Record<number, string> = {
 export type WorkflowStatus = {
   id: string
   name: string
+}
+
+export type PayloadWorkflowStatus = WorkflowStatus & {
+  statusReference: string
 }
 
 export type WorkflowStatusAndPort = {
@@ -161,14 +176,15 @@ export const isWorkflowV2Instance = (instance: InstanceElement): instance is Wor
 export const isWorkflowInstance = (instance: InstanceElement): instance is WorkflowV1Instance | WorkflowV2Instance =>
   isWorkflowV1Instance(instance) || isWorkflowV2Instance(instance)
 
-export type WorkflowPayload = {
-  statuses: Values[]
-  workflows: Values[]
+type DeploymentWorkflowPayload = {
+  statuses: PayloadWorkflowStatus[]
+  workflows: Workflow[]
   scope?: WorkflowScope
 }
 
 type WorkflowResponse = {
-  workflows: Workflow[]
+  workflows: (Workflow & { version: WorkflowVersion })[]
+  statuses: PayloadWorkflowStatus[]
   taskId?: string
 }
 
@@ -215,42 +231,73 @@ const WORKFLOW_DATA_RESPONSE_SCHEMA = Joi.array()
   )
   .required()
 
+const WORKFLOW_SCHEME = Joi.object({
+  name: Joi.string().required(),
+  id: Joi.string(),
+  version: Joi.object({
+    versionNumber: Joi.number().required(),
+    id: Joi.string().required(),
+  }).unknown(true),
+  scope: Joi.object({
+    project: Joi.string(),
+    type: Joi.string().required(),
+  })
+    .unknown(true)
+    .required(),
+  statuses: Joi.array().items(Joi.object().unknown(true)).required(),
+  transitions: Joi.array().items(TRANSITION_SCHEME).required(),
+})
+  .unknown(true)
+  .required()
+
+const STATUSES_SCHEME = Joi.array()
+  .items(
+    Joi.object({
+      id: Joi.string().required(),
+      name: Joi.string().required(),
+      statusReference: Joi.string().required(),
+    })
+      .unknown(true)
+      .required(),
+  )
+  .required()
+
 const WORKFLOW_RESPONSE_SCHEME = Joi.object({
   workflows: Joi.array()
     .items(
-      Joi.object({
-        name: Joi.string().required(),
-        id: Joi.string().required(),
-        version: Joi.object({
-          versionNumber: Joi.number().required(),
-          id: Joi.string().required(),
-        })
-          .unknown(true)
-          .required(),
-        scope: Joi.object({
-          project: Joi.string(),
-          type: Joi.string().required(),
-        })
-          .unknown(true)
-          .required(),
-        statuses: Joi.array().items(Joi.object().unknown(true)).required(),
-        transitions: Joi.array().items(TRANSITION_SCHEME).required(),
-      }).unknown(true),
+      WORKFLOW_SCHEME.concat(
+        Joi.object({
+          version: Joi.object({
+            versionNumber: Joi.number().required(),
+            id: Joi.string().required(),
+          })
+            .unknown(true)
+            .required(),
+        }),
+      ),
     )
     .required(),
+  statuses: STATUSES_SCHEME,
   taskId: Joi.string(),
 })
   .unknown(true)
   .required()
 
-export const isWorkflowV2Transition = (value: unknown): value is WorkflowTransitionV2 => {
-  const { error } = TRANSITION_SCHEME.validate(value)
-  if (error !== undefined) {
-    log.warn(`Received an invalid workflowV2 transition: ${error.message}`)
-    return false
-  }
-  return true
-}
+const DEPLOYMENT_WORKFLOW_PAYLOAD_SCHEME = Joi.object({
+  statuses: STATUSES_SCHEME,
+  workflows: Joi.array().items(WORKFLOW_SCHEME).required(),
+  scope: Joi.object({
+    project: Joi.string(),
+    type: Joi.string().required(),
+  }).unknown(true),
+})
+  .unknown(true)
+  .required()
+
+export const isDeploymentWorkflowPayload = createSchemeGuard<DeploymentWorkflowPayload>(
+  DEPLOYMENT_WORKFLOW_PAYLOAD_SCHEME,
+  'Received an invalid workflow payload',
+)
 
 export const isWorkflowDataResponse = createSchemeGuard<WorkflowDataResponse[]>(
   WORKFLOW_DATA_RESPONSE_SCHEMA,

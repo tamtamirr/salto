@@ -17,11 +17,14 @@ import { StaticFile, StaticFileParameters, calculateStaticFileHash } from '@salt
 
 import wu from 'wu'
 import { values, promises } from '@salto-io/lowerdash'
+import { logger } from '@salto-io/logging'
 import _ from 'lodash'
 import { StaticFilesCache, StaticFilesData } from './cache'
 import { DirectoryStore } from '../dir_store'
 
 import { InvalidStaticFile, StaticFilesSource, MissingStaticFile, AccessDeniedStaticFile } from './common'
+
+const log = logger(module)
 
 const { withLimitedConcurrency } = promises.array
 
@@ -78,12 +81,23 @@ export class LazyStaticFile extends AbsoluteStaticFile {
 export const buildStaticFilesSource = (
   staticFilesDirStore: DirectoryStore<Buffer>,
   staticFilesCache: StaticFilesCache,
+  ignoreFileChanges = false,
 ): Required<StaticFilesSource> => {
   const getStaticFileData = async (
     filepath: string,
   ): Promise<{ hasChanged: boolean; buffer?: Buffer } & StaticFilesData> => {
     const cachedResult = await staticFilesCache.get(filepath)
     let modified: number | undefined
+    if (ignoreFileChanges) {
+      if (cachedResult === undefined) {
+        throw new MissingStaticFileError(filepath)
+      }
+      return {
+        ...cachedResult,
+        hasChanged: false,
+      }
+    }
+
     try {
       modified = await staticFilesDirStore.mtimestamp(filepath)
     } catch (err) {
@@ -221,7 +235,8 @@ export const buildStaticFilesSource = (
     persistStaticFile: async (staticFile: StaticFile): Promise<void> => {
       const buffer = await staticFile.getContent()
       if (buffer === undefined) {
-        throw new Error(`Missing content on static file: ${staticFile.filepath}`)
+        log.warn(`Missing content on static file: ${staticFile.filepath}`)
+        return undefined
       }
       return staticFilesDirStore.set({ filename: staticFile.filepath, buffer })
     },

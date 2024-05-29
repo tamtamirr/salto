@@ -31,6 +31,8 @@ export type LogMethod = (message: string | Error, ...args: unknown[]) => void
 export type BaseLogger = {
   log(level: LogLevel, ...rest: Parameters<LogMethod>): ReturnType<LogMethod>
   assignTags(logTags?: LogTags): void
+  getLogCount(): Record<LogLevel, number>
+  resetLogCount(): void
 }
 
 export type GlobalTags = {
@@ -55,6 +57,8 @@ export type Logger = BaseLogger &
   HasLoggerFuncs & {
     readonly namespace: Namespace
     readonly time: <T>(inner: () => T, desc: string, ...descArgs: unknown[]) => T
+    readonly timeDebug: <T>(inner: () => T, desc: string, ...descArgs: unknown[]) => T
+    readonly timeTrace: <T>(inner: () => T, desc: string, ...descArgs: unknown[]) => T
     assignGlobalLogTimeDecorator: <T>(decorator: LogTimeDecorator<T>) => void
   }
 
@@ -72,6 +76,7 @@ export const resolveConfig = (c: Config): ResolvedConfig => ({
 
 function timeMethod<T>(
   this: BaseLogger,
+  level: LogLevel,
   inner: () => T | Promise<T>,
   desc: string,
   ...descArgs: unknown[]
@@ -79,10 +84,10 @@ function timeMethod<T>(
   const before = Date.now()
   const formattedDescription = format(desc, ...descArgs)
   const logDuration = (): void => {
-    this.log('debug', `${formattedDescription} took %o ms`, Date.now() - before)
+    this.log(level, `${formattedDescription} took %o ms`, Date.now() - before)
   }
 
-  this.log('debug', `${formattedDescription} starting`)
+  this.log(level, `${formattedDescription} starting`)
   let result: T | Promise<T>
   if (global.globalLogTimeDecorator) {
     result = global.globalLogTimeDecorator(inner, formattedDescription)()
@@ -98,7 +103,9 @@ function timeMethod<T>(
 
 const addLogMethods = (logger: BaseLogger): Logger =>
   Object.assign(logger, ...LOG_LEVELS.map(level => ({ [level]: logger.log.bind(logger, level) })), {
-    time: timeMethod.bind(logger),
+    time: timeMethod.bind(logger, 'debug'),
+    timeDebug: timeMethod.bind(logger, 'debug'),
+    timeTrace: timeMethod.bind(logger, 'trace'),
   })
 
 export const logger = (
@@ -108,6 +115,8 @@ export const logger = (
   tags?: LogTags,
 ): Logger => {
   const baseLogger = baseLoggerRepo(namespace, tags)
+  const baseLogCount = baseLogger.getLogCount
+  const baseResetLogCount = baseLogger.resetLogCount
   const baseLog = baseLogger.log
 
   return addLogMethods(
@@ -124,6 +133,8 @@ export const logger = (
 
         baseLog(level, ...rest)
       },
+      getLogCount: () => baseLogCount(),
+      resetLogCount: (): void => baseResetLogCount(),
     }),
   )
 }

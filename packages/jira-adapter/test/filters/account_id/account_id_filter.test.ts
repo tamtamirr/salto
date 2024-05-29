@@ -30,9 +30,9 @@ import { mockFunction } from '@salto-io/test-utils'
 import { filterUtils } from '@salto-io/adapter-components'
 import { collections } from '@salto-io/lowerdash'
 import _ from 'lodash'
-import { getFilterParams, mockClient } from '../../utils'
+import { createEmptyType, getFilterParams, mockClient } from '../../utils'
 import { getDefaultConfig, JiraConfig } from '../../../src/config/config'
-import { JIRA, ACCOUNT_IDS_FIELDS_NAMES } from '../../../src/constants'
+import { JIRA, ACCOUNT_ID_FIELDS_NAMES, WORKFLOW_CONFIGURATION_TYPE, AUTOMATION_TYPE } from '../../../src/constants'
 import accountIdFilter, { ACCOUNT_ID_TYPES } from '../../../src/filters/account_id/account_id_filter'
 import * as common from './account_id_common'
 
@@ -54,6 +54,8 @@ describe('account_id_filter', () => {
   let dashboardInstance: InstanceElement
   let boardInstance: InstanceElement
   let fieldContextInstance: InstanceElement
+  let workflowInstance: InstanceElement
+  let automationInstance: InstanceElement
 
   beforeEach(() => {
     elemIdGetter = mockFunction<ElemIdGetter>().mockImplementation(
@@ -98,6 +100,108 @@ describe('account_id_filter', () => {
         accountId: 'acc5',
       },
     })
+    // breaking the test style because it becomes too complicated
+    workflowInstance = new InstanceElement('workflowInstance', createEmptyType(WORKFLOW_CONFIGURATION_TYPE), {
+      transitions: {
+        transition1: {
+          conditions: {
+            conditions: [
+              {
+                parameters: {
+                  accountIds: 'allow-assignee',
+                },
+              },
+              {
+                parameters: {
+                  scriptRunner: {
+                    accountIds: ['quack'],
+                  },
+                },
+              },
+            ],
+          },
+        },
+      },
+    })
+    automationInstance = new InstanceElement('automationInstance', createEmptyType(AUTOMATION_TYPE), {
+      components: [
+        {
+          component: 'ACTION',
+          type: 'jira.issue.create',
+          value: {
+            operations: [
+              {
+                field: {
+                  type: 'ID',
+                  value: 'bla',
+                },
+                fieldType: 'project',
+                type: 'SET',
+                value: {
+                  value: 'current',
+                  type: 'COPY',
+                },
+              },
+              {
+                field: {
+                  type: 'ID',
+                  value: 'assignee',
+                },
+                fieldType: 'assignee',
+                type: 'SET',
+                value: {
+                  type: 'ID',
+                  value: 'acc6',
+                },
+              },
+            ],
+            sendNotifications: false,
+          },
+          children: [],
+          conditions: [],
+        },
+        {
+          component: 'CONDITION',
+          schemaVersion: 3,
+          type: 'jira.issue.condition',
+          value: {
+            selectedField: {
+              type: 'ID',
+              value: 'assignee',
+            },
+            selectedFieldType: 'assignee',
+            comparison: 'EQUALS',
+            compareFieldValue: {
+              type: 'ID',
+              values: ['acc7', 'acc8'],
+            },
+            multiValue: false,
+          },
+          children: [],
+          conditions: [],
+        },
+        {
+          // do not add account id
+          component: 'CONDITION',
+          schemaVersion: 3,
+          type: 'jira.issue.condition',
+          value: {
+            selectedField: {
+              type: 'ID',
+              value: 'assignee',
+            },
+            selectedFieldType: 'assignee',
+            comparison: 'NOT_EMPTY',
+            compareFieldValue: {
+              type: 'ID',
+              multiValue: false,
+            },
+          },
+          children: [],
+          conditions: [],
+        },
+      ],
+    })
 
     displayChanges = [
       toChange({ after: displayNamesInstances[0] }),
@@ -106,13 +210,31 @@ describe('account_id_filter', () => {
   })
   describe('fetch', () => {
     it('changes instance element structures for all 5 types', async () => {
-      await filter.onFetch([simpleInstances[1], filterInstance, dashboardInstance, boardInstance, fieldContextInstance])
+      await filter.onFetch([
+        simpleInstances[1],
+        filterInstance,
+        dashboardInstance,
+        boardInstance,
+        fieldContextInstance,
+        workflowInstance,
+        automationInstance,
+      ])
       common.checkObjectedInstanceIds(simpleInstances[1], '1')
       expect(filterInstance.value.owner.id).toEqual('acc2')
       expect(boardInstance.value.admins.users[0].id).toEqual('acc3')
       expect(boardInstance.value.admins.users[1].id).toEqual('acc31')
       expect(dashboardInstance.value.inner.owner.id).toEqual('acc4')
       expect(fieldContextInstance.value.defaultValue.accountId.id).toEqual('acc5')
+      expect(workflowInstance.value.transitions.transition1.conditions.conditions[0].parameters.accountIds).toEqual(
+        'allow-assignee',
+      )
+      expect(
+        workflowInstance.value.transitions.transition1.conditions.conditions[1].parameters.scriptRunner.accountIds[0]
+          .id,
+      ).toEqual('quack')
+      expect(automationInstance.value.components[0].value.operations[1].value.value.id).toEqual('acc6')
+      expect(automationInstance.value.components[1].value.compareFieldValue.values[0].id).toEqual('acc7')
+      expect(automationInstance.value.components[1].value.compareFieldValue.values[1].id).toEqual('acc8')
     })
     it('should change account ids in all defined types', async () => {
       await awu(ACCOUNT_ID_TYPES).forEach(async typeName => {
@@ -128,11 +250,15 @@ describe('account_id_filter', () => {
       await filter.onFetch([instance])
       common.checkSimpleInstanceIds(instance, '1')
     })
+    it('should not change account ids for empty values', async () => {
+      await filter.onFetch([automationInstance])
+      expect(automationInstance.value.components[2].value.compareFieldValue.value).toBeUndefined()
+    })
     it('should enhance types with relevant account ids', async () => {
       const currentObjectType = new ObjectType({
         elemID: new ElemID(JIRA, 'CustomFieldContext'),
       })
-      ACCOUNT_IDS_FIELDS_NAMES.forEach(fieldName => {
+      ACCOUNT_ID_FIELDS_NAMES.forEach(fieldName => {
         currentObjectType.fields[fieldName] = new Field(currentObjectType, fieldName, BuiltinTypes.STRING)
       })
       currentObjectType.fields.accountIds = new Field(
@@ -141,7 +267,7 @@ describe('account_id_filter', () => {
         new ListType(BuiltinTypes.STRING),
       )
       await filter.onFetch([currentObjectType])
-      await awu(ACCOUNT_IDS_FIELDS_NAMES).forEach(async fieldName => {
+      await awu(ACCOUNT_ID_FIELDS_NAMES).forEach(async fieldName => {
         const currentType = (await currentObjectType.fields[fieldName].getType()) as ObjectType
         expect(Object.prototype.hasOwnProperty.call(currentType.fields, 'id')).toBeTruthy()
         expect(Object.prototype.hasOwnProperty.call(currentType.fields, 'displayName')).toBeTruthy()

@@ -15,7 +15,9 @@
  */
 import _ from 'lodash'
 import {
+  BuiltinTypes,
   Change,
+  Field,
   getChangeData,
   InstanceElement,
   isInstanceChange,
@@ -44,9 +46,18 @@ export const overrideInstanceTypeForDeploy = <Options extends FetchApiDefinition
     typeName,
     defQuery,
     isUnknownEntry: isReferenceExpression,
+    definedTypes: {},
   })
   const definedTypes = _.keyBy([generatedType.type, ...generatedType.nestedTypes], t => t.elemID.typeName)
   overrideFieldTypes({ definedTypes, defQuery })
+  // make sure all service id fields are there even on additions (which might not have values for them)
+  defQuery.query(typeName)?.resource?.serviceIDFields?.forEach(fieldName => {
+    if (generatedType.type.fields[fieldName] === undefined) {
+      generatedType.type.fields[fieldName] =
+        instance.getTypeSync().fields[fieldName] ?? new Field(generatedType.type, fieldName, BuiltinTypes.SERVICE_ID)
+    }
+  })
+
   clonedInstance.refType = new TypeReference(generatedType.type.elemID, generatedType.type)
   return clonedInstance
 }

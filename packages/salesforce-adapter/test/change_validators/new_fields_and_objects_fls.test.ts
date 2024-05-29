@@ -42,7 +42,14 @@ describe('new Fields and Objects FLS Change Validator', () => {
     addedObject = createCustomObjectType('TestType__c', {
       annotations: { [API_NAME]: 'TestType__c' },
     })
-    changes = [addedField, addedObject].map((element) =>
+    // Make sure we don't create info on Field that is added alongside it's parent
+    const addedObjectField = new Field(
+      addedObject,
+      'TestField__c',
+      BuiltinTypes.STRING,
+      { [API_NAME]: 'TestType__c.TestField__c' },
+    )
+    changes = [addedField, addedObject, addedObjectField].map((element) =>
       toChange({ after: element }),
     )
   })
@@ -62,7 +69,9 @@ describe('new Fields and Objects FLS Change Validator', () => {
       expect(fieldError).toEqual({
         elemID: addedField.elemID,
         severity: 'Info',
-        message: expect.stringContaining('CustomField visibility'),
+        message: expect.stringContaining(
+          'Read/write access to this Custom Field will be granted to 2 profiles',
+        ),
         detailedMessage: expect.stringContaining(
           CUSTOM_FLS_PROFILES.join(', '),
         ),
@@ -70,7 +79,9 @@ describe('new Fields and Objects FLS Change Validator', () => {
       expect(objectError).toEqual({
         elemID: addedObject.elemID,
         severity: 'Info',
-        message: expect.stringContaining('CustomObject visibility'),
+        message: expect.stringContaining(
+          'Read/write access to this Custom Object will be granted to 2 profiles',
+        ),
         detailedMessage: expect.stringContaining(
           CUSTOM_FLS_PROFILES.join(', '),
         ),
@@ -90,7 +101,9 @@ describe('new Fields and Objects FLS Change Validator', () => {
       expect(fieldError).toEqual({
         elemID: addedField.elemID,
         severity: 'Info',
-        message: expect.stringContaining('CustomField visibility'),
+        message: expect.stringContaining(
+          'Read/write access to this Custom Field will be granted to the following profile: Admin',
+        ),
         detailedMessage: expect.stringContaining(
           DEFAULT_FLS_PROFILES.join(', '),
         ),
@@ -98,7 +111,9 @@ describe('new Fields and Objects FLS Change Validator', () => {
       expect(objectError).toEqual({
         elemID: addedObject.elemID,
         severity: 'Info',
-        message: expect.stringContaining('CustomObject visibility'),
+        message: expect.stringContaining(
+          'Read/write access to this Custom Object will be granted to the following profile: Admin',
+        ),
         detailedMessage: expect.stringContaining(
           DEFAULT_FLS_PROFILES.join(', '),
         ),

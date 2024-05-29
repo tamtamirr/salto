@@ -28,13 +28,11 @@ import { definitions } from '@salto-io/adapter-components'
 import {
   BIN,
   CURRENCY,
-  CUSTOM_RECORD_TYPE,
   DATASET,
   EMPLOYEE,
   EXCHANGE_RATE,
   INACTIVE_FIELDS,
   NETSUITE,
-  PERMISSIONS,
   SAVED_SEARCH,
   WORKBOOK,
 } from '../constants'
@@ -282,6 +280,7 @@ export type NetsuiteValidatorName =
   | 'analyticsSilentFailure'
   | 'undeployableBundleChanges'
   | 'removeListItemWithoutScriptID'
+  | 'customRecordEmptyPermissionList'
 
 export type NonSuiteAppValidatorName = 'removeFileCabinet' | 'removeStandardTypes'
 
@@ -475,10 +474,6 @@ export const fetchDefault: FetchParams = {
       type: CURRENCY,
       fields: [EXCHANGE_RATE],
     },
-    {
-      type: CUSTOM_RECORD_TYPE,
-      fields: [PERMISSIONS],
-    },
   ],
   exclude: {
     types: [
@@ -645,6 +640,7 @@ const changeValidatorConfigType = createMatchingObjectType<ChangeValidatorConfig
     analyticsSilentFailure: { refType: BuiltinTypes.BOOLEAN },
     undeployableBundleChanges: { refType: BuiltinTypes.BOOLEAN },
     removeListItemWithoutScriptID: { refType: BuiltinTypes.BOOLEAN },
+    customRecordEmptyPermissionList: { refType: BuiltinTypes.BOOLEAN },
   },
   annotations: {
     [CORE_ANNOTATIONS.ADDITIONAL_PROPERTIES]: false,

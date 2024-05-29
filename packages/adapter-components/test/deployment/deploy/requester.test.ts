@@ -21,6 +21,7 @@ import {
   InstanceElement,
   ObjectType,
   getChangeData,
+  isModificationChange,
   toChange,
 } from '@salto-io/adapter-api'
 import { buildElementsSourceFromElements } from '@salto-io/adapter-utils'
@@ -44,7 +45,7 @@ describe('DeployRequester', () => {
     type = new ObjectType({
       elemID: new ElemID('adapter', 'test'),
       fields: {
-        id: { refType: BuiltinTypes.STRING },
+        id: { refType: BuiltinTypes.SERVICE_ID },
         creatableField: {
           refType: BuiltinTypes.STRING,
           annotations: { [CORE_ANNOTATIONS.CREATABLE]: true },
@@ -119,8 +120,39 @@ describe('DeployRequester', () => {
                           instanceId: '{obj.id}',
                         },
                         endpoint: {
+                          queryArgs: {
+                            instanceId: '{instanceId}',
+                          },
                           path: '/test/endpoint/{instanceId}',
                           method: 'delete',
+                        },
+                      },
+                    },
+                  ],
+                },
+              },
+            },
+            test2: {
+              requestsByAction: {
+                customizations: {
+                  modify: [
+                    {
+                      request: {
+                        context: {
+                          custom:
+                            () =>
+                            ({ change }) => {
+                              if (!isModificationChange(change)) {
+                                return {}
+                              }
+                              return {
+                                oldInstanceId: change.data.before.value.obj.id,
+                              }
+                            },
+                        },
+                        endpoint: {
+                          path: '/test2/endpoint/{oldInstanceId}',
+                          method: 'put',
                         },
                       },
                     },
@@ -148,7 +180,9 @@ describe('DeployRequester', () => {
                         },
                       },
                       copyFromResponse: {
-                        pick: ['stop'],
+                        additional: {
+                          pick: ['stop'],
+                        },
                       },
                     },
                     {
@@ -185,7 +219,9 @@ describe('DeployRequester', () => {
                         },
                       },
                       copyFromResponse: {
-                        pick: ['stop'],
+                        additional: {
+                          pick: ['stop'],
+                        },
                       },
                     },
                     {
@@ -243,11 +279,12 @@ describe('DeployRequester', () => {
         change,
         changeGroup: { changes: [change], groupID: 'abc' },
         elementSource: buildElementsSourceFromElements([]),
+        sharedContext: {},
       }),
     ).rejects.toThrow('Could not find requests for change adapter.test.instance.instance action modify')
   })
 
-  it('deleting an instance should send the instance id to the right URL', async () => {
+  it('should use context in URL and queryParams', async () => {
     client.delete.mockResolvedValue({
       status: 200,
       data: {},
@@ -264,11 +301,43 @@ describe('DeployRequester', () => {
       change,
       changeGroup: { changes: [change], groupID: 'abc' },
       elementSource: buildElementsSourceFromElements([]),
+      sharedContext: {},
     })
     expect(instance.value.obj.id).toBe(1)
     expect(client.delete).toHaveBeenCalledWith(
       expect.objectContaining({
         url: '/test/endpoint/1',
+        queryParams: { instanceId: '1' },
+      }),
+    )
+  })
+  it('should use custom context in URL', async () => {
+    client.put.mockResolvedValue({
+      status: 200,
+      data: {},
+    })
+    const requester = getRequester<{ additionalAction: AdditionalAction }>({
+      clients: definitions.clients,
+      deployDefQuery: queryWithDefault(definitions.deploy.instances),
+      changeResolver: async change => change,
+    })
+    const beforeInstance = new InstanceElement('inst', new ObjectType({ elemID: new ElemID('adapter', 'test2') }), {
+      obj: { id: 5 },
+    })
+    const afterInstance = beforeInstance.clone()
+    afterInstance.value = {}
+
+    const change = toChange({ before: beforeInstance, after: afterInstance })
+    await requester.requestAllForChangeAndAction({
+      action: change.action,
+      change,
+      changeGroup: { changes: [change], groupID: 'abc' },
+      elementSource: buildElementsSourceFromElements([]),
+      sharedContext: {},
+    })
+    expect(client.put).toHaveBeenCalledWith(
+      expect.objectContaining({
+        url: '/test2/endpoint/5',
       }),
     )
   })
@@ -309,6 +378,7 @@ describe('DeployRequester', () => {
       change,
       changeGroup: { changes: [change], groupID: 'abc' },
       elementSource: buildElementsSourceFromElements([]),
+      sharedContext: {},
     })
 
     expect(client.post).toHaveBeenCalledWith({
@@ -317,6 +387,197 @@ describe('DeployRequester', () => {
         creatableField: 'creatableValue',
       },
     })
+  })
+
+  it('should copy back service id', async () => {
+    client.post.mockResolvedValue({
+      status: 200,
+      data: {
+        id: 1234,
+      },
+    })
+    const requester = getRequester<{ additionalAction: AdditionalAction }>({
+      clients: definitions.clients,
+      deployDefQuery: queryWithDefault(definitions.deploy.instances),
+      changeResolver: async change => change,
+    })
+    const change = toChange({ after: instance })
+    await requester.requestAllForChangeAndAction({
+      action: change.action,
+      change,
+      changeGroup: { changes: [change], groupID: 'abc' },
+      elementSource: buildElementsSourceFromElements([]),
+      sharedContext: {},
+    })
+
+    expect(getChangeData(change).value.id).toEqual(1234)
+  })
+  it('should copy back service id from nested value if sent as nested, and extract additional values if defined', async () => {
+    client.post.mockResolvedValue({
+      status: 200,
+      data: {
+        a: {
+          id: 1234,
+        },
+        stop: true,
+      },
+    })
+    const defs: (typeof definitions)['deploy']['instances'] = _.merge({}, definitions.deploy.instances, {
+      customizations: {
+        test: {
+          requestsByAction: {
+            customizations: {
+              add: [
+                {
+                  request: {
+                    transformation: {
+                      // TODO the "old infra" test had a fieldsToIgnore recursive function - this can now be done using adjust
+                      nestUnderField: 'a',
+                    },
+                  },
+                  copyFromResponse: {
+                    additional: {
+                      pick: ['stop'],
+                    },
+                  },
+                },
+              ],
+            },
+          },
+        },
+      },
+    })
+    const requester = getRequester<{ additionalAction: AdditionalAction }>({
+      clients: definitions.clients,
+      deployDefQuery: queryWithDefault(defs),
+      changeResolver: async change => change,
+    })
+    const change = toChange({ after: instance })
+    await requester.requestAllForChangeAndAction({
+      action: change.action,
+      change,
+      changeGroup: { changes: [change], groupID: 'abc' },
+      elementSource: buildElementsSourceFromElements([]),
+      sharedContext: {},
+    })
+
+    expect(getChangeData(change).value).toEqual({
+      creatableField: 'creatableValue',
+      ignored: 'ignored',
+      id: 1234,
+      stop: true,
+    })
+  })
+  it('should copy extra context and nest under elem id', async () => {
+    client.post.mockResolvedValue({
+      status: 200,
+      data: {
+        a: {
+          id: 1234,
+        },
+        stop: true,
+      },
+    })
+    const defs: (typeof definitions)['deploy']['instances'] = _.merge({}, definitions.deploy.instances, {
+      customizations: {
+        test: {
+          requestsByAction: {
+            customizations: {
+              add: [
+                {
+                  request: {
+                    transformation: {
+                      // TODO the "old infra" test had a fieldsToIgnore recursive function - this can now be done using adjust
+                      nestUnderField: 'a',
+                    },
+                  },
+                  copyFromResponse: {
+                    toSharedContext: {
+                      pick: ['stop'],
+                    },
+                  },
+                },
+              ],
+            },
+          },
+        },
+      },
+    })
+    const requester = getRequester<{ additionalAction: AdditionalAction }>({
+      clients: definitions.clients,
+      deployDefQuery: queryWithDefault(defs),
+      changeResolver: async change => change,
+    })
+    const change = toChange({ after: instance })
+    const sharedContext = {}
+    await requester.requestAllForChangeAndAction({
+      action: change.action,
+      change,
+      changeGroup: { changes: [change], groupID: 'abc' },
+      elementSource: buildElementsSourceFromElements([]),
+      sharedContext,
+    })
+
+    expect(getChangeData(change).value).toEqual({
+      creatableField: 'creatableValue',
+      ignored: 'ignored',
+      id: 1234,
+    })
+    expect(sharedContext).toEqual({ 'adapter.test.instance.instance': { stop: true } })
+  })
+
+  it('should copy extra context at top level when nestUnderElemID=false', async () => {
+    client.post.mockResolvedValue({
+      status: 200,
+      data: {
+        a: {
+          id: 1234,
+        },
+        stop: true,
+      },
+    })
+    const defs: (typeof definitions)['deploy']['instances'] = _.merge({}, definitions.deploy.instances, {
+      customizations: {
+        test: {
+          requestsByAction: {
+            customizations: {
+              add: [
+                {
+                  request: {
+                    transformation: {
+                      // TODO the "old infra" test had a fieldsToIgnore recursive function - this can now be done using adjust
+                      nestUnderField: 'a',
+                    },
+                  },
+                  copyFromResponse: {
+                    toSharedContext: {
+                      pick: ['stop'],
+                      nestUnderElemID: false,
+                    },
+                  },
+                },
+              ],
+            },
+          },
+        },
+      },
+    })
+    const requester = getRequester<{ additionalAction: AdditionalAction }>({
+      clients: definitions.clients,
+      deployDefQuery: queryWithDefault(defs),
+      changeResolver: async change => change,
+    })
+    const change = toChange({ after: instance })
+    const sharedContext = {}
+    await requester.requestAllForChangeAndAction({
+      action: change.action,
+      change,
+      changeGroup: { changes: [change], groupID: 'abc' },
+      elementSource: buildElementsSourceFromElements([]),
+      sharedContext,
+    })
+
+    expect(sharedContext).toEqual({ stop: true })
   })
 
   it('should omit request body when deploy request config contains omitRequestBody=true', async () => {
@@ -347,8 +608,13 @@ describe('DeployRequester', () => {
       change,
       changeGroup: { changes: [change], groupID: 'abc' },
       elementSource: buildElementsSourceFromElements([]),
+      sharedContext: {},
     })
-    expect(client.delete).toHaveBeenCalledWith({ url: '/test/endpoint/1', data: undefined, queryParams: undefined })
+    expect(client.delete).toHaveBeenCalledWith({
+      url: '/test/endpoint/1',
+      data: undefined,
+      queryParams: { instanceId: '1' },
+    })
   })
 
   it('should include request body when deploy request config contains omitRequestBody=false', async () => {
@@ -379,11 +645,12 @@ describe('DeployRequester', () => {
       change,
       changeGroup: { changes: [change], groupID: 'abc' },
       elementSource: buildElementsSourceFromElements([]),
+      sharedContext: {},
     })
     expect(client.delete).toHaveBeenCalledWith({
       url: '/test/endpoint/1',
       data: { id: '1', creatableField: 'creatableValue', ignored: 'ignored' },
-      queryParams: undefined,
+      queryParams: { instanceId: '1' },
     })
   })
 
@@ -416,6 +683,7 @@ describe('DeployRequester', () => {
         change,
         changeGroup: { changes: [change], groupID: 'abc' },
         elementSource: buildElementsSourceFromElements([]),
+        sharedContext: {},
       }),
     ).resolves.not.toThrow()
   })
@@ -449,6 +717,7 @@ describe('DeployRequester', () => {
         change,
         changeGroup: { changes: [change], groupID: 'abc' },
         elementSource: buildElementsSourceFromElements([]),
+        sharedContext: {},
       })
     }).rejects.toThrow('Something went wrong')
   })
@@ -494,6 +763,7 @@ describe('DeployRequester', () => {
       change,
       changeGroup: { changes: [change], groupID: 'abc' },
       elementSource: buildElementsSourceFromElements([]),
+      sharedContext: {},
     })
     expect(client.delete).toHaveBeenCalledTimes(3)
   })
@@ -532,6 +802,7 @@ describe('DeployRequester', () => {
       change,
       changeGroup: { changes: [change], groupID: 'abc' },
       elementSource: buildElementsSourceFromElements([]),
+      sharedContext: {},
     })
     expect(getChangeData(change).value.id).toBe('NEW')
     expect(client.post).toHaveBeenCalledWith(
@@ -586,6 +857,7 @@ describe('DeployRequester', () => {
       change,
       changeGroup: { changes: [change], groupID: 'abc' },
       elementSource: buildElementsSourceFromElements([]),
+      sharedContext: {},
     })
     expect(getChangeData(change).value.stop).toBe(true)
     expect(client.post).toHaveBeenCalledWith(
@@ -633,6 +905,7 @@ describe('DeployRequester', () => {
       change,
       changeGroup: { changes: [change], groupID: 'abc' },
       elementSource: buildElementsSourceFromElements([]),
+      sharedContext: {},
     })
     expect(client.post).toHaveBeenCalledWith(
       expect.objectContaining({

@@ -24,7 +24,7 @@ import {
   Values,
 } from '@salto-io/adapter-api'
 import { ImportantValues } from '@salto-io/adapter-utils'
-import { ConfigChangeSuggestion } from '../../../config' // TODO move
+import { ConfigChangeSuggestion } from '../../user'
 import { ArgsWithCustomizer } from '../shared/types'
 // eslint-disable-next-line import/no-cycle
 import { GenerateTypeArgs } from './types'
@@ -57,6 +57,9 @@ export type ElemIDDefinition<TCustomNameMappingOptions extends string = never> =
     // default - true when parent annotation exists?
     // TODO check if still needed when implementing SALTO-5421
     extendsParent?: boolean
+    // This is a temporary flag to support double nacl case for upgrading existing services to the new definitions
+    // https://salto-io.atlassian.net/browse/SALTO-5743
+    useOldFormat?: boolean
   }
 
 export type PathDefinition<TCustomNameMappingOptions extends string = never> = {
@@ -77,17 +80,32 @@ type StandaloneFieldDefinition = {
   nestPathUnderParent?: boolean
 }
 
-// TODO add safeties (e.g. standalone.referencFromParent=false means omit)
+export type PropertySortDefinition = {
+  // A dot-separated path to a property in the list field.
+  // Paths can include reference expressions, e.g. `'path.to.property.refToAnotherElement.id'`
+  path: string
+  order?: 'asc' | 'desc'
+}
+
+// Settings for sorting a list field.
+export type SortFieldDefinition = {
+  // The properties to sort the field by, in order of precedence.
+  // Selected properties should be env-independent to avoid sorting differences between envs.
+  properties: PropertySortDefinition[]
+}
+
+// TODO add safeties (e.g. standalone.referenceFromParent=false means omit)
 export type ElementFieldCustomization = types.XOR<
   {
     fieldType?: string
     hide?: boolean
     standalone?: StandaloneFieldDefinition
     restrictions?: RestrictionAnnotationType
+    sort?: SortFieldDefinition
   },
   types.OneOf<{
     // omit the field
-    omit: true
+    omit: boolean
     // set the field to a map and determine its inner type dynamically.
     // the type is determined dynamically, since if the inner type is known, fieldType can be used instead.
     // note: will not work if a predefined type is provided
@@ -123,7 +141,7 @@ export type ElementFetchDefinitionOptions = {
 type ResolveValueType<Options extends Pick<ElementFetchDefinitionOptions, 'valueType'>> =
   Options['valueType'] extends Values ? Options['valueType'] : Values
 
-type FetchTopLevelElementDefinition<Options extends ElementFetchDefinitionOptions = {}> = {
+export type FetchTopLevelElementDefinition<Options extends ElementFetchDefinitionOptions = {}> = {
   isTopLevel: true
 
   custom?: (
@@ -141,7 +159,7 @@ type FetchTopLevelElementDefinition<Options extends ElementFetchDefinitionOption
     {
       entry: Values
       defaultName: string
-      parentName?: string
+      parent?: InstanceElement
     },
     ElemIDCreatorArgs<ResolveCustomNameMappingOptionsType<Options>>
   >
@@ -149,8 +167,15 @@ type FetchTopLevelElementDefinition<Options extends ElementFetchDefinitionOption
   path?: PathDefinition<ResolveCustomNameMappingOptionsType<Options>>
 
   // customize the service-url annotation used to define go-to-service
-  // TODO use
-  serviceUrl?: ArgsWithCustomizer<string, { path: string }, Values>
+  // baseUrl should be define in default and override in custom if needed
+  serviceUrl?: ArgsWithCustomizer<
+    string,
+    {
+      path: string
+      baseUrl?: string
+    },
+    Values
+  >
 
   // when true, instances of this type will be hidden (_hidden_value = true on type)
   hide?: boolean

@@ -18,27 +18,22 @@ import {
   isModificationChange,
   InstanceElement,
   isInstanceChange,
-  ReferenceExpression,
   ModificationChange,
   ChangeError,
-  isReferenceExpression,
 } from '@salto-io/adapter-api'
 import { logger } from '@salto-io/logging'
 import { values } from '@salto-io/lowerdash'
 import { NetsuiteChangeValidator } from './types'
-import { PERMISSIONS, ROLE } from '../constants'
+import { PERMISSION, ROLE } from '../constants'
+import {
+  RolePermission,
+  getPermissionsListPath,
+  isRolePermissionObject,
+} from '../custom_references/weak_references/permissions_references'
 
 const log = logger(module)
 
-const PERMISSION = 'permission'
-
-type RolePermissionObject = {
-  permkey: string | ReferenceExpression
-  permlevel: string
-  restriction?: string
-}
-
-export type ItemInList = RolePermissionObject
+type ItemInList = RolePermission
 
 type GetItemList = (instance: InstanceElement) => ItemInList[]
 type GetItemString = (item: ItemInList) => string
@@ -61,22 +56,8 @@ export type ItemListGetters = {
   getDetailedMessage: GetMessage
 }
 
-const isRolePermissionObject = (obj: unknown): obj is RolePermissionObject => {
-  const returnVal =
-    values.isPlainRecord(obj) &&
-    (typeof obj.permkey === 'string' || isReferenceExpression(obj.permkey)) &&
-    typeof obj.permlevel === 'string' &&
-    (typeof obj.restriction === 'string' || obj.restriction === undefined)
-  if (!returnVal) {
-    log.warn('There is a role permission with a different shape: %o', obj)
-  }
-  return returnVal
-}
-
-const getRoleListPath: GetListPath = () => [PERMISSIONS, PERMISSION]
-
 const getRolePermissionList: GetItemList = instance => {
-  const listPathValue = _.get(instance.value, getRoleListPath())
+  const listPathValue = _.get(instance.value, getPermissionsListPath())
   if (_.isPlainObject(listPathValue)) {
     return Object.values(listPathValue).filter(isRolePermissionObject)
   }
@@ -90,7 +71,7 @@ const getRolePermissionList: GetItemList = instance => {
   return []
 }
 
-const getRolePermkey: GetItemString = (permission: RolePermissionObject): string => {
+const getRolePermkey: GetItemString = (permission: RolePermission): string => {
   const { permkey } = permission
   if (_.isString(permkey)) {
     return permkey
@@ -104,7 +85,7 @@ const getRoleMessage = (removedListItems: string[]): string =>
 const roleGetters: ItemListGetters = {
   getItemList: getRolePermissionList,
   getItemString: getRolePermkey,
-  getListPath: getRoleListPath,
+  getListPath: getPermissionsListPath,
   getDetailedMessage: getRoleMessage,
 }
 

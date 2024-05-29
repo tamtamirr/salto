@@ -110,8 +110,6 @@ import {
   metadataAnnotationTypes,
   MetadataTypeAnnotations,
   createInstanceElement,
-  toCustomField,
-  toCustomProperties,
   isLocalOnly,
   toMetadataInfo,
   isFieldOfCustomObject,
@@ -138,6 +136,8 @@ import {
   getInstanceAlias,
   toListType,
   isInstanceOfTypeSync,
+  toCustomField,
+  toCustomProperties,
 } from './utils'
 import { convertList } from './convert_lists'
 import { DEPLOY_WRAPPER_INSTANCE_MARKER } from '../metadata_deploy'
@@ -254,7 +254,7 @@ const ANNOTATIONS_TO_IGNORE_FROM_INSTANCE = [
   INTERNAL_ID_FIELD,
 ]
 
-const nestedMetadatatypeToReplaceDirName: Record<string, string> = {
+const nestedMetadataTypeToReplaceDirName: Record<string, string> = {
   // <type, new-dir-name>
   [WEBLINK_METADATA_TYPE]: 'ButtonsLinksAndActions',
 }
@@ -468,7 +468,7 @@ const createNestedMetadataInstances = (
           ).name
           const instanceFileName = pathNaclCase(instanceName)
           const typeFolderName = pathNaclCase(
-            nestedMetadatatypeToReplaceDirName[type.elemID.name] ??
+            nestedMetadataTypeToReplaceDirName[type.elemID.name] ??
               type.elemID.name,
           )
           nestedInstanceValues[INSTANCE_FULL_NAME_FIELD] = fullName

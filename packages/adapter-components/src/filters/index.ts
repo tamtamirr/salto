@@ -19,10 +19,13 @@ export {
   serviceUrlFilterCreatorDeprecated,
   configDefToInstanceFetchApiDefinitionsForServiceUrl,
 } from './service_url'
+export { referencedInstanceNamesFilterCreatorDeprecated } from './referenced_instance_names_deprecated'
 export { defaultDeployFilterCreator } from './default_deploy'
 export { addAliasFilterCreator } from './add_alias'
 export { fieldReferencesFilterCreator } from './field_references'
 export { hideTypesFilterCreator } from './hide_types'
 export { queryFilterCreator, createParentChildGraph } from './query'
 export { referencedInstanceNamesFilterCreator } from './referenced_instance_names'
-export { createCommonFilters } from './common_filters'
+export { sortListsFilterCreator } from './sort_lists'
+export { createCommonFilters, FilterCreationArgs } from './common_filters'
+export { customPathsFilterCreator, PathMapperFunc } from './custom_paths'

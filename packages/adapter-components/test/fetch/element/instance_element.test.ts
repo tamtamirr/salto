@@ -31,6 +31,7 @@ describe('instance element', () => {
           customizations: { myType: { element: { topLevel: { isTopLevel: true } } } },
         }),
         customNameMappingFunctions: {},
+        definedTypes: {},
       })
       expect(res.errors).toBeUndefined()
       expect(res.instances).toHaveLength(0)
@@ -46,6 +47,7 @@ describe('instance element', () => {
           typeName: 'myType',
           defQuery: queryWithDefault<InstanceFetchApiDefinitions, string>({ customizations: {} }),
           customNameMappingFunctions: {},
+          definedTypes: {},
         }),
       ).toThrow('type myAdapter:myType is not defined as top-level, cannot create instances')
     })
@@ -62,6 +64,7 @@ describe('instance element', () => {
           customizations: { myType: { element: { topLevel: { isTopLevel: true } } } },
         }),
         customNameMappingFunctions: {},
+        definedTypes: {},
       })
       expect(res.errors).toBeUndefined()
       expect(res.instances).toHaveLength(2)
@@ -126,6 +129,7 @@ describe('instance element', () => {
           customTest: name => `custom_${name}`,
           Uri: name => `uri_${name}`,
         },
+        definedTypes: {},
       })
       expect(res.errors).toBeUndefined()
       expect(res.instances).toHaveLength(2)
@@ -157,6 +161,7 @@ describe('instance element', () => {
           },
         }),
         customNameMappingFunctions: {},
+        definedTypes: {},
       })
       expect(res.errors).toBeUndefined()
       expect(res.instances).toHaveLength(1)
@@ -164,6 +169,34 @@ describe('instance element', () => {
       expect(res.types.map(e => e.elemID.getFullName())).toEqual(['myAdapter.myType'])
       expect(Object.keys(res.types[0].fields).sort()).toEqual(['str', 'with_spaces@s'])
       expect(res.instances[0].value).toEqual({ str: 'A', 'with_spaces@s': 'a' })
+    })
+    it('should return fetch warning when singleton type has more than one entry', () => {
+      expect(() =>
+        generateInstancesWithInitialTypes({
+          adapterName: 'myAdapter',
+          entries: [{ str: 'A' }, { str: 'B' }],
+          typeName: 'myType',
+          defQuery: queryWithDefault<InstanceFetchApiDefinitions, string>({
+            customizations: { myType: { element: { topLevel: { isTopLevel: true, singleton: true } } } },
+          }),
+          customNameMappingFunctions: {},
+          definedTypes: {},
+        }),
+      ).toThrow('Could not fetch type myType, singleton types should not have more than one instance')
+    })
+    it('should not return fetch warning when there are no entries for singleton type', () => {
+      const res = generateInstancesWithInitialTypes({
+        adapterName: 'myAdapter',
+        entries: [],
+        typeName: 'myType',
+        defQuery: queryWithDefault<InstanceFetchApiDefinitions, string>({
+          customizations: { myType: { element: { topLevel: { isTopLevel: true, singleton: true } } } },
+        }),
+        customNameMappingFunctions: {},
+        definedTypes: {},
+      })
+      expect(res.errors).toBeUndefined()
+      expect(res.instances).toHaveLength(0)
     })
   })
 })

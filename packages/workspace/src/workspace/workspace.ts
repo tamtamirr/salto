@@ -40,7 +40,13 @@ import {
   TypeReference,
 } from '@salto-io/adapter-api'
 import { logger } from '@salto-io/logging'
-import { applyDetailedChanges, inspectValue, naclCase, safeJsonStringify } from '@salto-io/adapter-utils'
+import {
+  applyDetailedChanges,
+  getIndependentElemIDs,
+  inspectValue,
+  naclCase,
+  safeJsonStringify,
+} from '@salto-io/adapter-utils'
 import { collections, promises, values } from '@salto-io/lowerdash'
 import { parser } from '@salto-io/parser'
 import { ValidationError, validateElements, isUnresolvedRefError } from '../validator'
@@ -52,6 +58,7 @@ import {
   MultiEnvSource,
   EnvsChanges,
   FromSource,
+  ENVS_PREFIX,
 } from './nacl_files/multi_env/multi_env_source'
 import { NaclFilesSource, NaclFile, RoutingMode } from './nacl_files/nacl_files_source'
 import { ParsedNaclFile } from './nacl_files/parsed_nacl_file'
@@ -102,11 +109,16 @@ const { makeArray } = collections.array
 const { awu } = collections.asynciterable
 const { partition } = promises.array
 
-export const ADAPTERS_CONFIGS_PATH = 'adapters'
 export const COMMON_ENV_PREFIX = ''
+
 const DEFAULT_STALE_STATE_THRESHOLD_MINUTES = 60 * 24 * 7 // 7 days
 const MULTI_ENV_SOURCE_PREFIX = 'multi_env_element_source'
 const STATE_SOURCE_PREFIX = 'state_element_source'
+
+export const getBaseDirFromEnvName = (envName: string): string =>
+  envName === COMMON_ENV_PREFIX ? envName : path.join(ENVS_PREFIX, envName)
+
+export const getStaticFileCacheName = (name: string): string => (name === COMMON_ENV_PREFIX ? 'common' : name)
 
 export const isValidEnvName = (envName: string): boolean =>
   /^[a-z0-9-_.!\s]+$/i.test(envName) && envName.length <= MAX_ENV_NAME_LEN
@@ -391,8 +403,8 @@ export const listElementsDependenciesInWorkspace = async ({
   elemIDsToSkip?: ElemID[]
   envToListFrom?: string
 }): Promise<{ dependencies: Record<string, ElemID[]>; missing: ElemID[] }> =>
-  log.time(async () => {
-    const workspaceBaseLevelIds = await log.time(
+  log.timeDebug(async () => {
+    const workspaceBaseLevelIds = await log.timeDebug(
       async () => new Set(await workspace.getSearchableNamesOfEnv(envToListFrom)),
       `getSearchableNames for env: ${envToListFrom}`,
     )
@@ -401,7 +413,7 @@ export const listElementsDependenciesInWorkspace = async ({
     const [foundIds, missingIds] = _.partition(baseLevelIds, elemID => workspaceBaseLevelIds.has(elemID.getFullName()))
 
     const result: Record<string, ElemID[]> = {}
-    const elemIDsToProcess = [...foundIds]
+    const elemIDsToProcess = Array.from(foundIds)
     const visited: Set<string> = new Set()
     while (elemIDsToProcess.length > 0) {
       const currentLevelIds = elemIDsToProcess
@@ -415,9 +427,11 @@ export const listElementsDependenciesInWorkspace = async ({
         currentLevelIds.map(async currentId => {
           // eslint-disable-next-line no-await-in-loop
           const references = await workspace.getElementOutgoingReferences(currentId, envToListFrom, false)
-          const relevantElemIds = references
-            .map(ref => ref.id.createBaseID().parent)
-            .filter(elemId => !elemIdsToSkipSet.has(elemId.getFullName()))
+          const relevantElemIds = getIndependentElemIDs(
+            references
+              .map(ref => ref.id.createBaseID().parent)
+              .filter(elemId => !elemIdsToSkipSet.has(elemId.getFullName())),
+          )
 
           const [foundElemIDs, missingElemIDs] = _.partition(relevantElemIds, elemID =>
             workspaceBaseLevelIds.has(elemID.getFullName()),

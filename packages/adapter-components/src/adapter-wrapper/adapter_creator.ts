@@ -14,8 +14,15 @@
  * limitations under the License.
  */
 import _ from 'lodash'
-import { InstanceElement, Adapter, AdapterAuthentication } from '@salto-io/adapter-api'
-import { createCommonFilters } from '../filters/common_filters'
+import {
+  InstanceElement,
+  Adapter,
+  AdapterAuthentication,
+  ChangeValidator,
+  FixElementsFunc,
+  FieldDefinition,
+} from '@salto-io/adapter-api'
+import { FilterCreationArgs, createCommonFilters } from '../filters/common_filters'
 import { createClient } from '../client/client_creator'
 import { AdapterImplConstructor } from './adapter/types'
 import { createAdapterImpl } from './adapter/creator'
@@ -35,6 +42,10 @@ import { defaultValidateCredentials } from '../credentials'
 import { adapterConfigFromConfig } from '../definitions/user/user_config'
 import { ClientDefaults } from '../client/http_client'
 import { AdapterImpl } from './adapter/adapter'
+import { getResolverCreator } from '../references/resolver_creator'
+import { ConvertError } from '../deployment'
+import { combineElementFixers } from '../references/element_fixers'
+import { FixElementsArgs } from '../fix_elements/types'
 
 type ConfigCreator<Config> = (config?: Readonly<InstanceElement>) => Config
 type ConnectionCreatorFromConfig<Credentials> = (config?: Readonly<InstanceElement>) => ConnectionCreator<Credentials>
@@ -52,12 +63,14 @@ export const createAdapter = <
   adapterImpl,
   defaultConfig,
   configTypeCreator,
+  additionalConfigFields,
   operationsCustomizations,
   clientDefaults,
+  customConvertError,
 }: {
   adapterName: string
   // helper for determining the names of all clients that should be created
-  initialClients: Record<ResolveClientOptionsType<Options>, undefined>
+  initialClients: Record<ResolveClientOptionsType<Options>, undefined | ConnectionCreator<Credentials>>
   authenticationMethods: AdapterAuthentication
   validateCredentials?: Adapter['validateCredentials']
   adapterImpl?: AdapterImplConstructor<Credentials, Options, Co>
@@ -67,17 +80,30 @@ export const createAdapter = <
     userConfig: Co
   }) => RequiredDefinitions<Options>
   configTypeCreator?: ConfigTypeCreator<ResolveCustomNameMappingOptionsType<Options>>
+  additionalConfigFields?: {
+    fetch?: Record<string, FieldDefinition>
+    deploy?: Record<string, FieldDefinition>
+  }
   operationsCustomizations: {
     adapterConfigCreator?: (config: Readonly<InstanceElement> | undefined) => Co
     credentialsFromConfig: (config: Readonly<InstanceElement>) => Credentials
     connectionCreatorFromConfig: (config: Co['client']) => ConnectionCreator<Credentials>
-    customizeFilterCreators?: (config: Co) => AdapterFilterCreator<Co, FilterResult, {}, Options>[]
+    customizeFilterCreators?: (
+      args: FilterCreationArgs<Options, Co>,
+    ) => Record<string, AdapterFilterCreator<Co, FilterResult, {}, Options>>
+    additionalChangeValidators?: (args: { config: Co }) => Record<string, ChangeValidator>
+    customizeFixElements?: (args: FixElementsArgs<Options, Co>) => Record<string, FixElementsFunc>
   }
   clientDefaults?: Partial<Omit<ClientDefaults<ClientRateLimitConfig>, 'pageSize'>>
+  customConvertError?: ConvertError
 }): Adapter => {
-  const { adapterConfigCreator, credentialsFromConfig, connectionCreatorFromConfig, customizeFilterCreators } =
-    operationsCustomizations
-
+  const {
+    adapterConfigCreator,
+    credentialsFromConfig,
+    connectionCreatorFromConfig,
+    customizeFilterCreators,
+    customizeFixElements,
+  } = operationsCustomizations
   const configCreator: ConfigCreator<Co> = config =>
     (adapterConfigCreator ?? adapterConfigFromConfig)(config, defaultConfig)
   const connectionCreator: ConnectionCreatorFromConfig<Credentials> = config =>
@@ -87,10 +113,10 @@ export const createAdapter = <
     operations: context => {
       const config = configCreator(context.config)
       const credentials = credentialsFromConfig(context.credentials)
-      const clients = _.mapValues(initialClients, () =>
+      const clients = _.mapValues(initialClients, createConnection =>
         createClient<Credentials>({
           adapterName,
-          createConnection: connectionCreator(context.config),
+          createConnection: createConnection ?? connectionCreator(context.config),
           clientOpts: {
             credentials,
             config: config.client,
@@ -99,6 +125,15 @@ export const createAdapter = <
         }),
       )
       const definitions = definitionsCreator({ clients, userConfig: config })
+      const resolverCreator = getResolverCreator(definitions)
+      const fixElements = customizeFixElements
+        ? combineElementFixers(customizeFixElements({ config, elementsSource: context.elementsSource }))
+        : undefined
+
+      const additionalChangeValidators = operationsCustomizations.additionalChangeValidators
+        ? operationsCustomizations.additionalChangeValidators({ config })
+        : undefined
+
       const adapterOperations = createAdapterImpl<Credentials, Options, Co>(
         {
           clients,
@@ -106,17 +141,19 @@ export const createAdapter = <
           getElemIdFunc: context.getElemIdFunc,
           definitions,
           elementSource: context.elementsSource,
-          filterCreators:
-            customizeFilterCreators !== undefined
-              ? customizeFilterCreators(config)
-              : Object.values(
-                  createCommonFilters<Options, Co>({
-                    config,
-                    definitions,
-                  }),
-                ),
+          referenceResolver: resolverCreator,
+          filterCreators: Object.values(
+            (customizeFilterCreators ?? createCommonFilters)({
+              config,
+              definitions,
+              fieldReferenceResolverCreator: resolverCreator,
+              convertError: customConvertError,
+            }),
+          ),
           adapterName,
           configInstance: context.config,
+          additionalChangeValidators,
+          fixElements,
         },
         adapterImpl ?? AdapterImpl,
       )
@@ -131,6 +168,7 @@ export const createAdapter = <
           }
         },
         deployModifiers: adapterOperations.deployModifiers,
+        fixElements: adapterOperations.fixElements?.bind(adapterOperations),
         // TODO SALTO-5578 extend to other operations
       }
     },
@@ -139,6 +177,12 @@ export const createAdapter = <
       (config =>
         defaultValidateCredentials({ createConnection: connectionCreator(config), credentialsFromConfig })(config)),
     authenticationMethods,
-    configType: (configTypeCreator ?? createUserConfigType)({ adapterName, defaultConfig }),
+    configType: (configTypeCreator ?? createUserConfigType)({
+      adapterName,
+      defaultConfig,
+      changeValidatorNames: Object.keys(operationsCustomizations.additionalChangeValidators ?? {}),
+      additionalDeployFields: additionalConfigFields?.deploy,
+      additionalFetchFields: additionalConfigFields?.fetch,
+    }),
   }
 }

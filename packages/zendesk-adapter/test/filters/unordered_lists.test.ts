@@ -25,10 +25,13 @@ import { filterUtils } from '@salto-io/adapter-components'
 import {
   GROUP_TYPE_NAME,
   MACRO_TYPE_NAME,
+  ROUTING_ATTRIBUTE_TYPE_NAME,
+  ROUTING_ATTRIBUTE_VALUE_TYPE_NAME,
   TICKET_FIELD_CUSTOM_FIELD_OPTION,
   TICKET_FIELD_TYPE_NAME,
   TICKET_FORM_TYPE_NAME,
   VIEW_TYPE_NAME,
+  WORKSPACE_TYPE_NAME,
   ZENDESK,
 } from '../../src/constants'
 import filterCreator from '../../src/filters/unordered_lists'
@@ -44,6 +47,9 @@ describe('Unordered lists filter', () => {
     const dynamicContentItemType = new ObjectType({ elemID: new ElemID(ZENDESK, 'dynamic_content_item') })
     const triggerDefinitionType = new ObjectType({ elemID: new ElemID(ZENDESK, 'trigger_definition') })
     const macroType = new ObjectType({ elemID: new ElemID(ZENDESK, MACRO_TYPE_NAME) })
+    const workspaceType = new ObjectType({ elemID: new ElemID(ZENDESK, 'workspace') })
+    const routingAttributeType = new ObjectType({ elemID: new ElemID(ZENDESK, ROUTING_ATTRIBUTE_TYPE_NAME) })
+    const routingAttributeValueType = new ObjectType({ elemID: new ElemID(ZENDESK, ROUTING_ATTRIBUTE_VALUE_TYPE_NAME) })
     const viewType = new ObjectType({ elemID: new ElemID(ZENDESK, VIEW_TYPE_NAME) })
     const groupType = new ObjectType({ elemID: new ElemID(ZENDESK, GROUP_TYPE_NAME) })
     const ticketFormType = new ObjectType({ elemID: new ElemID(ZENDESK, TICKET_FORM_TYPE_NAME) })
@@ -74,7 +80,15 @@ describe('Unordered lists filter', () => {
           ],
         },
         {
+          parent_field_id: new ReferenceExpression(customThreeInstance.elemID, customThreeInstance),
+          value: true,
+        },
+        {
           value: 'b',
+        },
+        {
+          parent_field_id: new ReferenceExpression(customOneInstance.elemID, customOneInstance),
+          value: true,
         },
       ],
       end_user_conditions: [
@@ -281,6 +295,34 @@ describe('Unordered lists filter', () => {
         { title: 'bravo', type: 'alpha' },
       ],
     })
+    const referenceExpressionInWorkspaceApps = new ReferenceExpression(new ElemID('zendesk', 'd'))
+    const workspaceWithMultipleApps = new InstanceElement('workspaceWithNoApps', workspaceType, {
+      apps: [
+        { id: 'b', position: 2 },
+        { id: 'c', position: 3 },
+        { id: referenceExpressionInWorkspaceApps, position: 1 },
+        { id: 'a', position: 1 },
+      ],
+    })
+
+    const routingAttributeValueA = new InstanceElement('routingAttributeValueA', routingAttributeValueType, {
+      name: 'A',
+    })
+    const routingAttributeValueB = new InstanceElement('routingAttributeValueB', routingAttributeValueType, {
+      name: 'B',
+    })
+    const routingAttributeValueC = new InstanceElement('routingAttributeValueC', routingAttributeValueType, {
+      name: 'C',
+    })
+
+    const routingAttribute = new InstanceElement('routingAttribute', routingAttributeType, {
+      values: [
+        new ReferenceExpression(routingAttributeValueC.elemID, routingAttributeValueC),
+        new ReferenceExpression(routingAttributeValueA.elemID, routingAttributeValueA),
+        new ReferenceExpression(routingAttributeValueB.elemID, routingAttributeValueB),
+      ],
+    })
+
     const empty = new InstanceElement('empty', dynamicContentItemType, {})
     return [
       localeType,
@@ -320,6 +362,11 @@ describe('Unordered lists filter', () => {
       ticketFieldThreeInstance,
       invalidChildFieldTicketFormInstance,
       invalidTicketFieldInstance,
+      workspaceWithMultipleApps,
+      routingAttributeValueC,
+      routingAttributeValueA,
+      routingAttributeValueB,
+      routingAttribute,
     ]
   }
 
@@ -416,17 +463,19 @@ describe('Unordered lists filter', () => {
   describe('ticket_form', () => {
     it('sort correctly', async () => {
       const instances = elements.filter(isInstanceElement).filter(e => e.elemID.name === 'valid form')
-      expect(instances[0].value.agent_conditions).toHaveLength(3)
-      expect(instances[0].value.agent_conditions[0].value.elemID.name).toEqual('customA')
-      expect(instances[0].value.agent_conditions[1].value).toEqual('b')
-      expect(instances[0].value.agent_conditions[2].value.elemID.name).toEqual('customC')
+      expect(instances[0].value.agent_conditions).toHaveLength(5)
+      expect(instances[0].value.agent_conditions[0].parent_field_id.elemID.name).toEqual('customA')
+      expect(instances[0].value.agent_conditions[1].parent_field_id.elemID.name).toEqual('customC')
+      expect(instances[0].value.agent_conditions[2].value.elemID.name).toEqual('customA')
+      expect(instances[0].value.agent_conditions[3].value).toEqual('b')
+      expect(instances[0].value.agent_conditions[4].value.elemID.name).toEqual('customC')
       expect(instances[0].value.end_user_conditions).toHaveLength(3)
       expect(instances[0].value.end_user_conditions[0].value.elemID.name).toEqual('customA')
       expect(instances[0].value.end_user_conditions[1].value).toEqual('b')
       expect(instances[0].value.end_user_conditions[2].value.elemID.name).toEqual('customC')
-      expect(instances[0].value.agent_conditions[0].child_fields).toHaveLength(2)
-      expect(instances[0].value.agent_conditions[0].child_fields[0].id.elemID.name).toEqual('fieldA')
-      expect(instances[0].value.agent_conditions[0].child_fields[1].id.elemID.name).toEqual('fieldC')
+      expect(instances[0].value.agent_conditions[2].child_fields).toHaveLength(2)
+      expect(instances[0].value.agent_conditions[2].child_fields[0].id.elemID.name).toEqual('fieldA')
+      expect(instances[0].value.agent_conditions[2].child_fields[1].id.elemID.name).toEqual('fieldC')
       expect(instances[0].value.end_user_conditions[0].child_fields).toHaveLength(2)
       expect(instances[0].value.end_user_conditions[0].child_fields[0].id.elemID.name).toEqual('fieldA')
       expect(instances[0].value.end_user_conditions[0].child_fields[1].id.elemID.name).toEqual('fieldC')
@@ -535,6 +584,37 @@ describe('Unordered lists filter', () => {
       testView.value.execution = undefined
       testView2.value.execution.custom_fields = undefined
       await filter.onFetch([testView, testView2])
+    })
+  })
+  describe('workspace', () => {
+    let instance: InstanceElement
+    beforeAll(() => {
+      ;[instance] = elements.filter(isInstanceElement).filter(e => e.elemID.typeName === WORKSPACE_TYPE_NAME)
+    })
+
+    it('should sort apps by position', async () => {
+      expect(instance.value.apps).toHaveLength(4)
+      expect(instance.value.apps[0].position).toEqual(1)
+      expect(instance.value.apps[0].id.elemID.getFullName()).toEqual('zendesk.d')
+      expect(instance.value.apps[1].id).toEqual('a')
+      expect(instance.value.apps[1].position).toEqual(1)
+      expect(instance.value.apps[2].id).toEqual('b')
+      expect(instance.value.apps[2].position).toEqual(2)
+      expect(instance.value.apps[3].id).toEqual('c')
+      expect(instance.value.apps[3].position).toEqual(3)
+    })
+  })
+  describe('routing attribute', () => {
+    let instance: InstanceElement
+    beforeAll(() => {
+      ;[instance] = elements.filter(isInstanceElement).filter(e => e.elemID.typeName === ROUTING_ATTRIBUTE_TYPE_NAME)
+    })
+
+    it('should sort values by name', async () => {
+      expect(instance.value.values).toHaveLength(3)
+      expect(instance.value.values[0].value.value.name).toEqual('A')
+      expect(instance.value.values[1].value.value.name).toEqual('B')
+      expect(instance.value.values[2].value.value.name).toEqual('C')
     })
   })
 })

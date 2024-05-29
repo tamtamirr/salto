@@ -32,11 +32,13 @@ import {
   ObjectType,
   TypeElement,
   ChangeDataType,
+  FixElementsFunc,
 } from '@salto-io/adapter-api'
 import _ from 'lodash'
 import { collections, values } from '@salto-io/lowerdash'
 import { logger } from '@salto-io/logging'
 import { filter, logDuration } from '@salto-io/adapter-utils'
+import { combineElementFixers } from '@salto-io/adapter-components'
 import { createElements } from './transformer'
 import { DeployResult, TYPES_TO_SKIP, isCustomRecordType } from './types'
 import { BUNDLE } from './constants'
@@ -96,6 +98,7 @@ import {
 } from './filter'
 import restoreDeletedListItemsWithoutScriptId from './filters/restore_deleted_list_items_without_scriptid'
 import restoreDeletedListItems from './filters/restore_deleted_list_items'
+import addPermissionsToCustomRecordAndRole from './filters/add_permissions_to_cutomRecord_and_roles'
 import { getLastServerTime, getOrCreateServerTimeElements, getLastServiceIdToFetchTime } from './server_time'
 import { getChangedObjects } from './changes_detector/changes_detector'
 import { FetchDeletionResult, getDeletedElements } from './deletion_calculator'
@@ -132,6 +135,7 @@ import {
 import { getConfigFromConfigChanges } from './config/suggestions'
 import { NetsuiteConfig, AdditionalDependencies, QueryParams, NetsuiteQueryParameters, ObjectID } from './config/types'
 import { buildNetsuiteBundlesQuery } from './config/bundle_query'
+import { customReferenceHandlers } from './custom_references'
 
 const { makeArray } = collections.array
 const { awu } = collections.asynciterable
@@ -139,14 +143,8 @@ const { awu } = collections.asynciterable
 const log = logger(module)
 
 export const allFilters: (LocalFilterCreatorDefinition | RemoteFilterCreatorDefinition)[] = [
-  // excludeCustomRecordTypes should run before customRecordTypesType,
-  // because otherwise there will be broken references to excluded types.
-  { creator: excludeCustomRecordTypes },
   { creator: restoreDeletedListItems },
   { creator: restoreDeletedListItemsWithoutScriptId },
-  // excludeCustomRecordTypes should run before customRecordTypesType,
-  // because otherwise there will be broken references to excluded types.
-  { creator: excludeCustomRecordTypes },
   { creator: customRecordTypesType },
   { creator: omitSdfUntypedValues },
   { creator: dataInstancesIdentifiers },
@@ -203,6 +201,7 @@ export const allFilters: (LocalFilterCreatorDefinition | RemoteFilterCreatorDefi
   // serviceUrls must run after suiteAppInternalIds and SDFInternalIds filter
   { creator: serviceUrls, addsNewInformation: true },
   { creator: addBundleReferences },
+  { creator: addPermissionsToCustomRecordAndRole },
   // omitFieldsFilter should be the last onFetch filter to run
   { creator: omitFieldsFilter },
   // additionalChanges should be right after addReferencingWorkbooks
@@ -244,6 +243,7 @@ export default class NetsuiteAdapter implements AdapterOperations {
   private readonly additionalDependencies: AdditionalDependencies
   private readonly userConfig: NetsuiteConfig
   private getElemIdFunc?: ElemIdGetter
+  private fixElementsFunc: FixElementsFunc
   private readonly fetchInclude: QueryParams
   private readonly fetchExclude: QueryParams
   private readonly lockedElements?: QueryParams
@@ -335,6 +335,10 @@ export default class NetsuiteAdapter implements AdapterOperations {
       }
       return filter.filtersRunner(getFilterOpts(), filtersCreators)
     }
+
+    this.fixElementsFunc = combineElementFixers(
+      _.mapValues(customReferenceHandlers, handler => handler.removeWeakReferences({ elementsSource })),
+    )
   }
 
   public fetchByQuery: FetchByQueryFunc = async (
@@ -398,7 +402,7 @@ export default class NetsuiteAdapter implements AdapterOperations {
         ...fileCabinetContent,
         ...(this.userConfig.fetch.addBundles !== false ? bundlesCustomInfo : []),
       ]
-      const elements = await createElements(elementsToCreate, this.elementsSource, this.getElemIdFunc)
+      const elements = await createElements(elementsToCreate, this.getElemIdFunc)
       const [standardInstances, types] = _.partition(elements, isInstanceElement)
       const [objectTypes, otherTypes] = _.partition(types, isObjectType)
       const [customRecordTypes, standardTypes] = _.partition(objectTypes, isCustomRecordType)
@@ -655,4 +659,6 @@ export default class NetsuiteAdapter implements AdapterOperations {
       dependencyChanger,
     }
   }
+
+  fixElements: FixElementsFunc = elements => this.fixElementsFunc(elements)
 }

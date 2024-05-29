@@ -13,13 +13,13 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { ElemID, InstanceElement, ObjectType, Element, BuiltinTypes } from '@salto-io/adapter-api'
+import { ElemID, InstanceElement, ObjectType, Element, BuiltinTypes, Value } from '@salto-io/adapter-api'
 import _ from 'lodash'
 import { safeJsonStringify } from '@salto-io/adapter-utils'
 import { filterUtils, client as clientUtils, elements as elementUtils } from '@salto-io/adapter-components'
 import { MockInterface } from '@salto-io/test-utils'
 import { HTTPError } from '@salto-io/adapter-components/src/client'
-import { TransformationConfig } from '@salto-io/adapter-components/src/config'
+import { TransformationConfig } from '@salto-io/adapter-components/src/config_deprecated'
 import { getFilterParams, mockClient } from '../../utils'
 import automationFetchFilter from '../../../src/filters/automation/automation_fetch'
 import { getDefaultConfig, JiraConfig } from '../../../src/config/config'
@@ -27,6 +27,11 @@ import { JIRA, OBJECT_TYPE_TYPE, PROJECT_TYPE } from '../../../src/constants'
 import JiraClient from '../../../src/client/client'
 import { createAutomationTypes } from '../../../src/filters/automation/types'
 import { CLOUD_RESOURCE_FIELD } from '../../../src/filters/automation/cloud_id'
+
+jest.mock('../../../src/constants', () => ({
+  ...jest.requireActual<{}>('../../../src/constants'),
+  AUTOMATION_RETRY_PERIODS: [1, 2, 3, 4],
+}))
 
 describe('automationFetchFilter', () => {
   let filter: filterUtils.FilterWith<'onFetch'>
@@ -65,6 +70,27 @@ describe('automationFetchFilter', () => {
     },
   }
 
+  const mockPostResponse = (url: string): Value => {
+    if (url === '/rest/webResources/1.0/resources') {
+      return {
+        status: 200,
+        data: {
+          unparsedData: {
+            [CLOUD_RESOURCE_FIELD]: safeJsonStringify({
+              tenantId: 'cloudId',
+            }),
+          },
+        },
+      }
+    }
+
+    if (url === '/gateway/api/automation/internal-api/jira/cloudId/pro/rest/GLOBAL/rules') {
+      return automationResponse
+    }
+
+    throw new Error(`Unexpected url ${url}`)
+  }
+
   beforeEach(async () => {
     const { client: cli, paginator, connection: conn } = mockClient()
     client = cli
@@ -96,27 +122,8 @@ describe('automationFetchFilter', () => {
       name: 'otherName',
       id: '3',
     })
-
-    connection.post.mockImplementation(async url => {
-      if (url === '/rest/webResources/1.0/resources') {
-        return {
-          status: 200,
-          data: {
-            unparsedData: {
-              [CLOUD_RESOURCE_FIELD]: safeJsonStringify({
-                tenantId: 'cloudId',
-              }),
-            },
-          },
-        }
-      }
-
-      if (url === '/gateway/api/automation/internal-api/jira/cloudId/pro/rest/GLOBAL/rules') {
-        return automationResponse
-      }
-
-      throw new Error(`Unexpected url ${url}`)
-    })
+    connection.post.mockClear()
+    connection.post.mockImplementation(mockPostResponse)
   })
 
   describe('onFetch', () => {
@@ -553,6 +560,70 @@ describe('automationFetchFilter', () => {
     const automation = elements[1]
     expect(automation.elemID.getFullName()).toEqual('jira.Automation.instance.automationName')
   })
+  it('should retry if response is 504', async () => {
+    const { client: cli, connection: conn } = mockClient(false)
+    client = cli
+    connection = conn
+
+    conn.post.mockImplementationOnce(mockPostResponse) // for cloud id
+    conn.post.mockImplementationOnce(async () => {
+      throw new HTTPError('failed', { data: {}, status: 504 })
+    })
+    conn.post.mockImplementationOnce(mockPostResponse)
+    const elements = [project2Instance]
+    await (
+      automationFetchFilter(
+        getFilterParams({
+          client,
+        }),
+      ) as filterUtils.FilterWith<'onFetch'>
+    ).onFetch(elements)
+
+    expect(elements[1].elemID.getFullName()).toEqual('jira.Automation.instance.automationName_projectName')
+  })
+  it('should fail if retry response is 504 and passed retries count', async () => {
+    const { client: cli, connection: conn } = mockClient(false)
+    client = cli
+    connection = conn
+    conn.post.mockClear()
+    conn.post.mockImplementationOnce(mockPostResponse) // for cloud id
+    conn.post.mockImplementation(async () => {
+      throw new HTTPError('failed', { data: {}, status: 504 })
+    })
+
+    const elements = [project2Instance]
+    await expect(
+      (
+        automationFetchFilter(
+          getFilterParams({
+            client,
+          }),
+        ) as filterUtils.FilterWith<'onFetch'>
+      ).onFetch(elements),
+    ).rejects.toThrow()
+    expect(conn.post.mock.calls.length).toEqual(6) // (1 for cloud id, 5 times for automation as we have 4 retries)
+  })
+  it('should fail without retries if error is not http', async () => {
+    const { client: cli, connection: conn } = mockClient(false)
+    client = cli
+    connection = conn
+    conn.post.mockClear()
+    conn.post.mockImplementationOnce(mockPostResponse) // for cloud id
+    conn.post.mockImplementation(async () => {
+      throw new Error('failed')
+    })
+    const elements = [project2Instance]
+    await expect(
+      (
+        automationFetchFilter(
+          getFilterParams({
+            client,
+          }),
+        ) as filterUtils.FilterWith<'onFetch'>
+      ).onFetch(elements),
+    ).rejects.toThrow()
+    expect(conn.post.mock.calls.length).toEqual(2) // (1 for cloud id, 5 times for automation as we have 4 retries)
+  })
   describe('component with assets in automation', () => {
     const automationResponseWithAssets = {
       status: 200,
@@ -565,6 +636,27 @@ describe('automationFetchFilter', () => {
             projects: [],
             ruleScope: {
               resources: ['ari:cloud:jira:a35ab846-aa6a-41c1-b9ca-40eb4e260dd8'],
+            },
+            trigger: {
+              component: 'ACTION',
+              schemaVersion: 1,
+              type: 'cmdb.object.create',
+              value: {
+                objectTypeId: '35',
+                workspaceId: '68d020c3-b88e-47dc-9231-452f7dc63521',
+                schemaLabel: 'idoA Schema',
+                schemaId: '5',
+                objectTypeLabel: 'R&D',
+                attributes: [
+                  {
+                    name: 'Name',
+                    value: 'idoA automation',
+                    isLabel: true,
+                  },
+                ],
+              },
+              children: [],
+              conditions: [],
             },
             components: [
               {
@@ -585,7 +677,29 @@ describe('automationFetchFilter', () => {
                     },
                   ],
                 },
-                children: [],
+                children: [
+                  {
+                    component: 'ACTION',
+                    schemaVersion: 1,
+                    type: 'cmdb.object.create',
+                    value: {
+                      objectTypeId: '35',
+                      workspaceId: '68d020c3-b88e-47dc-9231-452f7dc63521',
+                      schemaLabel: 'idoA Schema',
+                      schemaId: '5',
+                      objectTypeLabel: 'R&D',
+                      attributes: [
+                        {
+                          name: 'Name',
+                          value: 'idoA automation',
+                          isLabel: true,
+                        },
+                      ],
+                    },
+                    children: [],
+                    conditions: [],
+                  },
+                ],
                 conditions: [],
               },
             ],
@@ -672,6 +786,27 @@ describe('automationFetchFilter', () => {
         ruleScope: {
           resources: ['ari:cloud:jira:a35ab846-aa6a-41c1-b9ca-40eb4e260dd8'],
         },
+        trigger: {
+          component: 'ACTION',
+          schemaVersion: 1,
+          type: 'cmdb.object.create',
+          value: {
+            objectTypeId: '35',
+            workspaceId: '68d020c3-b88e-47dc-9231-452f7dc63521',
+            schemaLabel: 'idoA Schema',
+            schemaId: '5',
+            objectTypeLabel: 'R&D',
+            attributes: [
+              {
+                name: 'Name',
+                value: 'idoA automation',
+                isLabel: true,
+              },
+            ],
+          },
+          children: [],
+          conditions: [],
+        },
         components: [
           {
             component: 'ACTION',
@@ -691,7 +826,29 @@ describe('automationFetchFilter', () => {
                 },
               ],
             },
-            children: [],
+            children: [
+              {
+                component: 'ACTION',
+                schemaVersion: 1,
+                type: 'cmdb.object.create',
+                value: {
+                  objectTypeId: '35',
+                  workspaceId: '68d020c3-b88e-47dc-9231-452f7dc63521',
+                  schemaLabel: 'idoA Schema',
+                  schemaId: '5',
+                  objectTypeLabel: 'R&D',
+                  attributes: [
+                    {
+                      name: 'Name',
+                      value: 'idoA automation',
+                      isLabel: true,
+                    },
+                  ],
+                },
+                children: [],
+                conditions: [],
+              },
+            ],
             conditions: [],
           },
         ],
@@ -731,6 +888,24 @@ describe('automationFetchFilter', () => {
         ruleScope: {
           resources: ['ari:cloud:jira:a35ab846-aa6a-41c1-b9ca-40eb4e260dd8'],
         },
+        trigger: {
+          component: 'ACTION',
+          schemaVersion: 1,
+          type: 'cmdb.object.create',
+          value: {
+            objectTypeId: '35',
+            schemaId: '5',
+            attributes: [
+              {
+                name: 'Name',
+                value: 'idoA automation',
+                isLabel: true,
+              },
+            ],
+          },
+          children: [],
+          conditions: [],
+        },
         components: [
           {
             component: 'ACTION',
@@ -747,7 +922,26 @@ describe('automationFetchFilter', () => {
                 },
               ],
             },
-            children: [],
+            children: [
+              {
+                component: 'ACTION',
+                schemaVersion: 1,
+                type: 'cmdb.object.create',
+                value: {
+                  objectTypeId: '35',
+                  schemaId: '5',
+                  attributes: [
+                    {
+                      name: 'Name',
+                      value: 'idoA automation',
+                      isLabel: true,
+                    },
+                  ],
+                },
+                children: [],
+                conditions: [],
+              },
+            ],
             conditions: [],
           },
         ],
@@ -780,6 +974,26 @@ describe('automationFetchFilter', () => {
                   projects: [],
                   ruleScope: {
                     resources: ['ari:cloud:jira:a35ab846-aa6a-41c1-b9ca-40eb4e260dd8'],
+                  },
+                  trigger: {
+                    component: 'ACTION',
+                    schemaVersion: 1,
+                    type: 'cmdb.object.create',
+                    value: {
+                      workspaceId: '68d020c3-b88e-47dc-9231-452f7dc63521',
+                      schemaLabel: 'idoA Schema',
+                      schemaId: '5',
+                      objectTypeLabel: 'R&D',
+                      attributes: [
+                        {
+                          name: 'Name',
+                          value: 'idoA automation',
+                          isLabel: true,
+                        },
+                      ],
+                    },
+                    children: [],
+                    conditions: [],
                   },
                   components: [
                     {
@@ -841,6 +1055,23 @@ describe('automationFetchFilter', () => {
         ruleScope: {
           resources: ['ari:cloud:jira:a35ab846-aa6a-41c1-b9ca-40eb4e260dd8'],
         },
+        trigger: {
+          component: 'ACTION',
+          schemaVersion: 1,
+          type: 'cmdb.object.create',
+          value: {
+            schemaId: '5',
+            attributes: [
+              {
+                name: 'Name',
+                value: 'idoA automation',
+                isLabel: true,
+              },
+            ],
+          },
+          children: [],
+          conditions: [],
+        },
         components: [
           {
             component: 'ACTION',
@@ -890,6 +1121,7 @@ describe('automationFetchFilter', () => {
                   ruleScope: {
                     resources: ['ari:cloud:jira:a35ab846-aa6a-41c1-b9ca-40eb4e260dd8'],
                   },
+                  trigger: {},
                   components: [
                     {
                       component: 'ACTION',
@@ -950,6 +1182,7 @@ describe('automationFetchFilter', () => {
         ruleScope: {
           resources: ['ari:cloud:jira:a35ab846-aa6a-41c1-b9ca-40eb4e260dd8'],
         },
+        trigger: {},
         components: [
           {
             component: 'ACTION',

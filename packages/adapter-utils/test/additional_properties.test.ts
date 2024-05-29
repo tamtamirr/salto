@@ -14,17 +14,30 @@
  * limitations under the License.
  */
 
-import { BuiltinTypes, CORE_ANNOTATIONS, ElemID, Field, ObjectType } from '@salto-io/adapter-api'
+import {
+  BuiltinTypes,
+  CORE_ANNOTATIONS,
+  ElemID,
+  Field,
+  InstanceElement,
+  ObjectType,
+  ReferenceExpression,
+  TypeReference,
+} from '@salto-io/adapter-api'
 import { extractAdditionalPropertiesField, setAdditionalPropertiesAnnotation } from '../src/additional_properties'
 
 describe('additional_properties', () => {
   describe('setAdditionalPropertiesAnnotation', () => {
     it('should set additional properties annotation', () => {
       const type = new ObjectType({
-        elemID: new ElemID('test'),
+        elemID: new ElemID('test', 'type'),
         fields: { field: { refType: BuiltinTypes.STRING } },
       })
-      const annotation = { refType: BuiltinTypes.STRING }
+      const typeAdditionalProperties = new ObjectType({
+        elemID: new ElemID('test', 'type.additionalProperties'),
+        fields: { field: { refType: BuiltinTypes.STRING } },
+      })
+      const annotation = { refType: new ReferenceExpression(typeAdditionalProperties.elemID, typeAdditionalProperties) }
       expect(
         setAdditionalPropertiesAnnotation(type, annotation).annotations[CORE_ANNOTATIONS.ADDITIONAL_PROPERTIES],
       ).toEqual(annotation)
@@ -43,6 +56,16 @@ describe('additional_properties', () => {
         )
       })
     })
+    describe('when additional properties refType references something other than a type (should not happen)', () => {
+      it('should return undefined', () => {
+        const objType = baseObj.clone()
+        const someInst = new InstanceElement('mockInst', baseObj)
+        objType.annotations[CORE_ANNOTATIONS.ADDITIONAL_PROPERTIES] = {
+          refType: new ReferenceExpression(someInst.elemID, someInst),
+        }
+        expect(extractAdditionalPropertiesField(objType, fieldName)).toBeUndefined()
+      })
+    })
     describe('when additional properties annotation is false', () => {
       it('should return undefined', () => {
         const objType = baseObj.clone()
@@ -51,18 +74,36 @@ describe('additional_properties', () => {
       })
     })
     describe('when additional properties annotation is defining a type', () => {
-      it('should return undefined', () => {
+      it('should return the type', () => {
         const objType = baseObj.clone()
         const additionalPropertiesObjType = new ObjectType({
-          elemID: new ElemID('additionalProperties'),
+          elemID: new ElemID('adapter', 'additionalProperties'),
           fields: { field: { refType: BuiltinTypes.STRING } },
         })
         objType.annotations[CORE_ANNOTATIONS.ADDITIONAL_PROPERTIES] = {
-          refType: additionalPropertiesObjType,
+          refType: new ReferenceExpression(additionalPropertiesObjType.elemID, additionalPropertiesObjType),
           annotations: { someUniqueAnnotation: 'unique' },
         }
         expect(extractAdditionalPropertiesField(objType, fieldName)).toEqual(
           new Field(objType, fieldName, additionalPropertiesObjType, { someUniqueAnnotation: 'unique' }),
+        )
+      })
+    })
+    describe('when additional properties annotation is defining a type but the type is not loaded', () => {
+      it('should return the type', () => {
+        const objType = baseObj.clone()
+        const additionalPropertiesObjType = new ObjectType({
+          elemID: new ElemID('adapter', 'additionalProperties'),
+          fields: { field: { refType: BuiltinTypes.STRING } },
+        })
+        objType.annotations[CORE_ANNOTATIONS.ADDITIONAL_PROPERTIES] = {
+          refType: new ReferenceExpression(additionalPropertiesObjType.elemID),
+          annotations: { someUniqueAnnotation: 'unique' },
+        }
+        expect(extractAdditionalPropertiesField(objType, fieldName)).toEqual(
+          new Field(objType, fieldName, new TypeReference(new ElemID('adapter', 'additionalProperties')), {
+            someUniqueAnnotation: 'unique',
+          }),
         )
       })
     })

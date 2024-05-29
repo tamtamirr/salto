@@ -37,6 +37,8 @@ import {
   AUTOMATION_TYPE_NAME,
   AUTHENTICATOR_TYPE_NAME,
   DEVICE_ASSURANCE,
+  POLICY_RULE_PRIORITY_TYPE_NAMES,
+  POLICY_PRIORITY_TYPE_NAMES,
 } from './constants'
 import { DEFAULT_CONVERT_USERS_IDS_VALUE, DEFAULT_GET_USERS_STRATEGY } from './user_utils'
 import { DEFAULT_APP_URLS_VALIDATOR_VALUE } from './change_validators/app_urls'
@@ -94,6 +96,8 @@ const TRANSFORMATION_DEFAULTS: configUtils.TransformationDefaultConfig = {
   fieldsToOmit: DEFAULT_FIELDS_TO_OMIT,
   nestStandaloneInstances: true,
 }
+
+const DEFAULT_INCLUDE_PROFILE_MAPPING_PROPERTIES = false
 
 // Policy type is split to different kinds of policies
 // The full list of policy types is taken from here:
@@ -300,6 +304,19 @@ const getPolicyConfig = (): OktaSwaggerApiConfig['types'] => {
   })
   return Object.assign({}, ...policiesConfig)
 }
+const getPolicyAndPolicyRulePriorityConfig = (): OktaSwaggerApiConfig['types'] => {
+  const policyPrioritiesConfig = POLICY_RULE_PRIORITY_TYPE_NAMES.concat(POLICY_PRIORITY_TYPE_NAMES).map(typeName => ({
+    // Hack to pass through createCheckDeploymentBasedOnConfigValidator validator only for additions and modifications
+    [typeName]: {
+      deployRequests: {
+        add: { url: '', method: 'put' },
+        modify: { url: '', method: 'put' },
+        remove: { url: '', method: 'delete' },
+      },
+    },
+  }))
+  return Object.assign({}, ...policyPrioritiesConfig)
+}
 
 const DEFAULT_TYPE_CUSTOMIZATIONS: OktaSwaggerApiConfig['types'] = {
   api__v1__groups: {
@@ -310,17 +327,12 @@ const DEFAULT_TYPE_CUSTOMIZATIONS: OktaSwaggerApiConfig['types'] = {
   },
   Group: {
     transformation: {
-      fieldTypeOverrides: [
-        { fieldName: 'roles', fieldType: 'list<RoleAssignment>' },
-        { fieldName: 'source', fieldType: 'Group__source' },
-      ],
+      fieldTypeOverrides: [{ fieldName: 'source', fieldType: 'Group__source' }],
       fieldsToHide: [{ fieldName: 'id' }],
       fieldsToOmit: DEFAULT_FIELDS_TO_OMIT.concat([{ fieldName: 'lastMembershipUpdated' }, { fieldName: '_links' }]),
       idFields: ['profile.name'],
       serviceIdField: 'id',
       serviceUrl: '/admin/group/{id}',
-      standaloneFields: [{ fieldName: 'roles' }],
-      nestStandaloneInstances: false,
     },
     deployRequests: {
       add: {
@@ -342,12 +354,6 @@ const DEFAULT_TYPE_CUSTOMIZATIONS: OktaSwaggerApiConfig['types'] = {
         },
         omitRequestBody: true,
       },
-    },
-  },
-  // group-roles are not fetched by default
-  'api__v1__groups___groupId___roles@uuuuuu_00123_00125uu': {
-    request: {
-      url: '/api/v1/groups/{groupId}/roles',
     },
   },
   Role: {
@@ -488,6 +494,11 @@ const DEFAULT_TYPE_CUSTOMIZATIONS: OktaSwaggerApiConfig['types'] = {
       serviceUrl: '/admin/universaldirectory#app/{_parent.0.id}',
     },
     deployRequests: {
+      // Hack to pass through createCheckDeploymentBasedOnConfigValidator validator for removals
+      remove: {
+        url: '',
+        method: 'delete',
+      },
       modify: {
         url: '/api/v1/meta/schemas/apps/{applicationId}/default',
         method: 'post',
@@ -805,7 +816,7 @@ const DEFAULT_TYPE_CUSTOMIZATIONS: OktaSwaggerApiConfig['types'] = {
       recurseInto: [
         {
           type: 'api__v1__brands___brandId___themes@uuuuuu_00123_00125uu',
-          toField: 'theme',
+          toField: 'BrandTheme',
           context: [{ name: 'brandId', fromField: 'id' }],
         },
       ],
@@ -838,10 +849,32 @@ const DEFAULT_TYPE_CUSTOMIZATIONS: OktaSwaggerApiConfig['types'] = {
   },
   Domain: {
     transformation: {
+      extendsParentId: true,
       idFields: ['domain'],
       serviceIdField: 'id',
       fieldsToHide: [{ fieldName: 'id' }],
       fieldsToOmit: DEFAULT_FIELDS_TO_OMIT.concat({ fieldName: '_links' }),
+    },
+    deployRequests: {
+      add: {
+        url: '/api/v1/domains',
+        method: 'post',
+      },
+      modify: {
+        url: '/api/v1/domains/{domainId}',
+        method: 'put',
+        urlParamsToFields: {
+          domainId: 'id',
+        },
+      },
+      remove: {
+        url: '/api/v1/domains/{domainId}',
+        method: 'delete',
+        urlParamsToFields: {
+          domainId: 'id',
+        },
+        omitRequestBody: true,
+      },
     },
   },
   'api__v1__email_domains@uuuub': {
@@ -900,15 +933,25 @@ const DEFAULT_TYPE_CUSTOMIZATIONS: OktaSwaggerApiConfig['types'] = {
       serviceIdField: 'id',
       fieldsToOmit: DEFAULT_FIELDS_TO_OMIT.concat({ fieldName: '_links' }),
       fieldsToHide: [{ fieldName: 'id' }],
-      standaloneFields: [{ fieldName: 'theme' }],
-      nestStandaloneInstances: false,
-      fieldTypeOverrides: [{ fieldName: 'theme', fieldType: 'list<BrandTheme>' }],
+      standaloneFields: [{ fieldName: 'BrandTheme' }],
+      fieldTypeOverrides: [{ fieldName: 'BrandTheme', fieldType: 'list<BrandTheme>' }],
       serviceUrl: '/admin/customizations/footer',
     },
     deployRequests: {
+      add: {
+        url: '/api/v1/brands',
+        method: 'post',
+      },
       modify: {
         url: '/api/v1/brands/{brandId}',
         method: 'put',
+        urlParamsToFields: {
+          brandId: 'id',
+        },
+      },
+      remove: {
+        url: '/api/v1/brands/{brandId}',
+        method: 'delete',
         urlParamsToFields: {
           brandId: 'id',
         },
@@ -925,6 +968,15 @@ const DEFAULT_TYPE_CUSTOMIZATIONS: OktaSwaggerApiConfig['types'] = {
       fieldTypeOverrides: [{ fieldName: '_links', fieldType: 'map<unknown>' }],
     },
     deployRequests: {
+      add: {
+        url: '/api/v1/brands/{brandId}/themes/{themeId}',
+        method: 'put',
+        urlParamsToFields: {
+          brandId: '_parent.0.id',
+          themeId: 'id',
+        },
+        fieldsToIgnore: ['id'],
+      },
       modify: {
         url: '/api/v1/brands/{brandId}/themes/{themeId}',
         method: 'put',
@@ -933,6 +985,14 @@ const DEFAULT_TYPE_CUSTOMIZATIONS: OktaSwaggerApiConfig['types'] = {
           themeId: 'id',
         },
         fieldsToIgnore: ['id', 'logo', 'favicon', '_links'],
+      },
+      remove: {
+        // BrandThemes are removed automatically by Okta when the Brand is removed.
+        // We use an empty URL here to mark this action as supported in case a user removed the theme
+        // alongside its Brand.
+        // A separate Change Validator ensures that mappings aren't removed by themselves.
+        url: '',
+        method: 'delete', // This is just for typing, we intercept it in a filter and use `get`.
       },
     },
   },
@@ -1332,6 +1392,7 @@ const DEFAULT_TYPE_CUSTOMIZATIONS: OktaSwaggerApiConfig['types'] = {
     },
   },
   ...getPolicyConfig(),
+  ...getPolicyAndPolicyRulePriorityConfig(),
   api__v1__behaviors: {
     request: {
       url: '/api/v1/behaviors',
@@ -1418,37 +1479,6 @@ const DEFAULT_TYPE_CUSTOMIZATIONS: OktaSwaggerApiConfig['types'] = {
   ProfileEnrollmentPolicyRuleProfileAttribute: {
     transformation: {
       fieldTypeOverrides: [{ fieldName: 'name', fieldType: 'UserSchemaAttribute' }],
-    },
-  },
-  RoleAssignment: {
-    transformation: {
-      idFields: ['label'],
-      serviceIdField: 'id',
-      fieldsToOmit: DEFAULT_FIELDS_TO_OMIT.concat({ fieldName: '_links' }),
-      fieldsToHide: [{ fieldName: 'id' }],
-      fieldTypeOverrides: [
-        { fieldName: 'resource-set', fieldType: 'string' },
-        { fieldName: 'role', fieldType: 'string' },
-      ],
-      extendsParentId: true,
-    },
-    deployRequests: {
-      add: {
-        url: '/api/v1/groups/{groupId}/roles',
-        method: 'post',
-        urlParamsToFields: {
-          groupId: '_parent.0.id',
-        },
-      },
-      remove: {
-        url: '/api/v1/groups/{groupId}/roles/{roleId}',
-        method: 'delete',
-        urlParamsToFields: {
-          groupId: '_parent.0.id',
-          roleId: 'id',
-        },
-        omitRequestBody: true,
-      },
     },
   },
   ResourceSets: {
@@ -1567,7 +1597,6 @@ export const SUPPORTED_TYPES = {
   EventHook: ['api__v1__eventHooks'],
   Feature: ['api__v1__features'],
   Group: ['api__v1__groups'],
-  RoleAssignment: ['api__v1__groups___groupId___roles@uuuuuu_00123_00125uu'],
   GroupRule: ['api__v1__groups__rules'],
   IdentityProvider: ['api__v1__idps'],
   InlineHook: ['api__v1__inlineHooks'],
@@ -1786,6 +1815,13 @@ const DUCKTYPE_TYPES: OktaDuckTypeApiConfig['types'] = {
       },
     },
   },
+  GroupMembership: {
+    // Hack to pass through createCheckDeploymentBasedOnConfigValidator validator only for additions and modifications
+    deployRequests: {
+      add: { url: '', method: 'put' },
+      modify: { url: '', method: 'put' },
+    },
+  },
 }
 
 export const DUCKTYPE_SUPPORTED_TYPES = {
@@ -1824,7 +1860,7 @@ export const DEFAULT_CONFIG: OktaConfig = {
     convertUsersIds: DEFAULT_CONVERT_USERS_IDS_VALUE,
     enableMissingReferences: true,
     includeGroupMemberships: false,
-    includeProfileMappingProperties: true,
+    includeProfileMappingProperties: DEFAULT_INCLUDE_PROFILE_MAPPING_PROPERTIES,
     getUsersStrategy: DEFAULT_GET_USERS_STRATEGY,
   },
   [API_DEFINITIONS_CONFIG]: DEFAULT_API_DEFINITIONS,
@@ -1862,14 +1898,12 @@ export type ChangeValidatorName =
   | 'groupRuleStatus'
   | 'groupRuleActions'
   | 'defaultPolicies'
-  | 'groupRuleAdministrator'
   | 'customApplicationStatus'
   | 'userTypeAndSchema'
   | 'appIntegrationSetup'
   | 'assignedAccessPolicies'
   | 'groupSchemaModifyBase'
   | 'enabledAuthenticators'
-  | 'roleAssignment'
   | 'users'
   | 'appUserSchemaWithInactiveApp'
   | 'appWithGroupPush'
@@ -1877,6 +1911,12 @@ export type ChangeValidatorName =
   | 'appGroupAssignment'
   | 'appUrls'
   | 'profileMappingRemoval'
+  | 'brandRemoval'
+  | 'dynamicOSVersion'
+  | 'brandThemeRemoval'
+  | 'appUserSchemaRemoval'
+  | 'domainAddition'
+  | 'domainModification'
 
 type ChangeValidatorConfig = Partial<Record<ChangeValidatorName, boolean>>
 
@@ -1889,14 +1929,12 @@ const changeValidatorConfigType = createMatchingObjectType<ChangeValidatorConfig
     groupRuleStatus: { refType: BuiltinTypes.BOOLEAN },
     groupRuleActions: { refType: BuiltinTypes.BOOLEAN },
     defaultPolicies: { refType: BuiltinTypes.BOOLEAN },
-    groupRuleAdministrator: { refType: BuiltinTypes.BOOLEAN },
     customApplicationStatus: { refType: BuiltinTypes.BOOLEAN },
     userTypeAndSchema: { refType: BuiltinTypes.BOOLEAN },
     appIntegrationSetup: { refType: BuiltinTypes.BOOLEAN },
     assignedAccessPolicies: { refType: BuiltinTypes.BOOLEAN },
     groupSchemaModifyBase: { refType: BuiltinTypes.BOOLEAN },
     enabledAuthenticators: { refType: BuiltinTypes.BOOLEAN },
-    roleAssignment: { refType: BuiltinTypes.BOOLEAN },
     users: { refType: BuiltinTypes.BOOLEAN },
     appUserSchemaWithInactiveApp: { refType: BuiltinTypes.BOOLEAN },
     appWithGroupPush: { refType: BuiltinTypes.BOOLEAN },
@@ -1904,6 +1942,12 @@ const changeValidatorConfigType = createMatchingObjectType<ChangeValidatorConfig
     appGroupAssignment: { refType: BuiltinTypes.BOOLEAN },
     appUrls: { refType: BuiltinTypes.BOOLEAN },
     profileMappingRemoval: { refType: BuiltinTypes.BOOLEAN },
+    brandRemoval: { refType: BuiltinTypes.BOOLEAN },
+    dynamicOSVersion: { refType: BuiltinTypes.BOOLEAN },
+    brandThemeRemoval: { refType: BuiltinTypes.BOOLEAN },
+    appUserSchemaRemoval: { refType: BuiltinTypes.BOOLEAN },
+    domainAddition: { refType: BuiltinTypes.BOOLEAN },
+    domainModification: { refType: BuiltinTypes.BOOLEAN },
   },
   annotations: {
     [CORE_ANNOTATIONS.ADDITIONAL_PROPERTIES]: false,

@@ -65,7 +65,7 @@ import {
   CPQ_GROUP_FIELDS,
   CPQ_QUOTE_LINE_FIELDS,
   DEFAULT_OBJECT_TO_API_MAPPING,
-  SCHEDULE_CONTRAINT_FIELD_TO_API_MAPPING,
+  SCHEDULE_CONSTRAINT_FIELD_TO_API_MAPPING,
   TEST_OBJECT_TO_API_MAPPING,
   CPQ_TESTED_OBJECT,
   CPQ_PRICE_SCHEDULE,
@@ -149,12 +149,12 @@ const ReferenceSerializationStrategyLookup: Record<
     serialize: async ({ ref, path }) => {
       const relativeApiName = await safeApiName({ ref, path, relative: true })
       return (
-        _.invert(SCHEDULE_CONTRAINT_FIELD_TO_API_MAPPING)[relativeApiName] ??
+        _.invert(SCHEDULE_CONSTRAINT_FIELD_TO_API_MAPPING)[relativeApiName] ??
         relativeApiName
       )
     },
     lookup: (val, context) => {
-      const mappedValue = SCHEDULE_CONTRAINT_FIELD_TO_API_MAPPING[val]
+      const mappedValue = SCHEDULE_CONSTRAINT_FIELD_TO_API_MAPPING[val]
       return context !== undefined
         ? [context, mappedValue].join(API_NAME_SEPARATOR)
         : mappedValue
@@ -270,7 +270,7 @@ export const defaultFieldNameToTypeMappingDefs: FieldReferenceDefinition[] = [
   {
     src: {
       field: 'field',
-      parentTypes: ['ReportColumn', 'PermissionSetFieldPermissions'],
+      parentTypes: ['ReportColumn'],
     },
     target: { type: CUSTOM_FIELD },
   },
@@ -430,7 +430,6 @@ export const defaultFieldNameToTypeMappingDefs: FieldReferenceDefinition[] = [
         'FlowRecordCreate',
         'FlowRecordDelete',
         'FlowStart',
-        'PermissionSetObjectPermissions',
       ],
     },
     target: { type: CUSTOM_OBJECT },
@@ -934,6 +933,17 @@ export const referencesFromProfile: FieldReferenceDefinition[] = [
   },
 ]
 
+export const referencesFromPermissionSets: FieldReferenceDefinition[] = [
+  {
+    src: { field: 'field', parentTypes: ['PermissionSetFieldPermissions'] },
+    target: { type: CUSTOM_FIELD },
+  },
+  {
+    src: { field: 'object', parentTypes: ['PermissionSetObjectPermissions'] },
+    target: { type: CUSTOM_OBJECT },
+  },
+]
+
 /**
  * The rules for finding and resolving values into (and back from) reference expressions.
  * Overlaps between rules are allowed, and the first successful conversion wins.
@@ -949,11 +959,13 @@ const fieldNameToTypeMappingDefs: FieldReferenceDefinition[] = [
   ...defaultFieldNameToTypeMappingDefs,
   ...fieldPermissionEnumDisabledExtraMappingDefs,
   ...referencesFromProfile,
+  ...referencesFromPermissionSets,
 ]
 
 export const getReferenceMappingDefs = (args: {
   enumFieldPermissions: boolean
   otherProfileRefs: boolean
+  permissionsSetRefs: boolean
 }): FieldReferenceDefinition[] => {
   let refDefs = defaultFieldNameToTypeMappingDefs
   if (args.enumFieldPermissions) {
@@ -961,6 +973,9 @@ export const getReferenceMappingDefs = (args: {
   }
   if (args.otherProfileRefs) {
     refDefs = refDefs.concat(referencesFromProfile)
+  }
+  if (args.permissionsSetRefs) {
+    refDefs = refDefs.concat(referencesFromPermissionSets)
   }
   return refDefs
 }

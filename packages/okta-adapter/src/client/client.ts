@@ -40,7 +40,7 @@ const DEFAULT_MAX_CONCURRENT_API_REQUESTS: Required<definitions.ClientRateLimitC
   total: RATE_LIMIT_UNLIMITED_MAX_CONCURRENT_REQUESTS,
   // the smallest concurrent rate limit is 15 (by plan)
   get: 15,
-  deploy: 2,
+  deploy: 10,
 }
 
 // We have a buffer to prevent reaching the rate limit with the initial request on parallel or consecutive fetches
@@ -265,13 +265,14 @@ export default class OktaClient extends clientUtils.AdapterHTTPClient<Credential
       const httpClient = axios.create({ url })
       const response = await httpClient.get(url, { responseType })
       const { data, status } = response
-      log.debug('Received response for resource request %s with status %d', url, status)
       log.trace(
-        'Full HTTP response for resource %s: %s',
+        'Full HTTP response for GET on %s: %s',
         url,
         safeJsonStringify({
           url,
-          response: data,
+          status,
+          responseType,
+          response: Buffer.isBuffer(data) ? `<omitted buffer of length ${data.length}>` : data,
         }),
       )
       return {

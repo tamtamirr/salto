@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 import { Element, SaltoError, ObjectType, TypeElement, Values } from '@salto-io/adapter-api'
-import { ConfigChangeSuggestion } from '../config'
+import { ConfigChangeSuggestion } from '../definitions'
 import { ContextParams, GeneratedItem } from '../definitions/system/shared'
 
 export type FetchElements<T = Element[]> = {
@@ -30,10 +30,14 @@ export type ResourceIdentifier = {
 
 export type ValueGeneratedItem = GeneratedItem<ContextParams, Values>
 
-type ResourceFetchResult = {
-  success: boolean
-  errors?: Error[]
-}
+type ResourceFetchResult =
+  | {
+      success: true
+    }
+  | {
+      success: false
+      error: Error
+    }
 
 export type TypeResourceFetcher = {
   fetch: (args: {

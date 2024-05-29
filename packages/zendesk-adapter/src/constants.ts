@@ -73,6 +73,7 @@ export const CATEGORIES_FIELD = 'categories'
 export const SECTIONS_FIELD = 'sections'
 export const ARTICLES_FIELD = 'articles'
 export const BRAND_FIELD = 'brand'
+export const SOURCE_LOCALE_FIELD = 'source_locale'
 export const TRANSLATIONS_FIELD = 'translations'
 export const ARTICLE_ATTACHMENTS_FIELD = 'article_attachments'
 export const ARTICLE_ATTACHMENT_TYPE_NAME = 'article_attachment'
@@ -114,3 +115,5 @@ export const ORDER_TYPE_NAMES = [
   VIEW_ORDER_TYPE_NAME,
   WORKSPACE_ORDER_TYPE_NAME,
 ]
+export const USER_FIELD_CUSTOM_FIELD_OPTIONS = 'user_field__custom_field_options'
+export const ORGANIZATION_FIELD_CUSTOM_FIELD_OPTIONS = 'organization_field__custom_field_options'
