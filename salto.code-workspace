@@ -25,6 +25,10 @@
       "path": "packages/cli",
     },
     {
+      "name": "confluence-adapter",
+      "path": "packages/confluence-adapter",
+    },
+    {
       "name": "core",
       "path": "packages/core",
     },
@@ -43,6 +47,10 @@
     {
       "name": "file",
       "path": "packages/file",
+    },
+    {
+      "name": "google-workspace-adapter",
+      "path": "packages/google-workspace-adapter",
     },
     {
       "name": "intercom-adapter",
@@ -65,12 +73,20 @@
       "path": "packages/lowerdash",
     },
     {
+      "name": "microsoft-entra-adapter",
+      "path": "packages/microsoft-entra-adapter",
+    },
+    {
       "name": "netsuite-adapter",
       "path": "packages/netsuite-adapter",
     },
     {
       "name": "okta-adapter",
       "path": "packages/okta-adapter",
+    },
+    {
+      "name": "pagerduty-adapter",
+      "path": "packages/pagerduty-adapter",
     },
     {
       "name": "parser",
@@ -87,6 +103,14 @@
     {
       "name": "sap-adapter",
       "path": "packages/sap-adapter",
+    },
+    {
+      "name": "serviceplaceholder-adapter",
+      "path": "packages/serviceplaceholder-adapter",
+    },
+    {
+      "name": "stripe-adapter",
+      "path": "packages/stripe-adapter",
     },
     {
       "name": "test-utils",
@@ -112,22 +136,6 @@
       "name": "zuora-billing-adapter",
       "path": "packages/zuora-billing-adapter",
     },
-    {
-      "name": "stripe-adapter",
-      "path": "packages/stripe-adapter",
-    },
-    {
-      "name": "serviceplaceholder-adapter",
-      "path": "packages/serviceplaceholder-adapter",
-    },
-    {
-      "name": "google-workspace-adapter",
-      "path": "packages/google-workspace-adapter",
-    },
-    {
-      "name": "confluence-adapter",
-      "path": "packages/confluence-adapter",
-    },
   ],
   "settings": {
     "files.exclude": {
@@ -144,6 +152,7 @@
       "AUTONUMBER",
       "autoresponse",
       "camelcase",
+      "CCURLY",
       "combobox",
       "complexvalue",
       "createable",
@@ -176,6 +185,7 @@
       "nearley",
       "netsuite",
       "nillable",
+      "OCURLY",
       "omni",
       "openapi",
       "orientdb",
@@ -217,6 +227,7 @@
       "subresources",
       "subtab",
       "TIMENOW",
+      "tmpl",
       "triggerable",
       "unaliased",
       "undeletable",

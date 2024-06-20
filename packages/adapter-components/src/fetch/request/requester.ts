@@ -36,8 +36,6 @@ import { FetchRequestDefinition } from '../../definitions/system/fetch'
 const log = logger(module)
 
 export type Requester<ClientOptions extends string> = {
-  // TODO improve both functions to allow returning partial errors as the return value (SALTO-5427)
-
   request: (args: {
     requestDef: FetchRequestDefinition<ClientOptions>
     contexts: ContextParams[]
@@ -138,7 +136,7 @@ export const getRequester = <Options extends APIDefinitionsOptions>({
       createExtractor(
         {
           ...requestDef,
-          context: { ...requestDef.context, context },
+          context: { ...requestDef.context, ...context },
         },
         typeName,
       )
@@ -191,7 +189,9 @@ export const getRequester = <Options extends APIDefinitionsOptions>({
         (requestDefQuery.query(callerIdentifier.typeName) ?? []).map(requestDef => {
           const mergedDef = getMergedRequestDefinition(requestDef).merged
           const allArgs = findAllUnresolvedArgs(mergedDef)
-          const relevantArgRoots = _.uniq(allArgs.map(arg => arg.split('.')[0]).filter(arg => arg.length > 0))
+          const relevantArgRoots = _.uniq(allArgs.map(arg => arg.split('.')[0]).filter(arg => arg.length > 0)).concat(
+            _.keys(contextPossibleArgs),
+          )
           const contextFunc =
             mergedDef.context?.custom !== undefined
               ? mergedDef.context.custom(mergedDef.context)

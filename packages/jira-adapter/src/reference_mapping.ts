@@ -79,6 +79,7 @@ import {
   OBJECT_SCHEMA_TYPE,
   OBJECT_TYPE_ICON_TYPE,
   OBJECT_SCHEMA_STATUS_TYPE,
+  OBJECT_SCHEMA_GLOBAL_STATUS_TYPE,
 } from './constants'
 import { getFieldsLookUpName } from './filters/fields/field_type_references_filter'
 import { getRefType } from './references/workflow_properties'
@@ -110,15 +111,6 @@ const toTypeName: referenceUtils.ContextValueMapperFunc = val => {
   return _.capitalize(val)
 }
 
-const toReferenceTypeTypeName: referenceUtils.ContextValueMapperFunc = val => {
-  // 1,2,3,4,5,8 are the default values for the reference type field in jira.
-  const defaultVals = new Set(['1', '2', '3', '4', '5', '8'])
-  if (defaultVals.has(val)) {
-    return OBJECT_SCHMEA_DEFAULT_REFERENCE_TYPE_TYPE
-  }
-  return OBJECT_SCHMEA_REFERENCE_TYPE_TYPE
-}
-
 export const resolutionAndPriorityToTypeName: referenceUtils.ContextValueMapperFunc = val => {
   if (val === 'priority' || val === 'resolution') {
     return _.capitalize(val)
@@ -131,8 +123,8 @@ export type ReferenceContextStrategyName =
   | 'parentFieldType'
   | 'workflowStatusPropertiesContext'
   | 'parentFieldId'
+  | 'parentField'
   | 'gadgetPropertyValue'
-  | 'referenceTypeTypeName'
 
 export const contextStrategyLookup: Record<ReferenceContextStrategyName, referenceUtils.ContextFunc> = {
   parentSelectedFieldType: neighborContextFunc({
@@ -146,11 +138,11 @@ export const contextStrategyLookup: Record<ReferenceContextStrategyName, referen
     contextFieldName: 'fieldId',
     contextValueMapper: resolutionAndPriorityToTypeName,
   }),
-  gadgetPropertyValue: gadgetValuesContextFunc,
-  referenceTypeTypeName: neighborContextFunc({
-    contextFieldName: 'additionalValue',
-    contextValueMapper: toReferenceTypeTypeName,
+  parentField: neighborContextFunc({
+    contextFieldName: 'field',
+    contextValueMapper: resolutionAndPriorityToTypeName,
   }),
+  gadgetPropertyValue: gadgetValuesContextFunc,
 }
 
 const groupNameSerialize: GetLookupNameFunc = ({ ref }) =>
@@ -426,6 +418,12 @@ export const referencesRules: JiraFieldReferenceDefinition[] = [
     serializationStrategy: 'groupId',
     missingRefStrategy: 'typeAndValue',
     target: { type: GROUP_TYPE_NAME },
+  },
+  {
+    src: { field: 'value', parentTypes: ['WorkflowRuleConfiguration_parameters'] },
+    serializationStrategy: 'id',
+    missingRefStrategy: 'typeAndValue',
+    target: { typeContext: 'parentField' },
   },
   {
     src: { field: 'customIssueEventId', parentTypes: ['WorkflowTransitions'] },
@@ -1308,11 +1306,23 @@ export const referencesRules: JiraFieldReferenceDefinition[] = [
     missingRefStrategy: 'typeAndValue',
     target: { type: OBJECT_TYPE_TYPE },
   },
+  // additionalValue in ObjectTypeAttribute can be of types ObjectSchemaReferenceType or ObjectSchemaDefaultReferenceType
+  {
+    src: { field: 'additionalValue', parentTypes: [OBJECT_TYPE_ATTRIBUTE_TYPE] },
+    serializationStrategy: 'id',
+    target: { type: OBJECT_SCHMEA_REFERENCE_TYPE_TYPE },
+  },
+  {
+    src: { field: 'additionalValue', parentTypes: [OBJECT_TYPE_ATTRIBUTE_TYPE] },
+    serializationStrategy: 'id',
+    target: { type: OBJECT_SCHMEA_DEFAULT_REFERENCE_TYPE_TYPE },
+  },
+  // Hack to handle missing references when the type is unknown
   {
     src: { field: 'additionalValue', parentTypes: [OBJECT_TYPE_ATTRIBUTE_TYPE] },
     serializationStrategy: 'id',
     missingRefStrategy: 'typeAndValue',
-    target: { typeContext: 'referenceTypeTypeName' },
+    target: { type: 'UnknownType' },
   },
   {
     src: { field: 'objectTypeId', parentTypes: [AUTOMATION_COMPONENT_VALUE_TYPE] },
@@ -1353,6 +1363,11 @@ export const referencesRules: JiraFieldReferenceDefinition[] = [
     src: { field: 'typeValueMulti', parentTypes: [OBJECT_TYPE_ATTRIBUTE_TYPE] },
     serializationStrategy: 'id',
     target: { type: OBJECT_SCHEMA_STATUS_TYPE },
+  },
+  {
+    src: { field: 'typeValueMulti', parentTypes: [OBJECT_TYPE_ATTRIBUTE_TYPE] },
+    serializationStrategy: 'id',
+    target: { type: OBJECT_SCHEMA_GLOBAL_STATUS_TYPE },
   },
   {
     src: { field: 'typeValueMulti', parentTypes: [OBJECT_TYPE_ATTRIBUTE_TYPE] },

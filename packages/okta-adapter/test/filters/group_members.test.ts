@@ -27,10 +27,11 @@ import {
 } from '@salto-io/adapter-api'
 import { client as clientUtils, filterUtils } from '@salto-io/adapter-components'
 import { MockInterface, mockFunction } from '@salto-io/test-utils'
-import { DEFAULT_CONFIG, FETCH_CONFIG } from '../../src/config'
+import { FETCH_CONFIG } from '../../src/config'
 import { GROUP_MEMBERSHIP_TYPE_NAME, GROUP_TYPE_NAME, OKTA } from '../../src/constants'
 import groupMembersFilter from '../../src/filters/group_members'
-import { getFilterParams, mockClient } from '../utils'
+import { createDefinitions, getFilterParams, mockClient } from '../utils'
+import { DEFAULT_CONFIG } from '../../src/user_config'
 import OktaClient from '../../src/client/client'
 
 describe('groupMembersFilter', () => {
@@ -125,6 +126,43 @@ describe('groupMembersFilter', () => {
         expect.anything(),
       )
     })
+
+    describe('when User type is included', () => {
+      it('should create GroupMembership instances with member list as ids and not emails', async () => {
+        const mockPaginator = mockFunction<clientUtils.Paginator>().mockImplementation(async function* get() {
+          yield [
+            { id: '111', profile: { login: 'a@a.com' } },
+            { id: '222', profile: { login: 'b@a.com' } },
+            { id: '333', profile: { login: 'c@a.com' } },
+            { id: '555', profile: { login: 'd@a.com' } },
+          ]
+        })
+        const elements = [groupType, groupInstance]
+        const updatedConfig = {
+          ...config,
+          fetch: { ...config.fetch, exclude: [] },
+        }
+        filter = groupMembersFilter(getFilterParams({ paginator: mockPaginator, config: updatedConfig })) as FilterType
+        await filter.onFetch(elements)
+        const groupMembersInstance = elements
+          .filter(isInstanceElement)
+          .find(inst => inst.elemID.typeName === GROUP_MEMBERSHIP_TYPE_NAME)
+        expect(groupMembersInstance?.value).toEqual({
+          members: ['111', '222', '333', '555'],
+        })
+        expect(groupMembersInstance?.annotations[CORE_ANNOTATIONS.PARENT]).toEqual([
+          new ReferenceExpression(groupInstance.elemID, groupInstance),
+        ])
+        expect(mockPaginator).toHaveBeenNthCalledWith(
+          1,
+          {
+            url: '/api/v1/groups/123/users',
+            paginationField: 'after',
+          },
+          expect.anything(),
+        )
+      })
+    })
   })
   describe('deploy', () => {
     let mockConnection: MockInterface<clientUtils.APIConnection>
@@ -144,7 +182,10 @@ describe('groupMembersFilter', () => {
       client = cli
       const includeGroupMembershipsEnabled = { ...DEFAULT_CONFIG }
       includeGroupMembershipsEnabled[FETCH_CONFIG].includeGroupMemberships = true
-      filter = groupMembersFilter(getFilterParams({ client, config: includeGroupMembershipsEnabled })) as typeof filter
+      const definitions = createDefinitions({ client })
+      filter = groupMembersFilter(
+        getFilterParams({ definitions, config: includeGroupMembershipsEnabled }),
+      ) as typeof filter
     })
     it('should return error when includeGroupMemberships config flag is disabled', async () => {
       const includeGroupMembershipsDisabled = _.cloneDeep(DEFAULT_CONFIG)

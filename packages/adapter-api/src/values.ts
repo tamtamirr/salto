@@ -105,7 +105,7 @@ const getResolvedValue = async (
         'without elementsSource because value does not exist',
     )
   }
-  const value = (await elementsSource?.get(elemID)) ?? resolvedValue
+  const value = resolvedValue ?? (await elementsSource?.get(elemID))
   // When there's no value in the ElementSource & in the Ref
   // Fallback to a placeholder Type. This resembles the behavior
   // before the RefType change.
@@ -178,25 +178,25 @@ export class VariableExpression extends ReferenceExpression {
   }
 }
 
-export class TypeReference {
+export class TypeReference<T extends TypeElement = TypeElement> {
   constructor(
     public readonly elemID: ElemID,
-    public type: TypeElement | undefined = undefined,
+    public type: T | undefined = undefined,
   ) {
     if (!elemID.isTopLevel()) {
       throw new Error(`Invalid id for type reference: ${elemID.getFullName()}. Type reference must be top level.`)
     }
   }
 
-  clone(): TypeReference {
+  clone(): TypeReference<T> {
     return new TypeReference(this.elemID, this.type)
   }
 
-  async getResolvedValue(elementsSource?: ReadOnlyElementsSource): Promise<TypeElement> {
+  async getResolvedValue(elementsSource?: ReadOnlyElementsSource): Promise<T> {
     return getResolvedValue(this.elemID, elementsSource, this.type)
   }
 
-  getResolvedValueSync(): TypeElement | undefined {
+  getResolvedValueSync(): T | undefined {
     return this.type
   }
 

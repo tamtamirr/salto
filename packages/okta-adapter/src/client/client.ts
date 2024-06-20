@@ -24,7 +24,7 @@ import { createConnection } from './connection'
 import { OKTA } from '../constants'
 import { Credentials } from '../auth'
 import { LINK_HEADER_NAME } from './pagination'
-import { OktaClientRateLimitConfig } from '../config'
+import { OktaClientRateLimitConfig } from '../user_config'
 
 const { sleep } = promises.timeout
 const {
@@ -265,13 +265,14 @@ export default class OktaClient extends clientUtils.AdapterHTTPClient<Credential
       const httpClient = axios.create({ url })
       const response = await httpClient.get(url, { responseType })
       const { data, status } = response
-      log.debug('Received response for resource request %s with status %d', url, status)
       log.trace(
-        'Full HTTP response for resource %s: %s',
+        'Full HTTP response for GET on %s: %s',
         url,
         safeJsonStringify({
           url,
-          response: data,
+          status,
+          responseType,
+          response: Buffer.isBuffer(data) ? `<omitted buffer of length ${data.length}>` : data,
         }),
       )
       return {

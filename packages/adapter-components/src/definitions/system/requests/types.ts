@@ -18,10 +18,12 @@ import { Response, ResponseValue } from '../../../client'
 
 export type HTTPMethod = 'get' | 'post' | 'put' | 'patch' | 'delete' | 'head' | 'options'
 
+export type EndpointPath = `/${string}`
+
 export type HTTPEndpointIdentifier<ClientOptions extends string> = {
   // specify the client to use to call the endpoint - defaults to the default client as specified in client.default
   client?: ClientOptions
-  path: string
+  path: EndpointPath
   // when not specified, the method is assumed to be 'get'
   method?: HTTPMethod
 }
@@ -38,6 +40,8 @@ export type PollingArgs = {
   interval: number
   retries: number
   checkStatus: (response: Response<ResponseValue | ResponseValue[]>) => boolean
+  // This param allows to retry on error status codes, this is only needed when you know your polling will throw in the process
+  retryOnStatus?: number[]
 }
 
 export type HTTPEndpointDetails<PaginationOptions extends string | 'none'> = RequestArgs & {

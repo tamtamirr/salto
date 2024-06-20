@@ -131,6 +131,8 @@ export type OptionalFeatures = {
   extendedCustomFieldInformation?: boolean
   importantValues?: boolean
   hideTypesFolder?: boolean
+  omitStandardFieldsNonDeployableValues?: boolean
+  latestSupportedApiVersion?: boolean
 }
 
 export type ChangeValidatorName =
@@ -168,6 +170,7 @@ export type ChangeValidatorName =
   | 'taskOrEventFieldsModifications'
   | 'newFieldsAndObjectsFLS'
   | 'elementApiVersion'
+  | 'cpqBillingStartDate'
 
 type ChangeValidatorConfig = Partial<Record<ChangeValidatorName, boolean>>
 
@@ -208,15 +211,20 @@ export type BrokenOutgoingReferencesSettings = {
   perTargetTypeOverrides?: Record<string, OutgoingReferenceBehavior>
 }
 
-const customReferencesTypeNames = ['profiles'] as const
-type customReferencesTypes = (typeof customReferencesTypeNames)[number]
+const customReferencesHandlersNames = [
+  'profiles',
+  'managedElements',
+  'permisisonSets',
+] as const
+export type CustomReferencesHandlers =
+  (typeof customReferencesHandlersNames)[number]
 
 export type CustomReferencesSettings = Partial<
-  Record<customReferencesTypes, boolean>
+  Record<CustomReferencesHandlers, boolean>
 >
 
 export type FixElementsSettings = Partial<
-  Record<customReferencesTypes, boolean>
+  Record<CustomReferencesHandlers, boolean>
 >
 
 const objectIdSettings = new ObjectType({
@@ -329,7 +337,7 @@ const brokenOutgoingReferencesSettingsType = new ObjectType({
 const customReferencesSettingsType = new ObjectType({
   elemID: new ElemID(constants.SALESFORCE, 'saltoCustomReferencesSettings'),
   fields: Object.fromEntries(
-    customReferencesTypeNames.map((name) => [
+    customReferencesHandlersNames.map((name) => [
       name,
       { refType: BuiltinTypes.BOOLEAN },
     ]),
@@ -339,7 +347,7 @@ const customReferencesSettingsType = new ObjectType({
 const fixElementsSettingsType = new ObjectType({
   elemID: new ElemID(constants.SALESFORCE, 'saltoFixElementsSettings'),
   fields: Object.fromEntries(
-    customReferencesTypeNames.map((name) => [
+    customReferencesHandlersNames.map((name) => [
       name,
       { refType: BuiltinTypes.BOOLEAN },
     ]),
@@ -852,6 +860,8 @@ const optionalFeaturesType = createMatchingObjectType<OptionalFeatures>({
     extendedCustomFieldInformation: { refType: BuiltinTypes.BOOLEAN },
     importantValues: { refType: BuiltinTypes.BOOLEAN },
     hideTypesFolder: { refType: BuiltinTypes.BOOLEAN },
+    omitStandardFieldsNonDeployableValues: { refType: BuiltinTypes.BOOLEAN },
+    latestSupportedApiVersion: { refType: BuiltinTypes.BOOLEAN },
   },
   annotations: {
     [CORE_ANNOTATIONS.ADDITIONAL_PROPERTIES]: false,
@@ -898,6 +908,7 @@ const changeValidatorConfigType =
       taskOrEventFieldsModifications: { refType: BuiltinTypes.BOOLEAN },
       newFieldsAndObjectsFLS: { refType: BuiltinTypes.BOOLEAN },
       elementApiVersion: { refType: BuiltinTypes.BOOLEAN },
+      cpqBillingStartDate: { refType: BuiltinTypes.BOOLEAN },
     },
     annotations: {
       [CORE_ANNOTATIONS.ADDITIONAL_PROPERTIES]: false,
@@ -1066,6 +1077,9 @@ export type FetchProfile = {
   readonly metadataQuery: MetadataQuery
   readonly dataManagement?: DataManagement
   readonly isFeatureEnabled: (name: keyof OptionalFeatures) => boolean
+  readonly isCustomReferencesHandlerEnabled: (
+    name: CustomReferencesHandlers,
+  ) => boolean
   readonly shouldFetchAllCustomSettings: () => boolean
   readonly maxInstancesPerType: number
   readonly preferActiveFlowVersions: boolean

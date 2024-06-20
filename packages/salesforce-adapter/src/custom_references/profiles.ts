@@ -21,7 +21,6 @@ import {
   Element,
   ElemID,
   InstanceElement,
-  isInstanceElement,
   ReferenceInfo,
   Values,
 } from '@salto-io/adapter-api'
@@ -38,6 +37,7 @@ import {
   RECORD_TYPE_METADATA_TYPE,
 } from '../constants'
 import { Types } from '../transformers/transformer'
+import { isInstanceOfTypeSync } from '../filters/utils'
 
 const { makeArray } = collections.array
 const { awu } = collections.asynciterable
@@ -257,7 +257,7 @@ const sectionsReferenceParams: Record<section, ReferenceFromSectionParams> = {
   },
 }
 
-const mapProfileSections = <T>(
+export const mapProfileOrPermissionSetSections = <T>(
   profile: InstanceElement,
   f: (
     sectionName: string,
@@ -276,7 +276,7 @@ const mapProfileSections = <T>(
   )
 
 const referencesFromProfile = (profile: InstanceElement): ReferenceInfo[] =>
-  mapProfileSections(
+  mapProfileOrPermissionSetSections(
     profile,
     (sectionName, sectionEntryKey, target, sourceField) => ({
       source: profile.elemID.createNestedID(
@@ -290,17 +290,10 @@ const referencesFromProfile = (profile: InstanceElement): ReferenceInfo[] =>
     }),
   )
 
-// At this point the TypeRefs of instance elements are not resolved yet, so isInstanceOfTypeSync() won't work - we
-// have to figure out the type name the hard way.
-const filterProfiles = (elements: Element[]): InstanceElement[] =>
-  elements
-    .filter(isInstanceElement)
-    .filter((instance) => instance.elemID.typeName === PROFILE_METADATA_TYPE)
-
 const findWeakReferences: WeakReferencesHandler['findWeakReferences'] = async (
   elements: Element[],
 ): Promise<ReferenceInfo[]> => {
-  const profiles = filterProfiles(elements)
+  const profiles = elements.filter(isInstanceOfTypeSync(PROFILE_METADATA_TYPE))
   const refs = log.timeDebug(
     () => profiles.flatMap(referencesFromProfile),
     `Generating references from ${profiles.length} profiles.`,
@@ -315,7 +308,7 @@ const findWeakReferences: WeakReferencesHandler['findWeakReferences'] = async (
 
 const profileEntriesTargets = (profile: InstanceElement): Dictionary<ElemID> =>
   _(
-    mapProfileSections(
+    mapProfileOrPermissionSetSections(
       profile,
       (sectionName, sectionEntryKey, target, sourceField): [string, ElemID] => [
         [sectionName, sectionEntryKey, ...makeArray(sourceField)].join('.'),
@@ -329,7 +322,9 @@ const profileEntriesTargets = (profile: InstanceElement): Dictionary<ElemID> =>
 const removeWeakReferences: WeakReferencesHandler['removeWeakReferences'] =
   ({ elementsSource }) =>
   async (elements) => {
-    const profiles = filterProfiles(elements)
+    const profiles = elements.filter(
+      isInstanceOfTypeSync(PROFILE_METADATA_TYPE),
+    )
     const entriesTargets: Dictionary<ElemID> = _.merge(
       {},
       ...profiles.map(profileEntriesTargets),

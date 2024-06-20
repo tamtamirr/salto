@@ -22,7 +22,6 @@ export const IDENTITY_PROVIDER_TYPE_NAME = 'IdentityProvider'
 export const USERTYPE_TYPE_NAME = 'UserType'
 export const FEATURE_TYPE_NAME = 'Feature'
 export const NETWORK_ZONE_TYPE_NAME = 'NetworkZone'
-export const ROLE_ASSIGNMENT_TYPE_NAME = 'RoleAssignment'
 export const ROLE_TYPE_NAME = 'Role'
 export const USER_SCHEMA_TYPE_NAME = 'UserSchema'
 export const INLINE_HOOK_TYPE_NAME = 'InlineHook'
@@ -80,7 +79,6 @@ export const POLICY_RULE_PRIORITY_TYPE_NAMES = [
   MFA_RULE_PRIORITY_TYPE_NAME,
   SIGN_ON_RULE_PRIORITY_TYPE_NAME,
   PASSWORD_RULE_PRIORITY_TYPE_NAME,
-  PROFILE_ENROLLMENT_RULE_PRIORITY_TYPE_NAME,
   AUTHORIZATION_POLICY_RULE_PRIORITY_TYPE_NAME,
 ]
 export const POLICY_PRIORITY_TYPE_NAMES = [
@@ -90,6 +88,8 @@ export const POLICY_PRIORITY_TYPE_NAMES = [
 ]
 export const CUSTOM_NAME_FIELD = 'customName'
 export const LINKS_FIELD = '_links'
+export const DEFINITIONS_FIELD = 'definitions'
+export const BASE_FIELD = 'base'
 export const SAML_2_0_APP = 'SAML_2_0'
 export const GROUP_SCHEMA_TYPE_NAME = 'GroupSchema'
 export const APP_USER_SCHEMA_TYPE_NAME = 'AppUserSchema'
@@ -104,3 +104,5 @@ export const DEVICE_ASSURANCE = 'DeviceAssurance'
 export const EVENT_HOOK = 'EventHook'
 export const GROUP_PUSH_TYPE_NAME = 'GroupPush'
 export const GROUP_PUSH_RULE_TYPE_NAME = 'GroupPushRule'
+export const DOMAIN_TYPE_NAME = 'Domain'
+export const USER_TYPE_NAME = 'User'

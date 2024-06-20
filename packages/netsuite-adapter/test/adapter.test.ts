@@ -30,13 +30,16 @@ import {
   SaltoError,
   SaltoElementError,
   ProgressReporter,
+  isInstanceElement,
+  CORE_ANNOTATIONS,
 } from '@salto-io/adapter-api'
 import _ from 'lodash'
 import { buildElementsSourceFromElements } from '@salto-io/adapter-utils'
 import { mockFunction, MockInterface } from '@salto-io/test-utils'
+import { collections } from '@salto-io/lowerdash'
 import createClient from './client/sdf_client'
 import NetsuiteAdapter from '../src/adapter'
-import { getMetadataTypes, metadataTypesToList, SUITEAPP_CONFIG_RECORD_TYPES } from '../src/types'
+import { getMetadataTypes, isCustomRecordType, metadataTypesToList, SUITEAPP_CONFIG_RECORD_TYPES } from '../src/types'
 import {
   ENTITY_CUSTOM_FIELD,
   SCRIPT_ID,
@@ -53,10 +56,10 @@ import {
   ROLE,
   METADATA_TYPE,
   CUSTOM_RECORD_TYPE,
+  CUSTOM_RECORDS_PATH,
 } from '../src/constants'
 import { createInstanceElement, toCustomizationInfo } from '../src/transformer'
 import { LocalFilterCreator } from '../src/filter'
-import SdfClient from '../src/client/sdf_client'
 import resolveValuesFilter from '../src/filters/element_references'
 import { configType, NetsuiteConfig } from '../src/config/types'
 import { getConfigFromConfigChanges } from '../src/config/suggestions'
@@ -71,6 +74,7 @@ import {
 } from '../src/client/types'
 import * as changesDetector from '../src/changes_detector/changes_detector'
 import * as deletionCalculator from '../src/deletion_calculator'
+import SdfClient from '../src/client/sdf_client'
 import SuiteAppClient from '../src/client/suiteapp_client/suiteapp_client'
 import { SERVER_TIME_TYPE_NAME } from '../src/server_time'
 import * as suiteAppFileCabinet from '../src/client/suiteapp_client/suiteapp_file_cabinet'
@@ -84,6 +88,7 @@ import { getDataElements } from '../src/data_elements/data_elements'
 import * as elementsSourceIndexModule from '../src/elements_source_index/elements_source_index'
 import { fullQueryParams, fullFetchConfig } from '../src/config/config_creator'
 import { FetchByQueryFunc } from '../src/config/query'
+import { createObjectIdListElements, OBJECT_ID_LIST_TYPE_NAME, OBJECT_ID_LIST_FIELD_NAME } from '../src/scriptid_list'
 
 const DEFAULT_SDF_DEPLOY_PARAMS = {
   manifestDependencies: {
@@ -153,7 +158,7 @@ describe('Adapter', () => {
           { name: SAVED_SEARCH },
           { name: TRANSACTION_FORM },
         ],
-        fileCabinet: ['^Some/File/Regex$'],
+        fileCabinet: ['^Some/File/Regex$', '.*\\.(csv|pdf|png)'],
         customRecords: [],
       },
     },
@@ -197,14 +202,13 @@ describe('Adapter', () => {
 
   beforeEach(() => {
     jest.clearAllMocks()
-    client.listInstances = mockFunction<SdfClient['listInstances']>().mockResolvedValue([])
-    client.getCustomObjects = mockFunction<NetsuiteClient['getCustomObjects']>().mockResolvedValue({
+    client.getCustomObjects = mockFunction<SdfClient['getCustomObjects']>().mockResolvedValue({
       elements: [],
       instancesIds: [],
       failedTypes: { lockedError: {}, unexpectedError: {}, excludedTypes: [] },
       failedToFetchAllAtOnce: false,
     })
-    client.importFileCabinetContent = mockFunction<NetsuiteClient['importFileCabinetContent']>().mockResolvedValue({
+    client.importFileCabinetContent = mockFunction<SdfClient['importFileCabinetContent']>().mockResolvedValue({
       elements: [],
       failedPaths: { lockedError: [], otherError: [], largeFolderError: [] },
     })
@@ -244,11 +248,11 @@ describe('Adapter', () => {
         scriptId: 'custentity_my_script_id',
       }
 
-      client.importFileCabinetContent = mockFunction<NetsuiteClient['importFileCabinetContent']>().mockResolvedValue({
+      client.importFileCabinetContent = mockFunction<SdfClient['importFileCabinetContent']>().mockResolvedValue({
         elements: [folderCustomizationInfo, fileCustomizationInfo],
         failedPaths: { lockedError: [], otherError: [], largeFolderError: [] },
       })
-      client.getCustomObjects = mockFunction<NetsuiteClient['getCustomObjects']>().mockResolvedValue({
+      client.getCustomObjects = mockFunction<SdfClient['getCustomObjects']>().mockResolvedValue({
         elements: [customTypeInfo, featuresCustomTypeInfo],
         instancesIds: [],
         failedToFetchAllAtOnce: false,
@@ -267,8 +271,8 @@ describe('Adapter', () => {
       expect(fileCabinetQuery.isFileMatch('Some/File/Regex')).toBeFalsy()
       expect(fileCabinetQuery.isFileMatch('Some/anotherFile/Regex')).toBeTruthy()
 
-      // metadataTypes + folderInstance + fileInstance + featuresInstance + customTypeInstance
-      expect(elements).toHaveLength(metadataTypes.length + 4)
+      // metadataTypes + folderInstance + fileInstance + featuresInstance + customTypeInstance + scriptIdListInstance + scriptIdListType + objectIdType
+      expect(elements).toHaveLength(metadataTypes.length + 7)
 
       const customFieldType = elements.find(element =>
         element.elemID.isEqual(new ElemID(NETSUITE, ENTITY_CUSTOM_FIELD)),
@@ -438,7 +442,7 @@ describe('Adapter', () => {
     })
 
     it('should filter large file cabinet folders', async () => {
-      client.importFileCabinetContent = mockFunction<NetsuiteClient['importFileCabinetContent']>().mockResolvedValue({
+      client.importFileCabinetContent = mockFunction<SdfClient['importFileCabinetContent']>().mockResolvedValue({
         elements: [],
         failedPaths: { lockedError: [], otherError: [], largeFolderError: ['largeFolder'] },
       })
@@ -457,7 +461,7 @@ describe('Adapter', () => {
     })
 
     it('should filter types with too many instances from SDF', async () => {
-      client.getCustomObjects = mockFunction<NetsuiteClient['getCustomObjects']>().mockResolvedValue({
+      client.getCustomObjects = mockFunction<SdfClient['getCustomObjects']>().mockResolvedValue({
         elements: [],
         instancesIds: [],
         failedToFetchAllAtOnce: false,
@@ -500,14 +504,15 @@ describe('Adapter', () => {
         },
         scriptId: 'unknown',
       }
-      client.getCustomObjects = mockFunction<NetsuiteClient['getCustomObjects']>().mockResolvedValue({
+      client.getCustomObjects = mockFunction<SdfClient['getCustomObjects']>().mockResolvedValue({
         elements: [customTypeInfo],
         instancesIds: [],
         failedToFetchAllAtOnce: false,
         failedTypes: { lockedError: {}, unexpectedError: {}, excludedTypes: [] },
       })
       const { elements } = await netsuiteAdapter.fetch(mockFetchOpts)
-      expect(elements).toHaveLength(metadataTypes.length)
+      // metadataTypes + scriptIdListInstance + scriptIdListType + objectIdType
+      expect(elements).toHaveLength(metadataTypes.length + 3)
     })
 
     it('should call filters by their order', async () => {
@@ -541,7 +546,7 @@ describe('Adapter', () => {
     })
 
     it('should call getConfigFromConfigChanges with failed file paths', async () => {
-      client.importFileCabinetContent = mockFunction<NetsuiteClient['importFileCabinetContent']>().mockResolvedValue({
+      client.importFileCabinetContent = mockFunction<SdfClient['importFileCabinetContent']>().mockResolvedValue({
         elements: [],
         failedPaths: { lockedError: [], otherError: ['/path/to/file'], largeFolderError: [] },
       })
@@ -564,7 +569,7 @@ describe('Adapter', () => {
 
     it('should call getConfigFromConfigChanges with failedTypeToInstances', async () => {
       const failedTypeToInstances = { testType: ['scriptid1', 'scriptid1'] }
-      client.getCustomObjects = mockFunction<NetsuiteClient['getCustomObjects']>().mockResolvedValue({
+      client.getCustomObjects = mockFunction<SdfClient['getCustomObjects']>().mockResolvedValue({
         elements: [],
         instancesIds: [],
         failedToFetchAllAtOnce: false,
@@ -588,7 +593,7 @@ describe('Adapter', () => {
     })
 
     it('should call getConfigFromConfigChanges with false for fetchAllAtOnce', async () => {
-      client.getCustomObjects = mockFunction<NetsuiteClient['getCustomObjects']>().mockResolvedValue({
+      client.getCustomObjects = mockFunction<SdfClient['getCustomObjects']>().mockResolvedValue({
         elements: [],
         instancesIds: [],
         failedToFetchAllAtOnce: true,
@@ -609,6 +614,228 @@ describe('Adapter', () => {
         config,
       )
       expect(fetchResult.updatedConfig?.config[0].isEqual(updatedConfig)).toBe(true)
+    })
+
+    describe('scriptid list elements', () => {
+      describe('full fetch', () => {
+        it('should create scriptid list elements with an empty list', async () => {
+          const { elements } = await netsuiteAdapter.fetch(mockFetchOpts)
+          const scriptIdListElements = elements.filter(elem => elem.elemID.typeName === OBJECT_ID_LIST_TYPE_NAME)
+          expect(scriptIdListElements).toHaveLength(2)
+          expect(scriptIdListElements.filter(isInstanceElement).length).toEqual(1)
+          expect(scriptIdListElements.filter(isObjectType).length).toEqual(1)
+          const instance = scriptIdListElements.find(isInstanceElement) as InstanceElement
+          expect(collections.array.makeArray(instance.value.scriptid_list)).toEqual([])
+        })
+        it('should create scriptid list elements with a non-empty list', async () => {
+          client.getCustomObjects = mockFunction<SdfClient['getCustomObjects']>().mockResolvedValue({
+            elements: [],
+            instancesIds: [
+              {
+                type: 'someType',
+                instanceId: 'test',
+              },
+            ],
+            failedTypes: { lockedError: {}, unexpectedError: {}, excludedTypes: [] },
+            failedToFetchAllAtOnce: false,
+          })
+          const { elements } = await netsuiteAdapter.fetch(mockFetchOpts)
+          const scriptIdListElements = elements.filter(elem => elem.elemID.typeName === OBJECT_ID_LIST_TYPE_NAME)
+          expect(scriptIdListElements).toHaveLength(2)
+          expect(scriptIdListElements.filter(isInstanceElement).length).toEqual(1)
+          expect(scriptIdListElements.filter(isObjectType).length).toEqual(1)
+          const instance = scriptIdListElements.find(isInstanceElement) as InstanceElement
+          expect(collections.array.makeArray(instance.value[OBJECT_ID_LIST_FIELD_NAME])).toEqual([
+            {
+              instanceId: 'test',
+              type: 'someType',
+            },
+          ])
+        })
+        it('should update new scriptid list elements if they exist in the elementsSource', async () => {
+          const scriptidListInstances = createObjectIdListElements([
+            {
+              type: 'someType',
+              instanceId: 'before',
+            },
+          ])
+          const adapter = new NetsuiteAdapter({
+            client: new NetsuiteClient(client),
+            elementsSource: buildElementsSourceFromElements(scriptidListInstances),
+            filtersCreators: [],
+            config,
+            getElemIdFunc: mockGetElemIdFunc,
+          })
+          client.getCustomObjects = mockFunction<SdfClient['getCustomObjects']>().mockResolvedValue({
+            elements: [],
+            instancesIds: [
+              {
+                type: 'someType',
+                instanceId: 'after',
+              },
+            ],
+            failedTypes: { lockedError: {}, unexpectedError: {}, excludedTypes: [] },
+            failedToFetchAllAtOnce: false,
+          })
+          const { elements } = await adapter.fetch(mockFetchOpts)
+          const scriptIdListElements = elements.filter(elem => elem.elemID.typeName === OBJECT_ID_LIST_TYPE_NAME)
+          expect(scriptIdListElements).toHaveLength(2)
+          expect(scriptIdListElements.filter(isInstanceElement).length).toEqual(1)
+          expect(scriptIdListElements.filter(isObjectType).length).toEqual(1)
+          const instance = scriptIdListElements.find(isInstanceElement) as InstanceElement
+          expect(collections.array.makeArray(instance.value[OBJECT_ID_LIST_FIELD_NAME])).toEqual([
+            {
+              type: 'someType',
+              instanceId: 'after',
+            },
+          ])
+        })
+      })
+      describe('partial fetch', () => {
+        it('should create new scriptid list elements if they do not exist in the elementsSource', async () => {
+          const withChangesDetection = true
+          client.getCustomObjects = mockFunction<SdfClient['getCustomObjects']>().mockResolvedValue({
+            elements: [],
+            instancesIds: [
+              {
+                type: 'someType',
+                instanceId: 'test',
+              },
+            ],
+            failedTypes: { lockedError: {}, unexpectedError: {}, excludedTypes: [] },
+            failedToFetchAllAtOnce: false,
+          })
+          const { elements } = await netsuiteAdapter.fetch({ ...mockFetchOpts, withChangesDetection })
+          const scriptIdListElements = elements.filter(elem => elem.elemID.typeName === OBJECT_ID_LIST_TYPE_NAME)
+          expect(scriptIdListElements).toHaveLength(2)
+          expect(scriptIdListElements.filter(isInstanceElement).length).toEqual(1)
+          expect(scriptIdListElements.filter(isObjectType).length).toEqual(1)
+          const instance = scriptIdListElements.find(isInstanceElement) as InstanceElement
+          expect(collections.array.makeArray(instance.value[OBJECT_ID_LIST_FIELD_NAME])).toEqual([
+            {
+              type: 'someType',
+              instanceId: 'test',
+            },
+          ])
+        })
+        it('should not create new scriptid list elements if they exist in the elementsSource', async () => {
+          const withChangesDetection = true
+          const scriptidListInstances = createObjectIdListElements([
+            {
+              type: 'someType',
+              instanceId: 'before',
+            },
+          ])
+          const adapter = new NetsuiteAdapter({
+            client: new NetsuiteClient(client),
+            elementsSource: buildElementsSourceFromElements(scriptidListInstances),
+            filtersCreators: [],
+            config,
+            getElemIdFunc: mockGetElemIdFunc,
+          })
+          client.getCustomObjects = mockFunction<SdfClient['getCustomObjects']>().mockResolvedValue({
+            elements: [],
+            instancesIds: [
+              {
+                type: 'someType',
+                instanceId: 'after',
+              },
+            ],
+            failedTypes: { lockedError: {}, unexpectedError: {}, excludedTypes: [] },
+            failedToFetchAllAtOnce: false,
+          })
+          const { elements } = await adapter.fetch({ ...mockFetchOpts, withChangesDetection })
+          const scriptIdListElements = elements.filter(elem => elem.elemID.typeName === OBJECT_ID_LIST_TYPE_NAME)
+          expect(scriptIdListElements).toHaveLength(2)
+          expect(scriptIdListElements.filter(isInstanceElement).length).toEqual(1)
+          expect(scriptIdListElements.filter(isObjectType).length).toEqual(1)
+          const instance = scriptIdListElements.find(isInstanceElement) as InstanceElement
+          expect(collections.array.makeArray(instance.value[OBJECT_ID_LIST_FIELD_NAME])).toEqual([
+            {
+              type: 'someType',
+              instanceId: 'before',
+            },
+          ])
+        })
+      })
+    })
+
+    it('should create locked custom record type elements', async () => {
+      const adapter = new NetsuiteAdapter({
+        client: new NetsuiteClient(client),
+        elementsSource: buildElementsSourceFromElements([]),
+        filtersCreators: [firstDummyFilter, secondDummyFilter],
+        config: {
+          ...config,
+          fetch: {
+            ...config.fetch,
+            addLockedCustomRecordTypes: true,
+            lockedElementsToExclude: {
+              types: [
+                {
+                  name: 'customrecordtype',
+                  ids: ['customrecord_locked2', 'customrecord_locked3'],
+                },
+              ],
+              fileCabinet: [],
+            },
+          },
+        },
+        getElemIdFunc: mockGetElemIdFunc,
+      })
+      client.getCustomObjects = mockFunction<SdfClient['getCustomObjects']>().mockResolvedValue({
+        elements: [],
+        instancesIds: [
+          { type: 'customrecordtype', instanceId: 'customrecord_locked1' },
+          { type: 'customrecordtype', instanceId: 'customrecord_locked2' },
+        ],
+        failedToFetchAllAtOnce: true,
+        failedTypes: {
+          lockedError: { customrecordtype: ['customrecord_locked1'] },
+          unexpectedError: {},
+          excludedTypes: [],
+        },
+      })
+      const fetchResult = await adapter.fetch(mockFetchOpts)
+      const lockedCustomRecordTypes = fetchResult.elements
+        .filter(isObjectType)
+        .filter(isCustomRecordType)
+        .filter(e => e.annotations[CORE_ANNOTATIONS.HIDDEN])
+      expect(lockedCustomRecordTypes).toHaveLength(2)
+      expect(lockedCustomRecordTypes).toEqual(
+        expect.arrayContaining([
+          new ObjectType({
+            elemID: new ElemID(NETSUITE, 'customrecord_locked1'),
+            fields: {
+              scriptid: { refType: BuiltinTypes.STRING, annotations: { [CORE_ANNOTATIONS.REQUIRED]: true } },
+              internalId: { refType: BuiltinTypes.SERVICE_ID, annotations: { [CORE_ANNOTATIONS.HIDDEN_VALUE]: true } },
+            },
+            annotationRefsOrTypes: { source: BuiltinTypes.HIDDEN_STRING },
+            annotations: {
+              scriptid: 'customrecord_locked1',
+              source: 'soap',
+              [METADATA_TYPE]: CUSTOM_RECORD_TYPE,
+              [CORE_ANNOTATIONS.HIDDEN]: true,
+            },
+            path: [NETSUITE, CUSTOM_RECORDS_PATH, 'customrecord_locked1'],
+          }),
+          new ObjectType({
+            elemID: new ElemID(NETSUITE, 'customrecord_locked2'),
+            fields: {
+              scriptid: { refType: BuiltinTypes.STRING, annotations: { [CORE_ANNOTATIONS.REQUIRED]: true } },
+              internalId: { refType: BuiltinTypes.SERVICE_ID, annotations: { [CORE_ANNOTATIONS.HIDDEN_VALUE]: true } },
+            },
+            annotationRefsOrTypes: { source: BuiltinTypes.HIDDEN_STRING },
+            annotations: {
+              scriptid: 'customrecord_locked2',
+              source: 'soap',
+              [METADATA_TYPE]: CUSTOM_RECORD_TYPE,
+              [CORE_ANNOTATIONS.HIDDEN]: true,
+            },
+            path: [NETSUITE, CUSTOM_RECORDS_PATH, 'customrecord_locked2'],
+          }),
+        ]),
+      )
     })
   })
 
@@ -1181,9 +1408,9 @@ describe('Adapter', () => {
       })
     })
 
-    it('should use suiteapp_file_cabinet importFileCabinet', async () => {
+    it('should use suiteAppFileCabinet importFileCabinet and pass it the right params', async () => {
       await adapter.fetch(mockFetchOpts)
-      expect(suiteAppImportFileCabinetMock).toHaveBeenCalled()
+      expect(suiteAppImportFileCabinetMock).toHaveBeenCalledWith(expect.anything(), 3, ['.*\\.(csv|pdf|png)'])
     })
 
     it('should not create serverTime elements when getSystemInformation returns undefined', async () => {

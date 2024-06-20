@@ -55,6 +55,7 @@ type JiraDeployConfig = definitions.UserDeployConfig &
     forceDelete: boolean
     taskMaxRetries: number
     taskRetryDelay: number
+    ignoreMissingExtensions: boolean
   }
 
 type JiraFetchFilters = definitions.DefaultFetchCriteria & {
@@ -76,6 +77,7 @@ type JiraFetchConfig = definitions.UserFetchConfig<{ fetchCriteria: JiraFetchFil
   enableMissingReferences?: boolean
   enableIssueLayouts?: boolean
   enableNewWorkflowAPI?: boolean
+  automationPageSize?: number
 }
 
 export type MaskingConfig = {
@@ -164,6 +166,7 @@ export const PARTIAL_DEFAULT_CONFIG: Omit<JiraConfig, 'apiDefinitions'> = {
     forceDelete: false,
     taskMaxRetries: 180,
     taskRetryDelay: 1000,
+    ignoreMissingExtensions: false,
   },
   masking: {
     automationHeaders: [],
@@ -179,7 +182,7 @@ export const getDefaultConfig = ({ isDataCenter }: { isDataCenter: boolean }): J
 })
 
 const createClientConfigType = (): ObjectType => {
-  const configType = definitions.createClientConfigType(JIRA)
+  const configType = definitions.createClientConfigType({ adapter: JIRA })
   configType.fields.FieldConfigurationItemsDeploymentLimit = new Field(
     configType,
     'FieldConfigurationItemsDeploymentLimit',
@@ -221,6 +224,7 @@ export type ChangeValidatorName =
   | 'workflowStatusMappings'
   | 'inboundTransition'
   | 'issueTypeSchemeMigration'
+  | 'missingExtensionsTransitionRules'
   | 'activeSchemeChange'
   | 'masking'
   | 'issueTypeDeletion'
@@ -284,6 +288,7 @@ const changeValidatorConfigType = createMatchingObjectType<ChangeValidatorConfig
     workflowStatusMappings: { refType: BuiltinTypes.BOOLEAN },
     inboundTransition: { refType: BuiltinTypes.BOOLEAN },
     issueTypeSchemeMigration: { refType: BuiltinTypes.BOOLEAN },
+    missingExtensionsTransitionRules: { refType: BuiltinTypes.BOOLEAN },
     activeSchemeChange: { refType: BuiltinTypes.BOOLEAN },
     masking: { refType: BuiltinTypes.BOOLEAN },
     issueTypeDeletion: { refType: BuiltinTypes.BOOLEAN },
@@ -315,11 +320,13 @@ const changeValidatorConfigType = createMatchingObjectType<ChangeValidatorConfig
     [CORE_ANNOTATIONS.ADDITIONAL_PROPERTIES]: false,
   },
 })
+
 const jiraDeployConfigType = definitions.createUserDeployConfigType(JIRA, changeValidatorConfigType, {
   ...defaultMissingUserFallbackField,
   taskMaxRetries: { refType: BuiltinTypes.NUMBER },
   taskRetryDelay: { refType: BuiltinTypes.NUMBER },
   forceDelete: { refType: BuiltinTypes.BOOLEAN },
+  ignoreMissingExtensions: { refType: BuiltinTypes.BOOLEAN },
 })
 
 const fetchFiltersType = createMatchingObjectType<JiraFetchFilters>({
@@ -351,6 +358,7 @@ const fetchConfigType = definitions.createUserFetchConfigType({
     enableMissingReferences: { refType: BuiltinTypes.BOOLEAN },
     enableIssueLayouts: { refType: BuiltinTypes.BOOLEAN },
     enableNewWorkflowAPI: { refType: BuiltinTypes.BOOLEAN },
+    automationPageSize: { refType: BuiltinTypes.NUMBER },
   },
   fetchCriteriaType: fetchFiltersType,
   omitElemID: true,
@@ -402,8 +410,10 @@ export const configType = createMatchingObjectType<Partial<JiraConfig>>({
       'fetch.enableIssueLayouts',
       'fetch.removeDuplicateProjectRoles',
       'fetch.enableNewWorkflowAPI',
+      'fetch.automationPageSize',
       'deploy.taskMaxRetries',
       'deploy.taskRetryDelay',
+      'deploy.ignoreMissingExtensions',
       SCRIPT_RUNNER_API_DEFINITIONS,
       JSM_DUCKTYPE_API_DEFINITIONS,
     ]),

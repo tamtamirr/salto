@@ -80,7 +80,6 @@ import {
   notEnabledMissingReferencesValidator,
   conditionalTicketFieldsValidator,
   dynamicContentDeletionValidator,
-  guideThemeReadonlyValidator,
   dynamicContentPlaceholderModificationValidator,
   inactiveTicketFormInViewValidator,
   immutableTypeAndKeyForUserFieldsValidator,
@@ -89,7 +88,8 @@ import {
   viewCustomStatusConditionsValidator,
 } from './change_validators'
 import ZendeskClient from './client/client'
-import { ChangeValidatorName, ZendeskDeployConfig, ZendeskFetchConfig, ZendeskConfig } from './config'
+import { ChangeValidatorName, ZendeskConfig } from './config'
+import { ZendeskDeployConfig, ZendeskFetchConfig } from './user_config'
 
 const {
   deployTypesNotSupportedValidator,
@@ -166,7 +166,6 @@ export default ({
     organizationExistence: organizationExistenceValidator(client, fetchConfig, deployConfig),
     badFormatWebhookAction: badFormatWebhookActionValidator,
     guideDisabled: guideDisabledValidator(fetchConfig),
-    guideThemeReadonly: guideThemeReadonlyValidator,
     guideThemeDeleteLive: guideThemeDeleteLiveValidator,
     guideThemeUpdateMetadata: guideThemeUpdateMetadataValidator,
     additionOfTicketStatusForTicketForm: additionOfTicketStatusForTicketFormValidator,

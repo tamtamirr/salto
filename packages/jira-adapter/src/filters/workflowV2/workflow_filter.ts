@@ -54,6 +54,7 @@ import {
 import { v4 as uuidv4 } from 'uuid'
 import { FilterCreator } from '../../filter'
 import {
+  acquireLockRetry,
   addAnnotationRecursively,
   convertPropertiesToList,
   convertPropertiesToMap,
@@ -79,7 +80,7 @@ import {
   TRANSITION_LIST_FIELDS,
 } from './types'
 import { DEFAULT_API_DEFINITIONS } from '../../config/api_config'
-import { JIRA, PROJECT_TYPE, WORKFLOW_CONFIGURATION_TYPE } from '../../constants'
+import { JIRA, PROJECT_TYPE, WORKFLOW_CONFIGURATION_TYPE, WORKFLOW_RETRY_PERIODS } from '../../constants'
 import JiraClient from '../../client/client'
 import { defaultDeployChange, deployChanges } from '../../deployment/standard_deployment'
 import { getLookUpName } from '../../reference_mapping'
@@ -559,13 +560,29 @@ const deployWorkflow = async ({
     }
     return false
   }
-  const response = await defaultDeployChange({
-    change,
-    client,
-    apiDefinitions: config.apiDefinitions,
-    elementsSource,
-    fieldsToIgnore: fieldsToIgnoreFunc,
-  })
+  let response: clientUtils.ResponseValue | clientUtils.ResponseValue[] | undefined
+  try {
+    response = await acquireLockRetry({
+      fn: () =>
+        defaultDeployChange({
+          change,
+          client,
+          apiDefinitions: config.apiDefinitions,
+          elementsSource,
+          fieldsToIgnore: fieldsToIgnoreFunc,
+        }),
+      delays: WORKFLOW_RETRY_PERIODS,
+    })
+  } catch (error) {
+    if (
+      error instanceof clientUtils.HTTPError &&
+      error.response?.status === 409 &&
+      error.message.includes('Workflow version and version token must match')
+    ) {
+      throw new Error('The workflow version does not match the version in Jira; please fetch and try again')
+    }
+    throw error
+  }
   if (!isWorkflowResponse(response)) {
     log.warn('Received unexpected workflow response from service')
     return

@@ -38,9 +38,8 @@ import { collections, values } from '@salto-io/lowerdash'
 import { logger } from '@salto-io/logging'
 import { FilterCreator } from '../filter'
 import { GROUP_TYPE_NAME, GROUP_MEMBERSHIP_TYPE_NAME, OKTA } from '../constants'
-import { areUsers, User } from '../user_utils'
+import { areUsers, shouldConvertUserIds, User } from '../user_utils'
 import { FETCH_CONFIG } from '../config'
-import OktaClient from '../client/client'
 
 const log = logger(module)
 const { RECORDS_PATH, TYPES_PATH } = elementUtils
@@ -77,24 +76,30 @@ const getGroupMembersData = async (paginator: clientUtils.Paginator, group: Inst
     await toArrayAsync(paginator(paginationArgs, page => makeArray(page) as clientUtils.ResponseValue[]))
   ).flat()
   if (!areUsers(members)) {
-    log.error(`Recived invalid response while trying to get members for group: ${group.elemID.getFullName()}`)
+    log.error(`Received invalid response while trying to get members for group: ${group.elemID.getFullName()}`)
     return []
   }
   return members
 }
 
-const createGroupMembershipInstance = async (
-  group: InstanceElement,
-  groupMembersType: ObjectType,
-  paginator: clientUtils.Paginator,
-): Promise<InstanceElement | undefined> => {
+const createGroupMembershipInstance = async ({
+  group,
+  groupMembersType,
+  paginator,
+  userIdentifier,
+}: {
+  group: InstanceElement
+  groupMembersType: ObjectType
+  paginator: clientUtils.Paginator
+  userIdentifier: 'id' | 'email'
+}): Promise<InstanceElement | undefined> => {
   const groupName = group.elemID.name
   const groupMembersData = await getGroupMembersData(paginator, group)
   return groupMembersData.length > 0
     ? new InstanceElement(
         groupName,
         groupMembersType,
-        { members: groupMembersData.map(member => member.profile.login) },
+        { members: groupMembersData.map(member => (userIdentifier === 'id' ? member.id : member.profile.login)) },
         [OKTA, RECORDS_PATH, GROUP_MEMBERSHIP_TYPE_NAME, pathNaclCase(groupName)],
         { [CORE_ANNOTATIONS.PARENT]: [new ReferenceExpression(group.elemID, group)] },
       )
@@ -113,7 +118,7 @@ const deployGroupAssignment = async ({
   groupId: string
   userId: string
   action: 'add' | 'remove'
-  client: OktaClient
+  client: clientUtils.HTTPWriteClientInterface & clientUtils.HTTPReadClientInterface
 }): Promise<{ userId: string; result: 'success' | 'failure' }> => {
   const endpoint = `/api/v1/groups/${groupId}/users/${userId}`
   try {
@@ -150,12 +155,12 @@ const updateChangeWithFailedAssignments = async (
 
 const deployGroupMembershipChange = async (
   change: AdditionChange<InstanceElement> | ModificationChange<InstanceElement>,
-  client: OktaClient,
+  client: clientUtils.HTTPWriteClientInterface & clientUtils.HTTPReadClientInterface,
 ): Promise<GroupMembershipDeployResult> => {
   const parentGroupId = getParents(getChangeData(change))[0]?.id // parent is already resolved
   if (!_.isString(parentGroupId)) {
     log.error(
-      'Faild to deploy group membership for change %s because parent group id for group is missing: %s',
+      'Failed to deploy group membership for change %s because parent group id for group is missing: %s',
       getChangeData(change).elemID.getFullName(),
       safeJsonStringify(getChangeData(change)),
     )
@@ -213,7 +218,7 @@ const deployGroupMembershipChange = async (
 /**
  * Create a single group-memberships instance per group.
  */
-const groupMembersFilter: FilterCreator = ({ config, paginator, client }) => ({
+const groupMembersFilter: FilterCreator = ({ definitions, config, paginator, fetchQuery }) => ({
   name: 'groupMembersFilter',
   onFetch: async (elements: Element[]): Promise<void> => {
     if (!config[FETCH_CONFIG].includeGroupMemberships) {
@@ -227,10 +232,11 @@ const groupMembersFilter: FilterCreator = ({ config, paginator, client }) => ({
     const groupMembersType = createGroupMembershipType()
     elements.push(groupMembersType)
 
+    const userIdentifier = shouldConvertUserIds(fetchQuery, config) ? 'email' : 'id'
     const groupMembershipInstances = (
       await Promise.all(
-        groupInstances.map(async groupInstance =>
-          createGroupMembershipInstance(groupInstance, groupMembersType, paginator),
+        groupInstances.map(async group =>
+          createGroupMembershipInstance({ group, groupMembersType, paginator, userIdentifier }),
         ),
       )
     ).filter(isInstanceElement)
@@ -238,6 +244,7 @@ const groupMembersFilter: FilterCreator = ({ config, paginator, client }) => ({
     groupMembershipInstances.forEach(instance => elements.push(instance))
   },
   deploy: async changes => {
+    const client = definitions.clients.options.main.httpClient
     const [relevantChanges, leftoverChanges] = _.partition(
       changes,
       change =>

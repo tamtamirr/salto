@@ -25,6 +25,7 @@ import { v4 as uuidv4 } from 'uuid'
 import { RECORD_REF } from '../../../constants'
 import { SuiteAppSoapCredentials, toUrlAccountId } from '../../credentials'
 import {
+  ATTRIBUTES,
   CONSUMER_KEY,
   CONSUMER_SECRET,
   ECONN_ERROR,
@@ -559,7 +560,7 @@ export default class SoapClient {
       },
       ...Object.fromEntries(
         await awu(Object.entries(values))
-          .filter(([key]) => key !== 'attributes')
+          .filter(([key]) => key !== ATTRIBUTES)
           .map(async ([key, value]) => {
             const updateKey = !key.includes(':') ? `${namespaceAlias}:${key}` : key
             const fieldType = await type.fields[key]?.getType()
@@ -769,7 +770,7 @@ export default class SoapClient {
     }
     const responses = await Promise.all(
       _.range(2, totalPages + 1).map(async i => {
-        const res = await this.sendSearchWithIdRequest({ searchId, pageIndex: i })
+        const res = await this.sendSearchWithIdRequest({ searchId, pageIndex: i }, type)
         log.debug(`Finished sending search request for page ${i}/${totalPages} of type ${type}`)
         return res
       }),
@@ -963,13 +964,16 @@ export default class SoapClient {
   }
 
   @retryOnBadResponse
-  private async sendSearchWithIdRequest(args: { searchId: string; pageIndex: number }): Promise<SearchResponse> {
+  private async sendSearchWithIdRequest(
+    args: { searchId: string; pageIndex: number },
+    type: string,
+  ): Promise<SearchResponse> {
     const response = await this.sendSoapRequest('searchMoreWithId', args)
     this.assertSearchResponse(response)
     if (isSearchErrorResponse(response)) {
       const { code, message } = response.searchResult.status.statusDetail[0]
-      log.error('Failed to run search request: %o', response)
-      throw new Error(`Failed to run search request: error code: ${code}, error message: ${message}`)
+      log.error('Failed to run search request of type %s: %o', type, response)
+      throw new Error(`Failed to run search request of type ${type}: error code: ${code}, error message: ${message}`)
     }
     return response
   }

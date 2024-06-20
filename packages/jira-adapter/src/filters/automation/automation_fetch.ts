@@ -21,19 +21,35 @@ import {
   ReferenceExpression,
   Values,
 } from '@salto-io/adapter-api'
-import { createSchemeGuard, naclCase, pathNaclCase } from '@salto-io/adapter-utils'
+import {
+  createSchemeGuard,
+  naclCase,
+  pathNaclCase,
+  WalkOnFunc,
+  walkOnValue,
+  WALK_NEXT_STEP,
+} from '@salto-io/adapter-utils'
 import { elements as elementUtils, client as clientUtils, config as configUtils } from '@salto-io/adapter-components'
 import { values as lowerdashValues } from '@salto-io/lowerdash'
 import { logger } from '@salto-io/logging'
 import Joi from 'joi'
 import _ from 'lodash'
-import { AUTOMATION_TYPE, fetchFailedWarnings, JIRA, PROJECT_TYPE, PROJECTS_FIELD } from '../../constants'
+import {
+  AUTOMATION_RETRY_PERIODS,
+  AUTOMATION_TYPE,
+  fetchFailedWarnings,
+  JIRA,
+  PROJECT_TYPE,
+  PROJECTS_FIELD,
+} from '../../constants'
 import JiraClient from '../../client/client'
 import { FilterCreator } from '../../filter'
 import { createAutomationTypes } from './types'
 import { JiraConfig } from '../../config/config'
 import { getCloudId } from './cloud_id'
 import { convertRuleScopeValueToProjects } from './automation_structure'
+
+const AUTOMATION_RETRY_CODES = [504, 502]
 
 export type AssetComponent = {
   value: {
@@ -56,7 +72,9 @@ const ASSET_COMPONENT_SCHEME = Joi.object({
     schemaId: Joi.string().required(),
     schemaLabel: Joi.string(),
     objectTypeLabel: Joi.string(),
-  }).unknown(true),
+  })
+    .unknown(true)
+    .required(),
 }).unknown(true)
 
 export const isAssetComponent = createSchemeGuard<AssetComponent>(ASSET_COMPONENT_SCHEME)
@@ -78,25 +96,46 @@ const PAGE_RESPONSE_SCHEME = Joi.object({
 
 const isPageResponse = createSchemeGuard<PageResponse>(PAGE_RESPONSE_SCHEME, 'Received an invalid page response')
 
-const requestPage = async (
-  url: string,
-  client: JiraClient,
-  offset: number,
-  pageSize: number,
-): Promise<PageResponse> => {
-  const response = await client.post({
-    url,
-    data: {
-      offset,
-      limit: pageSize,
-    },
-  })
-
-  if (!isPageResponse(response.data)) {
-    throw new Error('Failed to get response page, received invalid response')
+const requestPageRecurse = async ({
+  url,
+  client,
+  offset,
+  pageSize,
+  retriesUsed,
+}: {
+  url: string
+  client: JiraClient
+  offset: number
+  pageSize: number
+  retriesUsed: number
+}): Promise<PageResponse> => {
+  if (retriesUsed > AUTOMATION_RETRY_PERIODS.length) {
+    throw new Error('Failed to get automation requests following multiple retries with 504 errors')
   }
+  if (retriesUsed > 0) {
+    log.warn('Received a 504 error for automation private API, retrying')
+    await new Promise(resolve => setTimeout(resolve, AUTOMATION_RETRY_PERIODS[retriesUsed - 1]))
+  }
+  try {
+    const response = await client.post({
+      url,
+      data: {
+        offset,
+        limit: pageSize,
+      },
+    })
+    if (!isPageResponse(response.data)) {
+      throw new Error('Failed to get response page, received invalid response')
+    }
 
-  return response.data
+    return response.data
+  } catch (e) {
+    // we get an occasional 504/502 from the Automation's APIs, Atlassian's solution is to retry
+    if (!(e instanceof clientUtils.HTTPError && AUTOMATION_RETRY_CODES.includes(e.response?.status))) {
+      throw e
+    }
+  }
+  return requestPageRecurse({ url, client, offset, pageSize, retriesUsed: retriesUsed + 1 })
 }
 
 const postPaginated = async (url: string, client: JiraClient, pageSize: number): Promise<Values[]> => {
@@ -104,7 +143,7 @@ const postPaginated = async (url: string, client: JiraClient, pageSize: number):
   const items: Values[] = []
   for (let offset = 0; hasMore; offset += pageSize) {
     // eslint-disable-next-line no-await-in-loop
-    const response = await requestPage(url, client, offset, pageSize)
+    const response = await requestPageRecurse({ url, client, offset, pageSize, retriesUsed: 0 })
 
     hasMore = response.total > offset + pageSize
     items.push(...response.values)
@@ -112,6 +151,15 @@ const postPaginated = async (url: string, client: JiraClient, pageSize: number):
 
   return items
 }
+
+const omitFields =
+  (fieldsToOmit: string[]): WalkOnFunc =>
+  ({ value }) => {
+    if (lowerdashValues.isPlainRecord(value)) {
+      fieldsToOmit.forEach(field => delete value[field])
+    }
+    return WALK_NEXT_STEP.RECURSE
+  }
 
 const createInstance = (
   values: Values,
@@ -121,11 +169,12 @@ const createInstance = (
   getElemIdFunc?: ElemIdGetter,
 ): InstanceElement => {
   const serviceIds = elementUtils.createServiceIds({ entry: values, serviceIDFields: ['id'], typeID: type.elemID })
-  const idFields = configUtils.getTypeTransformationConfig(
+  const TypeTransformationConfig = configUtils.getTypeTransformationConfig(
     AUTOMATION_TYPE,
     config.apiDefinitions.types,
     config.apiDefinitions.typeDefaults,
-  ).idFields ?? ['name']
+  )
+  const idFields = TypeTransformationConfig.idFields ?? ['name']
   const idFieldsWithoutProjects = idFields.filter(field => field !== PROJECTS_FIELD)
   const defaultName = naclCase(
     [
@@ -141,15 +190,25 @@ const createInstance = (
 
   const instanceName = getElemIdFunc && serviceIds ? getElemIdFunc(JIRA, serviceIds, defaultName).name : defaultName
 
-  return new InstanceElement(instanceName, type, values, [
+  const elem = new InstanceElement(instanceName, type, values, [
     JIRA,
     elementUtils.RECORDS_PATH,
     AUTOMATION_TYPE,
     pathNaclCase(instanceName),
   ])
+
+  if (TypeTransformationConfig.fieldsToOmit !== undefined && TypeTransformationConfig.fieldsToOmit.length > 0) {
+    walkOnValue({
+      elemId: elem.elemID,
+      value: elem.value,
+      func: omitFields((TypeTransformationConfig.fieldsToOmit ?? []).map(field => field.fieldName)),
+    })
+  }
+
+  return elem
 }
 
-// For componetes that has assets fields, we need to remove some fields that can be calculated from the schema and object type
+// For components that has assets fields, we need to remove some fields that can be calculated from the schema and object type
 const processComponents = (component: Component): void => {
   if (isAssetComponent(component)) {
     delete component.value.schemaLabel
@@ -166,11 +225,13 @@ const processComponents = (component: Component): void => {
 
 /* Since the children and conditions of the components can also be of the AssetComponent type,
  * we need to handle them the same way as we handle the top-level component value. */
-const mofidyAssetsComponents = (instance: InstanceElement): void => {
-  if (!instance.value.components) {
-    return
+const modifyAssetsComponents = (instance: InstanceElement): void => {
+  if (instance.value.components !== undefined) {
+    instance.value.components.forEach(processComponents)
   }
-  instance.value.components.forEach(processComponents)
+  if (instance.value.trigger !== undefined) {
+    processComponents(instance.value.trigger)
+  }
 }
 
 export const getAutomations = async (client: JiraClient, config: JiraConfig): Promise<Values[]> =>
@@ -183,7 +244,7 @@ export const getAutomations = async (client: JiraClient, config: JiraConfig): Pr
     : postPaginated(
         `/gateway/api/automation/internal-api/jira/${await getCloudId(client)}/pro/rest/GLOBAL/rules`,
         client,
-        config.client.pageSize?.get ?? DEFAULT_PAGE_SIZE,
+        config.fetch.automationPageSize ?? config.client.pageSize?.get ?? DEFAULT_PAGE_SIZE,
       )
 
 /**
@@ -220,7 +281,7 @@ const filter: FilterCreator = ({ client, getElemIdFunc, config, fetchQuery }) =>
         elements
           .filter(isInstanceElement)
           .filter(instance => instance.elemID.typeName === AUTOMATION_TYPE)
-          .forEach(instance => mofidyAssetsComponents(instance))
+          .forEach(instance => modifyAssetsComponents(instance))
       }
       elements.push(automationType, ...subTypes)
       return undefined

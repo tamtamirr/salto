@@ -28,7 +28,7 @@ import {
   SPACE_TYPE_NAME,
   TEMPLATE_TYPE_NAME,
 } from '../../constants'
-import { adjustHomepageToId, spaceMergeAndTransformAdjust } from '../utils/space'
+import { spaceMergeAndTransformAdjust } from '../utils/space'
 
 const DEFAULT_FIELDS_TO_HIDE: Record<string, definitions.fetch.ElementFieldCustomization> = {
   created_at: {
@@ -101,14 +101,13 @@ const createCustomizations = (): Record<string, definitions.fetch.InstanceFetchA
     requests: [
       {
         endpoint: {
-          path: '/wiki/rest/api/space',
+          path: '/wiki/api/v2/spaces',
           queryArgs: {
-            expand: 'metadata,description,description.plain,metadata.labels,description.view,homepage',
+            'description-format': 'plain',
           },
         },
         transformation: {
           root: 'results',
-          adjust: adjustHomepageToId,
         },
       },
     ],
@@ -253,9 +252,6 @@ const createCustomizations = (): Record<string, definitions.fetch.InstanceFetchA
     element: {
       topLevel: {
         isTopLevel: true,
-        serviceUrl: {
-          path: '/wiki/spaces/{spaceId.key}/pages/{id}',
-        },
         elemID: {
           // Confluence does not allow pages with the same title in the same space
           parts: [{ fieldName: 'spaceId', isReference: true }, { fieldName: 'title' }],
@@ -361,7 +357,7 @@ const createCustomizations = (): Record<string, definitions.fetch.InstanceFetchA
       },
     ],
     resource: {
-      directFetch: true,
+      directFetch: false,
       serviceIDFields: ['templateId'],
     },
     element: {

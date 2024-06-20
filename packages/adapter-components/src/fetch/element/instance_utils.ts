@@ -30,10 +30,21 @@ import {
   transformValuesSync,
 } from '@salto-io/adapter-utils'
 import { collections } from '@salto-io/lowerdash'
+import { logger } from '@salto-io/logging'
 import { FetchApiDefinitionsOptions, InstanceFetchApiDefinitions } from '../../definitions/system/fetch'
-import { DefQuery, NameMappingFunctionMap, ResolveCustomNameMappingOptionsType } from '../../definitions'
+import {
+  ApiDefinitions,
+  APIDefinitionsOptions,
+  DefQuery,
+  NameMappingFunctionMap,
+  queryWithDefault,
+  ResolveCustomNameMappingOptionsType,
+} from '../../definitions'
 import { ElemIDCreator, PartsCreator, createElemIDFunc, getElemPath } from './id_utils'
 import { ElementAndResourceDefFinder } from '../../definitions/system/fetch/types'
+import { removeNullValues } from './type_utils'
+
+const log = logger(module)
 
 /**
  * Transform a value to a valid instance value by nacl-casing all its keys,
@@ -92,6 +103,22 @@ export const omitInstanceValues = <Options extends FetchApiDefinitionsOptions>({
     strict: false,
   })
 
+/**
+ * calling "omitInstanceValues" on all instances and adding a log time to it
+ */
+export const omitAllInstancesValues = <Options extends FetchApiDefinitionsOptions>({
+  instances,
+  defQuery,
+}: {
+  instances: InstanceElement[]
+  defQuery: ElementAndResourceDefFinder<Options>
+}): void =>
+  log.timeDebug(() => {
+    instances.forEach(inst => {
+      inst.value = omitInstanceValues({ value: inst.value, type: inst.getTypeSync(), defQuery })
+    })
+  }, 'omitAllInstancesValues')
+
 export type InstanceCreationParams = {
   entry: Values
   type: ObjectType
@@ -126,7 +153,7 @@ export const getInstanceCreationFunctions = <Options extends FetchApiDefinitions
   const { element: elementDef, resource: resourceDef } = defQuery.query(typeName) ?? {}
 
   if (!elementDef?.topLevel?.isTopLevel) {
-    // should have already been tested in caller
+    // should have already been tested in caller, we should not get here if topLevel is undefined
     const error = `type ${adapterName}:${typeName} is not defined as top-level, cannot create instances`
     throw new Error(error)
   }
@@ -173,14 +200,30 @@ export const createInstance = ({
   toPath,
   defaultName,
   parent,
-}: InstanceCreationParams): InstanceElement => {
+}: InstanceCreationParams): InstanceElement | undefined => {
   const annotations = _.pick(entry, Object.keys(INSTANCE_ANNOTATIONS))
   const value = _.omit(entry, Object.keys(INSTANCE_ANNOTATIONS))
+  const refinedValue = value !== undefined ? removeNullValues(value, type) : {}
+
+  if (_.isEmpty(refinedValue)) {
+    return undefined
+  }
   if (parent !== undefined) {
     annotations[INSTANCE_ANNOTATIONS.PARENT] = collections.array.makeArray(annotations[INSTANCE_ANNOTATIONS.PARENT])
     annotations[INSTANCE_ANNOTATIONS.PARENT].push(new ReferenceExpression(parent.elemID, parent))
   }
 
   const args = { entry, parent, defaultName }
-  return new InstanceElement(toElemName(args), type, value, toPath(args), annotations)
+  return new InstanceElement(toElemName(args), type, refinedValue, toPath(args), annotations)
+}
+
+export const getFieldsToOmit = <Options extends APIDefinitionsOptions = {}>(
+  definitions: ApiDefinitions<Options>,
+  typeName: string,
+): string[] => {
+  const defQuery = queryWithDefault(definitions.fetch?.instances ?? {})
+  const customizations = defQuery.query(typeName)?.element?.fieldCustomizations ?? {}
+  return Object.entries(customizations)
+    .filter(([, customization]) => customization.omit === true)
+    .map(([fieldName]) => fieldName)
 }
