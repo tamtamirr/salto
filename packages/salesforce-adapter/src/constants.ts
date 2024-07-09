@@ -459,6 +459,7 @@ export const DATA_INSTANCES_CHANGED_AT_MAGIC = '__DataInstances__'
 // CPQ CustomObjects
 export const CPQ_NAMESPACE = 'SBQQ'
 export const CPQ_PRODUCT_RULE = 'SBQQ__ProductRule__c'
+export const CPQ_ERROR_CONDITION = 'SBQQ__ErrorCondition__c'
 export const CPQ_PRICE_RULE = 'SBQQ__PriceRule__c'
 export const CPQ_PRICE_CONDITION = 'SBQQ__PriceCondition__c'
 export const CPQ_LOOKUP_QUERY = 'SBQQ__LookupQuery__c'
@@ -473,6 +474,8 @@ export const CPQ_PRODUCT_OPTION = 'SBQQ__ProductOption__c'
 export const CPQ_PRICE_SCHEDULE = 'SBQQ__PriceSchedule__c'
 export const CPQ_DISCOUNT_SCHEDULE = 'SBQQ__DiscountSchedule__c'
 export const CPQ_SUBSCRIPTION = 'SBQQ__Subscription__c'
+export const CPQ_QUOTE_TERM = 'SBQQ__QuoteTerm__c'
+export const CPQ_TERM_CONDITION = 'SBQQ__TermCondition__c'
 
 // CPQ Fields
 export const CPQ_LOOKUP_OBJECT_NAME = 'SBQQ__LookupObject__c'
@@ -503,6 +506,9 @@ export const CPQ_TARGET_FIELD = 'SBQQ__TargetField__c'
 export const CPQ_TARGET_OBJECT = 'SBQQ__TargetObject__c'
 export const CPQ_CONDITIONS_MET = 'SBQQ__ConditionsMet__c'
 export const CPQ_PRICE_CONDITION_RULE_FIELD = 'SBQQ__Rule__c'
+export const CPQ_ERROR_CONDITION_RULE_FIELD = 'SBQQ__Rule__c'
+export const CPQ_ADVANCED_CONDITION_FIELD = 'SBQQ__AdvancedCondition__c'
+export const CPQ_RULE_FIELD = 'SBQQ__Rule__c'
 
 export const CPQ_QUOTE_NO_PRE = 'Quote__c'
 export const CPQ_QUOTE_LINE_GROUP_NO_PRE = 'QuoteLineGroup__c'
@@ -562,6 +568,11 @@ export const ADD_SBAA_CUSTOM_APPROVAL_RULE_AND_CONDITION_GROUP =
   )
 export const ADD_CPQ_CUSTOM_PRICE_RULE_AND_CONDITION_GROUP =
   groupIdForInstanceChangeGroup('add', 'Custom PriceRule and PriceCondition')
+export const ADD_CPQ_CUSTOM_PRODUCT_RULE_AND_CONDITION_GROUP =
+  groupIdForInstanceChangeGroup('add', 'Custom ProductRule and ErrorCondition')
+export const ADD_CPQ_QUOTE_TERM_AND_CONDITION_GROUP =
+  groupIdForInstanceChangeGroup('add', 'Custom QuoteTerm and TermCondition')
+
 export const METADATA_CHANGE_GROUP = 'Salesforce Metadata'
 
 export const UNLIMITED_INSTANCES_VALUE = -1

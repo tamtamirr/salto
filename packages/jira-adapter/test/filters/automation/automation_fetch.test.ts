@@ -65,6 +65,7 @@ describe('automationFetchFilter', () => {
               'ari:cloud:jira:a35ab846-aa6a-41c1-b9ca-40eb4e260dd8:project/3',
             ],
           },
+          ruleHome: 'some value', // should always omit this field
         },
       ],
     },
@@ -581,6 +582,27 @@ describe('automationFetchFilter', () => {
 
     expect(elements[1].elemID.getFullName()).toEqual('jira.Automation.instance.automationName_projectName')
   })
+  it('should retry if response is 502', async () => {
+    const { client: cli, connection: conn } = mockClient(false)
+    client = cli
+    connection = conn
+
+    conn.post.mockImplementationOnce(mockPostResponse) // for cloud id
+    conn.post.mockImplementationOnce(async () => {
+      throw new HTTPError('failed', { data: {}, status: 502 })
+    })
+    conn.post.mockImplementationOnce(mockPostResponse)
+    const elements = [project2Instance]
+    await (
+      automationFetchFilter(
+        getFilterParams({
+          client,
+        }),
+      ) as filterUtils.FilterWith<'onFetch'>
+    ).onFetch(elements)
+
+    expect(elements[1].elemID.getFullName()).toEqual('jira.Automation.instance.automationName_projectName')
+  })
   it('should fail if retry response is 504 and passed retries count', async () => {
     const { client: cli, connection: conn } = mockClient(false)
     client = cli
@@ -788,7 +810,6 @@ describe('automationFetchFilter', () => {
         },
         trigger: {
           component: 'ACTION',
-          schemaVersion: 1,
           type: 'cmdb.object.create',
           value: {
             objectTypeId: '35',
@@ -810,7 +831,6 @@ describe('automationFetchFilter', () => {
         components: [
           {
             component: 'ACTION',
-            schemaVersion: 1,
             type: 'cmdb.object.create',
             value: {
               objectTypeId: '35',
@@ -829,7 +849,6 @@ describe('automationFetchFilter', () => {
             children: [
               {
                 component: 'ACTION',
-                schemaVersion: 1,
                 type: 'cmdb.object.create',
                 value: {
                   objectTypeId: '35',
@@ -890,7 +909,6 @@ describe('automationFetchFilter', () => {
         },
         trigger: {
           component: 'ACTION',
-          schemaVersion: 1,
           type: 'cmdb.object.create',
           value: {
             objectTypeId: '35',
@@ -909,7 +927,6 @@ describe('automationFetchFilter', () => {
         components: [
           {
             component: 'ACTION',
-            schemaVersion: 1,
             type: 'cmdb.object.create',
             value: {
               objectTypeId: '35',
@@ -925,7 +942,6 @@ describe('automationFetchFilter', () => {
             children: [
               {
                 component: 'ACTION',
-                schemaVersion: 1,
                 type: 'cmdb.object.create',
                 value: {
                   objectTypeId: '35',
@@ -977,7 +993,6 @@ describe('automationFetchFilter', () => {
                   },
                   trigger: {
                     component: 'ACTION',
-                    schemaVersion: 1,
                     type: 'cmdb.object.create',
                     value: {
                       workspaceId: '68d020c3-b88e-47dc-9231-452f7dc63521',
@@ -998,7 +1013,6 @@ describe('automationFetchFilter', () => {
                   components: [
                     {
                       component: 'ACTION',
-                      schemaVersion: 1,
                       type: 'cmdb.object.create',
                       value: {
                         workspaceId: '68d020c3-b88e-47dc-9231-452f7dc63521',
@@ -1057,7 +1071,6 @@ describe('automationFetchFilter', () => {
         },
         trigger: {
           component: 'ACTION',
-          schemaVersion: 1,
           type: 'cmdb.object.create',
           value: {
             schemaId: '5',
@@ -1075,7 +1088,6 @@ describe('automationFetchFilter', () => {
         components: [
           {
             component: 'ACTION',
-            schemaVersion: 1,
             type: 'cmdb.object.create',
             value: {
               schemaId: '5',
@@ -1125,7 +1137,6 @@ describe('automationFetchFilter', () => {
                   components: [
                     {
                       component: 'ACTION',
-                      schemaVersion: 1,
                       type: 'cmdb.object.create',
                       value: {
                         objectTypeId: '35',
@@ -1186,7 +1197,6 @@ describe('automationFetchFilter', () => {
         components: [
           {
             component: 'ACTION',
-            schemaVersion: 1,
             type: 'cmdb.object.create',
             value: {
               objectTypeId: '35',

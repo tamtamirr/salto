@@ -31,6 +31,7 @@ import {
   isSaltoError,
   SaltoError,
   isRemovalChange,
+  isServiceId,
 } from '@salto-io/adapter-api'
 import {
   config as configUtils,
@@ -41,10 +42,10 @@ import {
 } from '@salto-io/adapter-components'
 import { createSchemeGuard } from '@salto-io/adapter-utils'
 import { logger } from '@salto-io/logging'
-import { values, collections } from '@salto-io/lowerdash'
-import OktaClient from './client/client'
+import { values, collections, promises } from '@salto-io/lowerdash'
 import { ACTIVE_STATUS, INACTIVE_STATUS, NETWORK_ZONE_TYPE_NAME } from './constants'
-import { OktaStatusActionName, OktaSwaggerApiConfig } from './config'
+import { OktaSwaggerApiConfig } from './config'
+import { StatusActionName } from './definitions/types'
 
 const log = logger(module)
 
@@ -123,9 +124,9 @@ const shouldDeactivateBeforeRemoval = (change: Change<InstanceElement>): boolean
 
 export const deployStatusChange = async (
   change: Change<InstanceElement>,
-  client: OktaClient,
+  client: clientUtils.HTTPWriteClientInterface & clientUtils.HTTPReadClientInterface,
   apiDefinitions: OktaSwaggerApiConfig,
-  operation: OktaStatusActionName,
+  operation: StatusActionName,
 ): Promise<void> => {
   const deployRequests = apiDefinitions.types?.[getChangeData(change).elemID.typeName]?.deployRequests
   const instance = getChangeData(change)
@@ -146,17 +147,23 @@ export const deployStatusChange = async (
   }
 }
 
-export const assignServiceIdToAdditionChange = (
+export const assignServiceIdToAdditionChange = async (
   response: deployment.ResponseResult,
   change: AdditionChange<InstanceElement>,
-  apiDefinitions: configUtils.AdapterApiConfig,
-): void => {
+): Promise<void> => {
   if (!Array.isArray(response)) {
-    const serviceIdField =
-      apiDefinitions.types[getChangeData(change).elemID.typeName]?.transformation?.serviceIdField ?? 'id'
-    if (response?.[serviceIdField] !== undefined) {
-      getChangeData(change).value[serviceIdField] = response[serviceIdField]
-    }
+    const type = await getChangeData(change).getType()
+    const serviceIDFieldNames = Object.keys(
+      _.pickBy(
+        await promises.object.mapValuesAsync(type.fields, async f => isServiceId(await f.getType())),
+        val => val,
+      ),
+    )
+    serviceIDFieldNames.forEach(fieldName => {
+      if (response?.[fieldName] !== undefined) {
+        getChangeData(change).value[fieldName] = response[fieldName]
+      }
+    })
   } else {
     log.warn('Received unexpected response, could not assign service id to change: %o', response)
   }
@@ -167,7 +174,7 @@ export const assignServiceIdToAdditionChange = (
  */
 export const defaultDeployChange = async (
   change: Change<InstanceElement>,
-  client: OktaClient,
+  client: clientUtils.HTTPWriteClientInterface & clientUtils.HTTPReadClientInterface,
   apiDefinitions: OktaSwaggerApiConfig,
   fieldsToIgnore?: string[],
   queryParams?: Record<string, string>,
@@ -187,6 +194,9 @@ export const defaultDeployChange = async (
     }
   }
 
+  if (apiDefinitions.types[getChangeData(change).elemID.typeName] === undefined) {
+    throw new Error(`No deployment configuration found for type ${getChangeData(change).elemID.typeName}`)
+  }
   const { deployRequests } = apiDefinitions.types[getChangeData(change).elemID.typeName]
   try {
     const response = await deployment.deployChange({
@@ -199,7 +209,7 @@ export const defaultDeployChange = async (
     })
 
     if (isAdditionChange(change)) {
-      assignServiceIdToAdditionChange(response, change, apiDefinitions)
+      await assignServiceIdToAdditionChange(response, change)
     }
     return response
   } catch (err) {
@@ -212,7 +222,7 @@ export const defaultDeployChange = async (
  */
 export const defaultDeployWithStatus = async (
   change: Change<InstanceElement>,
-  client: OktaClient,
+  client: clientUtils.HTTPWriteClientInterface & clientUtils.HTTPReadClientInterface,
   apiDefinitions: OktaSwaggerApiConfig,
   fieldsToIgnore?: string[],
   queryParams?: Record<string, string>,
@@ -288,7 +298,7 @@ const getValuesToRemove = (change: ModificationChange<InstanceElement>, fieldNam
 export const deployEdges = async (
   change: AdditionChange<InstanceElement> | ModificationChange<InstanceElement>,
   deployRequestByField: Record<string, configUtils.DeploymentRequestsByAction>,
-  client: OktaClient,
+  client: clientUtils.HTTPWriteClientInterface & clientUtils.HTTPReadClientInterface,
 ): Promise<void> => {
   const instance = getChangeData(change)
   const instanceId = instance.value.id

@@ -2,10 +2,9 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "outDir": "dist",
-    "baseUrl": ".",
-    "resolveJsonModule": true
+    "baseUrl": "."
   },
-  "include": ["src/**/*", "src/**/*.json", "test/**/*", "index.ts"],
+  "include": ["src/**/*", "src/**/*.json", "index.ts"],
   "references": [
     { "path": "../adapter-api" },
     { "path": "../adapter-utils" },
@@ -17,6 +16,7 @@
     { "path": "../file" },
     { "path": "../google-workspace-adapter" },
     { "path": "../intercom-adapter" },
+    { "path": "../jamf-adapter" },
     { "path": "../jira-adapter" },
     { "path": "../logging" },
     { "path": "../lowerdash" },
@@ -32,6 +32,7 @@
     { "path": "../workato-adapter" },
     { "path": "../workspace" },
     { "path": "../zendesk-adapter" },
-    { "path": "../zuora-billing-adapter" }
+    { "path": "../zuora-billing-adapter" },
+    { "path": "../pagerduty-adapter" }
   ]
 }

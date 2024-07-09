@@ -15,7 +15,7 @@
  */
 import _ from 'lodash'
 import { ChangeValidator } from '@salto-io/adapter-api'
-import { deployment } from '@salto-io/adapter-components'
+import { deployment, elements as elementsUtils, definitions as definitionUtils } from '@salto-io/adapter-components'
 import { applicationValidator } from './application'
 import { groupRuleStatusValidator } from './group_rule_status'
 import { groupRuleActionsValidator } from './group_rule_actions'
@@ -31,6 +31,7 @@ import { enabledAuthenticatorsValidator } from './enabled_authenticators'
 import { usersValidator } from './user'
 import { appWithGroupPushValidator } from './app_with_group_push'
 import { appUserSchemaWithInactiveAppValidator } from './app_schema_with_inactive_app'
+import { appUserSchemaBaseChangesValidator } from './app_user_schema_base_properties'
 import { appGroupAssignmentValidator } from './app_group_assignments'
 import { appUrlsValidator } from './app_urls'
 import { profileMappingRemovalValidator } from './profile_mapping_removal'
@@ -38,25 +39,56 @@ import { brandRemovalValidator } from './brand_removal'
 import { appUserSchemaRemovalValidator } from './app_user_schema_removal'
 import { domainAdditionValidator } from './domain_addition'
 import { domainModificationValidator } from './domain_modification'
+import { dynamicOSVersionFeatureValidator } from './dynamic_os_version_feature'
+import { brandThemeRemovalValidator } from './brand_theme_removal'
+import { userStatusValidator } from './user_status'
 import OktaClient from '../client/client'
 import {
   API_DEFINITIONS_CONFIG,
-  ChangeValidatorName,
   DEPLOY_CONFIG,
-  OktaConfig,
+  OldOktaDefinitionsConfig,
   PRIVATE_API_DEFINITIONS_CONFIG,
 } from '../config'
-import { dynamicOSVersionFeatureValidator } from './dynamic_os_version_feature'
-import { brandThemeRemovalValidator } from './brand_theme_removal'
+import { OktaUserConfig, ChangeValidatorName } from '../user_config'
+import { OktaOptions } from '../definitions/types'
 
-const { createCheckDeploymentBasedOnConfigValidator, getDefaultChangeValidators, createChangeValidator } =
-  deployment.changeValidators
+const {
+  createCheckDeploymentBasedOnConfigValidator,
+  createCheckDeploymentBasedOnDefinitionsValidator,
+  getDefaultChangeValidators,
+  createChangeValidator,
+} = deployment.changeValidators
 
-export default ({ client, config }: { client: OktaClient; config: OktaConfig }): ChangeValidator => {
+export default ({
+  client,
+  userConfig,
+  fetchQuery,
+  definitions,
+  oldApiDefsConfig,
+}: {
+  client: OktaClient
+  userConfig: OktaUserConfig
+  fetchQuery: elementsUtils.query.ElementQuery
+  definitions: definitionUtils.ApiDefinitions<OktaOptions>
+  oldApiDefsConfig: OldOktaDefinitionsConfig
+}): ChangeValidator => {
+  const typesDeployedWithOldInfra = [
+    ...Object.keys(oldApiDefsConfig[API_DEFINITIONS_CONFIG].types),
+    ...Object.keys(oldApiDefsConfig[PRIVATE_API_DEFINITIONS_CONFIG].types),
+  ]
+  const typesDeployedWithNewInfra = definitionUtils.queryWithDefault(definitions.deploy?.instances ?? {}).allKeys()
   const validators: Record<ChangeValidatorName, ChangeValidator> = {
     ...getDefaultChangeValidators(),
     createCheckDeploymentBasedOnConfig: createCheckDeploymentBasedOnConfigValidator({
-      typesConfig: _.merge(config[API_DEFINITIONS_CONFIG].types, config[PRIVATE_API_DEFINITIONS_CONFIG].types),
+      typesConfig: _.merge(
+        oldApiDefsConfig[API_DEFINITIONS_CONFIG].types,
+        oldApiDefsConfig[PRIVATE_API_DEFINITIONS_CONFIG].types,
+      ),
+      typesWithNoDeploy: typesDeployedWithNewInfra,
+    }),
+    createCheckDeploymentBasedOnDefinitions: createCheckDeploymentBasedOnDefinitionsValidator<OktaOptions>({
+      deployDefinitions: definitions.deploy ?? { instances: {} },
+      typesWithNoDeploy: typesDeployedWithOldInfra,
     }),
     application: applicationValidator,
     appGroup: appGroupValidator,
@@ -69,8 +101,9 @@ export default ({ client, config }: { client: OktaClient; config: OktaConfig }):
     assignedAccessPolicies: assignedAccessPoliciesValidator,
     groupSchemaModifyBase: groupSchemaModifyBaseValidator,
     enabledAuthenticators: enabledAuthenticatorsValidator,
-    users: usersValidator(client, config),
+    users: usersValidator(client, userConfig, fetchQuery),
     appUserSchemaWithInactiveApp: appUserSchemaWithInactiveAppValidator,
+    appUserSchemaBaseChanges: appUserSchemaBaseChangesValidator,
     appWithGroupPush: appWithGroupPushValidator,
     groupPushToApplicationUniqueness: groupPushToApplicationUniquenessValidator,
     appGroupAssignment: appGroupAssignmentValidator,
@@ -82,10 +115,11 @@ export default ({ client, config }: { client: OktaClient; config: OktaConfig }):
     appUserSchemaRemoval: appUserSchemaRemovalValidator,
     domainAddition: domainAdditionValidator,
     domainModification: domainModificationValidator,
+    userStatusChanges: userStatusValidator,
   }
 
   return createChangeValidator({
     validators,
-    validatorsActivationConfig: config[DEPLOY_CONFIG]?.changeValidators,
+    validatorsActivationConfig: userConfig[DEPLOY_CONFIG]?.changeValidators,
   })
 }

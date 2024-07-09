@@ -48,21 +48,25 @@ export type Requester<ClientOptions extends string> = {
   }) => Promise<ValueGeneratedItem[]>
 }
 
-type ItemExtractor = (pages: ResponseValue[]) => GeneratedItem[]
+type ItemExtractor = (pages: ResponseValue[]) => Promise<GeneratedItem[]>
 
 const createExtractor = <ClientOptions extends string>(
   extractorDef: FetchRequestDefinition<ClientOptions>,
   typeName: string,
 ): ItemExtractor => {
   const transform = createValueTransformer(extractorDef.transformation)
-  return pages =>
-    pages.flatMap(page =>
-      collections.array.makeArray(
-        transform({
-          value: page,
-          typeName,
-          context: extractorDef.context ?? {},
-        }),
+  return async pages =>
+    _.flatten(
+      await Promise.all(
+        pages.map(async page =>
+          collections.array.makeArray(
+            await transform({
+              value: page,
+              typeName,
+              context: extractorDef.context ?? {},
+            }),
+          ),
+        ),
       ),
     )
 }
@@ -162,9 +166,14 @@ export const getRequester = <Options extends APIDefinitionsOptions>({
       polling: mergedEndpointDef.polling,
     })
 
-    const itemsWithContext = pagesWithContext
-      .map(({ context, pages }) => ({ items: extractorCreator(context)(pages), context }))
-      .flatMap(({ items, context }) => items.flatMap(item => ({ ...item, context })))
+    const itemsWithContext = (
+      await Promise.all(
+        pagesWithContext.map(async ({ context, pages }) => ({
+          items: await extractorCreator(context)(pages),
+          context,
+        })),
+      )
+    ).flatMap(({ items, context }) => items.map(item => ({ ...item, context })))
     return itemsWithContext.filter(item => {
       if (!lowerdashValues.isPlainRecord(item.value)) {
         log.warn(
@@ -189,7 +198,9 @@ export const getRequester = <Options extends APIDefinitionsOptions>({
         (requestDefQuery.query(callerIdentifier.typeName) ?? []).map(requestDef => {
           const mergedDef = getMergedRequestDefinition(requestDef).merged
           const allArgs = findAllUnresolvedArgs(mergedDef)
-          const relevantArgRoots = _.uniq(allArgs.map(arg => arg.split('.')[0]).filter(arg => arg.length > 0))
+          const relevantArgRoots = _.uniq(allArgs.map(arg => arg.split('.')[0]).filter(arg => arg.length > 0)).concat(
+            _.keys(contextPossibleArgs),
+          )
           const contextFunc =
             mergedDef.context?.custom !== undefined
               ? mergedDef.context.custom(mergedDef.context)

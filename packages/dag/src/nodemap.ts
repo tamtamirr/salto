@@ -15,9 +15,11 @@
  */
 import wu from 'wu'
 import { collections, values } from '@salto-io/lowerdash'
+import { logger } from '@salto-io/logging'
 
 const { difference } = collections.set
 type DFS_STATUS = 'in_progress' | 'done'
+const log = logger(module)
 
 export type NodeId = collections.set.SetId
 export type Edge = [NodeId, NodeId]
@@ -88,6 +90,7 @@ class WalkErrors<T> extends Map<NodeId, Error> {
   }
 
   set(nodeId: NodeId, value: Error, visited: Set<string> = new Set()): this {
+    log.error('Error encountered while walking on node %s: %s\n stack: %s', nodeId, value, value.stack)
     const idAsString = nodeId.toString()
     if (visited.has(idAsString)) {
       return this
@@ -246,7 +249,12 @@ export class AbstractNodeMap extends collections.map.DefaultMap<NodeId, Set<Node
   getCycle(): Edge[] | undefined {
     const getCycleFrom = (id: NodeId, nodeColors: Map<NodeId, DFS_STATUS>, path: Edge[] = []): Edge[] | undefined => {
       if (nodeColors.has(id)) {
-        return nodeColors.get(id) === 'in_progress' ? path : undefined
+        if (nodeColors.get(id) === 'in_progress') {
+          // Found a cycle - the cycle is "closed" on this node.
+          // In order to return just the cycle, we need to remove any edges that lead up to this node
+          return path.slice(path.findIndex(edge => edge[0] === id))
+        }
+        return undefined
       }
       nodeColors.set(id, 'in_progress')
       const children = this.get(id).keys()

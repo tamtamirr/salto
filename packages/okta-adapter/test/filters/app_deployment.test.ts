@@ -31,7 +31,7 @@ import {
 } from '@salto-io/adapter-api'
 import { filterUtils, client as clientUtils } from '@salto-io/adapter-components'
 import { buildElementsSourceFromElements } from '@salto-io/adapter-utils'
-import { getFilterParams, mockClient } from '../utils'
+import { createDefinitions, getFilterParams, mockClient } from '../utils'
 import OktaClient from '../../src/client/client'
 import appDeploymentFilter, { isInactiveCustomAppChange } from '../../src/filters/app_deployment'
 import { APPLICATION_TYPE_NAME, INACTIVE_STATUS, OKTA, ORG_SETTING_TYPE_NAME } from '../../src/constants'
@@ -44,6 +44,7 @@ describe('appDeploymentFilter', () => {
   const appType = new ObjectType({
     elemID: new ElemID(OKTA, APPLICATION_TYPE_NAME),
     fields: {
+      id: { refType: BuiltinTypes.SERVICE_ID },
       features: { refType: new ListType(BuiltinTypes.STRING) },
     },
   })
@@ -72,8 +73,9 @@ describe('appDeploymentFilter', () => {
     const { client: cli, connection } = mockClient()
     mockConnection = connection
     client = cli
+    const definitions = createDefinitions({ client })
     filter = appDeploymentFilter(
-      getFilterParams({ client, elementsSource: buildElementsSourceFromElements([orgSettingInstance]) }),
+      getFilterParams({ definitions, elementSource: buildElementsSourceFromElements([orgSettingInstance]) }),
     ) as typeof filter
   })
 
@@ -94,6 +96,13 @@ describe('appDeploymentFilter', () => {
       const app = elements.filter(isInstanceElement).find(e => e.elemID.name === 'regular app')
       expect(app?.value.name).toEqual('salesforce')
       expect(app?.value.customName).toBeUndefined()
+    })
+    it('should remove "features" field if it is empty', async () => {
+      const emptyFeaturesApp = new InstanceElement('empty features app', appType, { features: [] })
+      const elements = [appType, orgSettingType, orgSettingInstance, emptyFeaturesApp]
+      await filter.onFetch(elements)
+      const app = elements.filter(isInstanceElement).find(e => e.elemID.name === 'empty features app')
+      expect(app?.value.features).toBeUndefined()
     })
     it('should add deployment annotations for "features" field', async () => {
       const elements = [appType, orgSettingType, orgSettingInstance, customSamlAppInstance, customSwaInstance]

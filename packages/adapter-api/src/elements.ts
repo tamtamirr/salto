@@ -30,15 +30,18 @@ const { mapValuesAsync } = promises.object
 
 const log = logger(module)
 
-export const BuiltinTypesRefByFullName: Record<string, TypeReference> = {}
+export const BuiltinTypesRefByFullName: Record<string, TypeReference<PrimitiveType>> = {}
 
-export const createRefToElmWithValue = (element: TypeElement): TypeReference =>
-  // For BuiltinTypes we use a hardcoded list of refs with values to avoid duplicate instances
-  BuiltinTypesRefByFullName[element.elemID.getFullName()] ?? new TypeReference(element.elemID, element)
+export const createRefToElmWithValue = <T extends TypeElement>(element: T): TypeReference<T> =>
+  // For BuiltinTypes we use hardcoded refs with values to avoid duplicate instances.
+  // If the element ID is in the present we know the element is of type PrimitiveType but TS does not,
+  // so we need to tell it.
+  (BuiltinTypesRefByFullName[element.elemID.getFullName()] as TypeReference<T>) ??
+  new TypeReference(element.elemID, element)
 
 // This is used to allow constructors Elements with Placeholder types
 // to receive TypeElement and save the appropriate Reference
-const getRefType = (typeOrRef: TypeOrRef): TypeReference =>
+const getRefType = <T extends TypeElement>(typeOrRef: TypeOrRef<T>): TypeReference<T> =>
   isTypeReference(typeOrRef) ? typeOrRef : createRefToElmWithValue(typeOrRef)
 
 /**
@@ -136,7 +139,7 @@ export type ContainerType = ListType | MapType
 export type TypeElement = PrimitiveType | ObjectType | ContainerType
 export type TopLevelElement = TypeElement | InstanceElement
 export type TypeMap = Record<string, TypeElement>
-type TypeOrRef<T extends TypeElement = TypeElement> = T | TypeReference
+type TypeOrRef<T extends TypeElement = TypeElement> = T | TypeReference<T>
 export type TypeRefMap = Record<string, TypeOrRef>
 export type ReferenceMap = Record<string, TypeReference>
 
@@ -355,11 +358,30 @@ export type FieldDefinition = {
   refType: TypeOrRef
   annotations?: Values
 }
+
+const validateMetaType = (metaType?: ObjectType): ObjectType | undefined => {
+  if (metaType === undefined) {
+    return undefined
+  }
+
+  if (!isObjectType(metaType)) {
+    log.error(`Got an invalid meta type which is not an object type with ${(metaType as Element).elemID}.`)
+    return undefined
+  }
+
+  if (metaType instanceof PlaceholderObjectType) {
+    log.warn(`Meta type with ID ${metaType.elemID.getFullName()} not found in elements source.`)
+  }
+
+  return metaType
+}
+
 /**
  * Defines a type that represents an object (Also NOT auto generated)
  */
 export class ObjectType extends Element {
   fields: FieldMap
+  metaType: TypeReference<ObjectType> | undefined
   isSettings: boolean
 
   constructor({
@@ -367,6 +389,7 @@ export class ObjectType extends Element {
     fields = {},
     annotationRefsOrTypes = {},
     annotations = {},
+    metaType = undefined,
     isSettings = false,
     path = undefined,
   }: {
@@ -374,6 +397,7 @@ export class ObjectType extends Element {
     fields?: Record<string, FieldDefinition>
     annotationRefsOrTypes?: TypeRefMap
     annotations?: Values
+    metaType?: TypeOrRef<ObjectType>
     isSettings?: boolean
     path?: ReadonlyArray<string>
   }) {
@@ -382,6 +406,9 @@ export class ObjectType extends Element {
       fields,
       (fieldDef, name) => new Field(this, name, getRefType(fieldDef.refType), fieldDef.annotations),
     )
+    if (metaType !== undefined) {
+      this.metaType = getRefType(metaType)
+    }
     this.isSettings = isSettings
   }
 
@@ -400,9 +427,30 @@ export class ObjectType extends Element {
         _.mapValues(this.fields, f => f.elemID.getFullName()),
         _.mapValues(other.fields, f => f.elemID.getFullName()),
       ) &&
+      this.isMetaTypeEqual(other) &&
       _.isEqual(this.isSettings, other.isSettings) &&
       _.every(Object.keys(this.fields).map(n => this.fields[n].isEqual(other.fields[n], options)))
     )
+  }
+
+  isMetaTypeEqual(other: ObjectType): boolean {
+    if (this.metaType === undefined && other.metaType === undefined) {
+      return true
+    }
+
+    if (this.metaType === undefined || other.metaType === undefined) {
+      return false
+    }
+
+    return this.metaType.elemID.isEqual(other.metaType.elemID)
+  }
+
+  async getMetaType(elementsSource?: ReadOnlyElementsSource): Promise<ObjectType | undefined> {
+    return validateMetaType(await this.metaType?.getResolvedValue(elementsSource))
+  }
+
+  getMetaTypeSync(): ObjectType | undefined {
+    return validateMetaType(this.metaType?.getResolvedValueSync())
   }
 
   /**
@@ -417,6 +465,7 @@ export class ObjectType extends Element {
       fields: this.cloneFields(),
       annotationRefsOrTypes: this.cloneAnnotationTypes(),
       annotations: this.cloneAnnotations(),
+      metaType: this.metaType?.clone(),
       isSettings,
       path: this.path !== undefined ? [...this.path] : undefined,
     })
@@ -453,11 +502,12 @@ const validateType = (type: TypeElement | undefined, elemID: ElemID): TypeElemen
   }
   return type
 }
+
 export class InstanceElement extends Element {
-  public refType: TypeReference
+  public refType: TypeReference<ObjectType>
   constructor(
     name: string,
-    typeOrRefType: ObjectType | TypeReference,
+    typeOrRefType: TypeOrRef<ObjectType>,
     public value: Values = {},
     path?: ReadonlyArray<string>,
     annotations?: Values,

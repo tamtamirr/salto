@@ -77,6 +77,7 @@ import {
   triggerCategoryRemovalValidator,
   ticketFieldDeactivationValidator,
   duplicateIdFieldValuesValidator,
+  duplicateDynamicContentItemValidator,
   notEnabledMissingReferencesValidator,
   conditionalTicketFieldsValidator,
   dynamicContentDeletionValidator,
@@ -88,7 +89,8 @@ import {
   viewCustomStatusConditionsValidator,
 } from './change_validators'
 import ZendeskClient from './client/client'
-import { ChangeValidatorName, ZendeskDeployConfig, ZendeskFetchConfig, ZendeskConfig } from './config'
+import { ChangeValidatorName, ZendeskConfig } from './config'
+import { ZendeskDeployConfig, ZendeskFetchConfig } from './user_config'
 
 const {
   deployTypesNotSupportedValidator,
@@ -179,6 +181,7 @@ export default ({
     duplicateRoutingAttributeValue: duplicateRoutingAttributeValueValidator,
     triggerCategoryRemoval: triggerCategoryRemovalValidator(fetchConfig),
     duplicateIdFieldValues: duplicateIdFieldValuesValidator(apiConfig),
+    duplicateDynamicContentItem: duplicateDynamicContentItemValidator,
     notEnabledMissingReferences: notEnabledMissingReferencesValidator(config),
     conditionalTicketFields: conditionalTicketFieldsValidator,
     dynamicContentDeletion: dynamicContentDeletionValidator,

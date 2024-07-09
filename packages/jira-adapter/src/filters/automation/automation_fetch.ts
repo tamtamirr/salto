@@ -21,7 +21,14 @@ import {
   ReferenceExpression,
   Values,
 } from '@salto-io/adapter-api'
-import { createSchemeGuard, naclCase, pathNaclCase } from '@salto-io/adapter-utils'
+import {
+  createSchemeGuard,
+  naclCase,
+  pathNaclCase,
+  WalkOnFunc,
+  walkOnValue,
+  WALK_NEXT_STEP,
+} from '@salto-io/adapter-utils'
 import { elements as elementUtils, client as clientUtils, config as configUtils } from '@salto-io/adapter-components'
 import { values as lowerdashValues } from '@salto-io/lowerdash'
 import { logger } from '@salto-io/logging'
@@ -41,6 +48,8 @@ import { createAutomationTypes } from './types'
 import { JiraConfig } from '../../config/config'
 import { getCloudId } from './cloud_id'
 import { convertRuleScopeValueToProjects } from './automation_structure'
+
+const AUTOMATION_RETRY_CODES = [504, 502]
 
 export type AssetComponent = {
   value: {
@@ -121,8 +130,8 @@ const requestPageRecurse = async ({
 
     return response.data
   } catch (e) {
-    // we get an occasional 504 from the Automation's APIs, Atlassian's solution is to retry
-    if (!(e instanceof clientUtils.HTTPError && e.response?.status === 504)) {
+    // we get an occasional 504/502 from the Automation's APIs, Atlassian's solution is to retry
+    if (!(e instanceof clientUtils.HTTPError && AUTOMATION_RETRY_CODES.includes(e.response?.status))) {
       throw e
     }
   }
@@ -143,6 +152,15 @@ const postPaginated = async (url: string, client: JiraClient, pageSize: number):
   return items
 }
 
+const omitFields =
+  (fieldsToOmit: string[]): WalkOnFunc =>
+  ({ value }) => {
+    if (lowerdashValues.isPlainRecord(value)) {
+      fieldsToOmit.forEach(field => delete value[field])
+    }
+    return WALK_NEXT_STEP.RECURSE
+  }
+
 const createInstance = (
   values: Values,
   type: ObjectType,
@@ -151,11 +169,12 @@ const createInstance = (
   getElemIdFunc?: ElemIdGetter,
 ): InstanceElement => {
   const serviceIds = elementUtils.createServiceIds({ entry: values, serviceIDFields: ['id'], typeID: type.elemID })
-  const idFields = configUtils.getTypeTransformationConfig(
+  const TypeTransformationConfig = configUtils.getTypeTransformationConfig(
     AUTOMATION_TYPE,
     config.apiDefinitions.types,
     config.apiDefinitions.typeDefaults,
-  ).idFields ?? ['name']
+  )
+  const idFields = TypeTransformationConfig.idFields ?? ['name']
   const idFieldsWithoutProjects = idFields.filter(field => field !== PROJECTS_FIELD)
   const defaultName = naclCase(
     [
@@ -171,12 +190,22 @@ const createInstance = (
 
   const instanceName = getElemIdFunc && serviceIds ? getElemIdFunc(JIRA, serviceIds, defaultName).name : defaultName
 
-  return new InstanceElement(instanceName, type, values, [
+  const elem = new InstanceElement(instanceName, type, values, [
     JIRA,
     elementUtils.RECORDS_PATH,
     AUTOMATION_TYPE,
     pathNaclCase(instanceName),
   ])
+
+  if (TypeTransformationConfig.fieldsToOmit !== undefined && TypeTransformationConfig.fieldsToOmit.length > 0) {
+    walkOnValue({
+      elemId: elem.elemID,
+      value: elem.value,
+      func: omitFields((TypeTransformationConfig.fieldsToOmit ?? []).map(field => field.fieldName)),
+    })
+  }
+
+  return elem
 }
 
 // For components that has assets fields, we need to remove some fields that can be calculated from the schema and object type
@@ -215,7 +244,7 @@ export const getAutomations = async (client: JiraClient, config: JiraConfig): Pr
     : postPaginated(
         `/gateway/api/automation/internal-api/jira/${await getCloudId(client)}/pro/rest/GLOBAL/rules`,
         client,
-        config.client.pageSize?.get ?? DEFAULT_PAGE_SIZE,
+        config.fetch.automationPageSize ?? config.client.pageSize?.get ?? DEFAULT_PAGE_SIZE,
       )
 
 /**

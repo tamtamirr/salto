@@ -1624,6 +1624,7 @@ const DEFAULT_TYPE_CUSTOMIZATIONS: JiraApiConfig['types'] = {
 
   Automation: {
     transformation: {
+      fieldsToOmit: [{ fieldName: 'ruleHome' }, { fieldName: 'schemaVersion' }],
       serviceUrl: '/jira/settings/automation#/rule/{id}',
       idFields: ['name', PROJECTS_FIELD], // idFields is handled separately in automation filter.
     },
@@ -1896,7 +1897,13 @@ const JSM_DUCKTYPE_TYPES: JiraDuckTypeConfig['types'] = {
       idFields: ['name', 'projectKey'],
       sourceTypeName: 'RequestType__values',
       dataField: 'values',
-      fieldsToOmit: [{ fieldName: '_expands' }, { fieldName: 'portalId' }, { fieldName: 'groupIds' }],
+      fieldsToOmit: [
+        { fieldName: '_expands' },
+        { fieldName: 'portalId' },
+        { fieldName: 'groupIds' },
+        { fieldName: 'canCreateRequest' },
+        { fieldName: 'restrictionStatus' },
+      ],
       fieldsToHide: [{ fieldName: 'id' }, { fieldName: 'icon' }, { fieldName: 'serviceDeskId' }],
       serviceIdField: 'id',
     },
@@ -2420,6 +2427,32 @@ const JSM_DUCKTYPE_TYPES: JiraDuckTypeConfig['types'] = {
       },
     },
   },
+  ObjectSchemaGlobalStatus: {
+    request: {
+      url: '/gateway/api/jsm/assets/workspace/{workspaceId}/v1/config/statustype',
+    },
+    transformation: {
+      dataField: '.',
+      fieldsToHide: [{ fieldName: 'id' }],
+      serviceIdField: 'id',
+      fieldsToOmit: [{ fieldName: 'objectSchemaId' }],
+    },
+    deployRequests: {
+      add: {
+        url: '/gateway/api/jsm/assets/workspace/{workspaceId}/v1/config/statustype',
+        method: 'post',
+      },
+      modify: {
+        url: '/gateway/api/jsm/assets/workspace/{workspaceId}/v1/config/statustype/{id}',
+        method: 'put',
+      },
+      remove: {
+        url: '/gateway/api/jsm/assets/workspace/{workspaceId}/v1/config/statustype/{id}',
+        method: 'delete',
+        omitRequestBody: true,
+      },
+    },
+  },
   ObjectTypeIcon: {
     request: {
       url: '/gateway/api/jsm/assets/workspace/{workspaceId}/v1/icon/global',
@@ -2456,6 +2489,7 @@ export const JSM_DUCKTYPE_SUPPORTED_TYPES = {
   Form: [], // being fetched by a filter.
   ObjectSchema: [],
   ObjectSchemaDefaultReferenceType: [],
+  ObjectSchemaGlobalStatus: [],
   ObjectTypeIcon: [],
   ObjectSchemaStatus: [], // being fetched by recurseInto.
   ObjectType: [], // being fetched by recurseInto.
@@ -2465,6 +2499,7 @@ export const JSM_DUCKTYPE_SUPPORTED_TYPES = {
 export const JSM_ASSETS_DUCKTYPE_SUPPORTED_TYPES = {
   ObjectSchema: ['ObjectSchemas'],
   ObjectSchemaDefaultReferenceType: ['ObjectSchemaDefaultReferenceType'],
+  ObjectSchemaGlobalStatus: ['ObjectSchemaGlobalStatus'],
   ObjectTypeIcon: ['ObjectTypeIcon'],
 }
 

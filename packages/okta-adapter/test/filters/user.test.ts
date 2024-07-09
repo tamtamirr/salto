@@ -24,12 +24,13 @@ import {
 } from '@salto-io/adapter-api'
 import { client as clientUtils, filterUtils } from '@salto-io/adapter-components'
 import { mockFunction } from '@salto-io/test-utils'
-import { DEFAULT_CONFIG, FETCH_CONFIG } from '../../src/config'
+import { FETCH_CONFIG } from '../../src/config'
+import { DEFAULT_CONFIG } from '../../src/user_config'
 import {
   ACCESS_POLICY_RULE_TYPE_NAME,
-  GROUP_MEMBERSHIP_TYPE_NAME,
   GROUP_RULE_TYPE_NAME,
   OKTA,
+  GROUP_MEMBERSHIP_TYPE_NAME,
 } from '../../src/constants'
 import userFilter from '../../src/filters/user'
 import { getFilterParams } from '../utils'
@@ -84,7 +85,7 @@ describe('user filter', () => {
         ]
       })
       filter = userFilter(
-        getFilterParams({ paginator: mockPaginator, usersPromise: getUsers(mockPaginator) }),
+        getFilterParams({ paginator: mockPaginator, usersPromise: getUsers(mockPaginator), config: DEFAULT_CONFIG }),
       ) as FilterType
       const elements = [
         groupRuleType,
@@ -140,6 +141,7 @@ describe('user filter', () => {
         getFilterParams({
           paginator: mockPaginator,
           usersPromise: getUsers(mockPaginator),
+          config: DEFAULT_CONFIG,
         }),
       ) as FilterType
       const elements = [accessRuleInstance.clone(), accessPolicyRuleType.clone()]
@@ -160,7 +162,10 @@ describe('user filter', () => {
     })
     it('should not replace anything if convertUsersIds config option is disabled', async () => {
       const mockPaginator = mockFunction<clientUtils.Paginator>().mockImplementation(async function* get() {
-        yield []
+        yield [
+          { id: '111', profile: { login: 'a@a.com' } },
+          { id: '222', profile: { login: 'b@a.com' } },
+        ]
       })
       filter = userFilter(
         getFilterParams({
@@ -168,15 +173,11 @@ describe('user filter', () => {
           config: {
             ...DEFAULT_CONFIG,
             [FETCH_CONFIG]: {
-              include: [
-                {
-                  type: '.*',
-                },
-              ],
-              exclude: [],
+              ...DEFAULT_CONFIG.fetch,
               convertUsersIds: false,
             },
           },
+          usersPromise: getUsers(mockPaginator),
         }),
       ) as FilterType
       const elements = [groupRuleInstance.clone(), groupRuleType.clone()]
@@ -189,7 +190,37 @@ describe('user filter', () => {
           people: { users: { exclude: ['111', '222'] } },
         },
       })
-      expect(mockPaginator).toHaveBeenCalledTimes(0)
+    })
+    it('should not replace anything if User type is included in fetch config', async () => {
+      const mockPaginator = mockFunction<clientUtils.Paginator>().mockImplementation(async function* get() {
+        yield [
+          { id: '111', profile: { login: 'a@a.com' } },
+          { id: '222', profile: { login: 'b@a.com' } },
+        ]
+      })
+      filter = userFilter(
+        getFilterParams({
+          paginator: mockPaginator,
+          config: {
+            ...DEFAULT_CONFIG,
+            [FETCH_CONFIG]: {
+              ...DEFAULT_CONFIG.fetch,
+              exclude: [],
+            },
+          },
+          usersPromise: getUsers(mockPaginator),
+        }),
+      ) as FilterType
+      const elements = [groupRuleInstance.clone(), groupRuleType.clone()]
+      await filter.onFetch(elements)
+      const instances = elements.filter(isInstanceElement)
+      const groupRule = instances.find(e => e.elemID.typeName === GROUP_RULE_TYPE_NAME)
+      expect(groupRule?.value).toEqual({
+        name: 'test',
+        conditions: {
+          people: { users: { exclude: ['111', '222'] } },
+        },
+      })
     })
   })
   describe('preDeploy', () => {
@@ -202,7 +233,7 @@ describe('user filter', () => {
           { id: '555', profile: { login: 'd@a.com' } },
         ]
       })
-      filter = userFilter(getFilterParams({ paginator: mockPaginator })) as FilterType
+      filter = userFilter(getFilterParams({ paginator: mockPaginator, config: DEFAULT_CONFIG })) as FilterType
       const changes = afterFetchInstances.map(instance => toChange({ after: instance.clone() }))
       await filter.preDeploy(changes)
       const changedInstances = changes.map(getChangeData)
@@ -234,7 +265,7 @@ describe('user filter', () => {
       })
       const before = new InstanceElement('modified', groupMembersType, { members: ['a@a.com', 'b@a.com'] })
       const after = new InstanceElement('modified', groupMembersType, { members: ['b@a.com', 'c@a.com'] })
-      filter = userFilter(getFilterParams({ paginator: mockPaginator })) as FilterType
+      filter = userFilter(getFilterParams({ paginator: mockPaginator, config: DEFAULT_CONFIG })) as FilterType
       const change = toChange({ before, after }) as ModificationChange<InstanceElement>
       await filter.preDeploy([change])
       const beforeMembers = change.data.before.value.members
@@ -253,7 +284,7 @@ describe('user filter', () => {
           { id: '555', profile: { login: 'd@a.com' } },
         ]
       })
-      filter = userFilter(getFilterParams({ paginator: mockPaginator })) as FilterType
+      filter = userFilter(getFilterParams({ paginator: mockPaginator, config: DEFAULT_CONFIG })) as FilterType
       const changes = afterFetchInstances.map(instance => toChange({ after: instance.clone() }))
       // preDeploy sets the mappings
       await filter.preDeploy(changes)

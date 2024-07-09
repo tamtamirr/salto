@@ -29,6 +29,8 @@ import { adapter as serviceplaceholderAdapter } from '@salto-io/serviceplacehold
 import { adapter as googleWorkspaceAdapter } from '@salto-io/google-workspace-adapter'
 import { adapter as confluenceAdapter } from '@salto-io/confluence-adapter'
 import { adapter as microsoftEntra } from '@salto-io/microsoft-entra-adapter'
+import { adapter as pagerDutyAdapter } from '@salto-io/pagerduty-adapter'
+import { adapter as jamfAdapter } from '@salto-io/jamf-adapter'
 
 const adapterCreators: Record<string, Adapter> = {
   salesforce: salesforceAdapter,
@@ -46,6 +48,8 @@ const adapterCreators: Record<string, Adapter> = {
   confluence: confluenceAdapter,
   intercom: intercomAdapter,
   microsoft_entra: microsoftEntra,
+  pagerduty: pagerDutyAdapter,
+  jamf: jamfAdapter,
 }
 
 export default adapterCreators
