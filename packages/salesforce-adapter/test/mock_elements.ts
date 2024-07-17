@@ -697,6 +697,7 @@ export const mockTypes = {
     },
   }),
   TestCustomObject__c: createCustomObjectType('TestCustomObject__c', {}),
+  TestCustomEvent__e: createCustomObjectType('TestCustomEvent__e', {}),
   BusinessProcess: createMetadataObjectType({
     annotations: {
       metadataType: 'BusinessProcess',
@@ -877,7 +878,6 @@ export const mockDefaultValues = {
       },
     },
     applicationVisibilities: {
-      // eslint-disable-next-line camelcase
       standard__ServiceConsole: {
         application: 'standard__ServiceConsole',
         default: false,
