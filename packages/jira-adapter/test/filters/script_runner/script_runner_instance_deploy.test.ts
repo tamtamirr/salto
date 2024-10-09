@@ -33,7 +33,7 @@ describe('script_runner_instance_deploy', () => {
     filter = scriptRunnerInstanceDeploy(getFilterParams({ config })) as FilterType
     jest.spyOn(deployment, 'deployChanges').mockResolvedValueOnce({
       appliedChanges: [toChange({ after: scriptInstance1 })],
-      errors: [{ message: '123', severity: 'Warning' }],
+      errors: [{ message: '123', severity: 'Warning', detailedMessage: '123' }],
     })
   })
   it('should return correct applied changes and leftovers', async () => {

@@ -247,7 +247,7 @@ describe('id utils', () => {
           def: {
             pathParts: [
               {
-                parts: [{ fieldName: 'a', mapping: 'customTest' }],
+                parts: [{ fieldName: 'a', mapping: 'customTest'}],
                 extendsParent: true,
               },
             ],
