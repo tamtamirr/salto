@@ -1,20 +1,11 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
 import _ from 'lodash'
-import Bottleneck from 'bottleneck'
 import {
   Change,
   ElemID,
@@ -32,9 +23,9 @@ import { types, values } from '@salto-io/lowerdash'
 import { APIDefinitionsOptions, ApiDefinitions, queryWithDefault } from '../../definitions'
 import { ChangeAndContext } from '../../definitions/system/deploy'
 import { getRequester } from './requester'
-import { RATE_LIMIT_UNLIMITED_MAX_CONCURRENT_REQUESTS } from '../../client'
+import { RateLimiter } from '../../client'
 import { createDependencyGraph } from './graph'
-import { DeployChangeInput } from '../../definitions/system/deploy/types'
+import { ChangeAndExtendedContext, DeployChangeInput } from '../../definitions/system/deploy/types'
 import { ChangeElementResolver } from '../../resolve_utils'
 import { ResolveAdditionalActionType } from '../../definitions/system/api'
 
@@ -106,11 +97,15 @@ export const deployChanges = async <TOptions extends APIDefinitionsOptions>({
 
   const graph = createDependencyGraph({ defQuery, dependencies, changes, ...changeContext })
 
-  const errors: SaltoElementError[] = []
+  const errors: Record<string, SaltoElementError[]> = {}
   const appliedChanges: Change<InstanceElement>[] = []
 
   const deploySingleChange =
     deployChangeFunc ?? createSingleChangeDeployer({ convertError, definitions, changeResolver })
+
+  const shouldFailChange = (elemID: ElemID): boolean =>
+    defQuery.query(elemID.typeName)?.failIfChangeHasErrors !== false &&
+    !_.isEmpty(errors[elemID.getFullName()]?.filter(e => e.severity === 'Error'))
 
   await graph.walkAsync(async nodeID => {
     const { typeName, action, typeActionChanges } = graph.getData(nodeID)
@@ -123,27 +118,45 @@ export const deployChanges = async <TOptions extends APIDefinitionsOptions>({
       changeContext.changeGroup.groupID,
     )
     const { concurrency } = defQuery.query(String(typeName)) ?? {}
-    const limiter = new Bottleneck({
-      maxConcurrent: (concurrency ?? RATE_LIMIT_UNLIMITED_MAX_CONCURRENT_REQUESTS) > 0 ? concurrency : null,
-    })
+
+    const limiter = new RateLimiter({ maxConcurrentCalls: concurrency })
     const limitedDeployChange = limiter.wrap(deploySingleChange)
 
     const applied = (
       await Promise.all(
         typeActionChanges.map(async change => {
+          const { elemID } = getChangeData(change)
           try {
-            await limitedDeployChange({ ...changeContext, change, action })
+            if (shouldFailChange(elemID)) {
+              log.error(
+                'Not continuing deployment of change %s (action %s) due to earlier failure',
+                elemID.getFullName(),
+                change.action,
+              )
+              return undefined
+            }
+            await limitedDeployChange({
+              ...changeContext,
+              change,
+              action,
+              errors,
+            })
             return change
           } catch (err) {
-            log.error('Deployment of %s failed: %o', getChangeData(change).elemID.getFullName(), err)
+            if (errors[elemID.getFullName()] === undefined) {
+              errors[elemID.getFullName()] = []
+            }
+            log.error('Deployment of %s (action %s) failed: %o', elemID.getFullName(), change.action, err)
             if (isSaltoError(err)) {
-              errors.push({
+              errors[elemID.getFullName()].push({
                 ...err,
-                elemID: getChangeData(change).elemID,
+                elemID,
               })
             } else {
-              errors.push({
-                message: `${err}`,
+              const message = `${err}`
+              errors[elemID.getFullName()].push({
+                message,
+                detailedMessage: message,
                 severity: 'Error',
                 elemID: getChangeData(change).elemID,
               })
@@ -152,12 +165,21 @@ export const deployChanges = async <TOptions extends APIDefinitionsOptions>({
           }
         }),
       )
-    ).filter(values.isDefined)
+    )
+      .filter(values.isDefined)
+      .filter(change => {
+        const { elemID } = getChangeData(change)
+        if (shouldFailChange(elemID)) {
+          log.error('Not marking change %s as successful due to partial failure', elemID.getFullName())
+          return false
+        }
+        return true
+      })
     applied.forEach(change => appliedChanges.push(change))
   })
 
   return {
-    errors,
+    errors: Object.values(errors).flat(),
     // TODO SALTO-5557 decide if change should be marked as applied if one of the actions failed
     appliedChanges: _.uniqBy(appliedChanges, changeId),
   }
@@ -171,4 +193,4 @@ export type SingleChangeDeployCreator<
 }: {
   definitions: types.PickyRequired<ApiDefinitions<TOptions>, 'clients' | 'deploy'>
   convertError: ConvertError
-}) => (args: ChangeAndContext) => Promise<void>
+}) => (args: ChangeAndExtendedContext) => Promise<void>

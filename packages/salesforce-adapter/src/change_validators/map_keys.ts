@@ -1,17 +1,9 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
 import _ from 'lodash'
 import {
@@ -25,54 +17,44 @@ import {
   isAdditionOrModificationChange,
   isInstanceChange,
 } from '@salto-io/adapter-api'
-import { TransformFunc, transformValues } from '@salto-io/adapter-utils'
+import { GetLookupNameFunc, TransformFunc, transformValues } from '@salto-io/adapter-utils'
 import { resolveValues } from '@salto-io/adapter-components'
 
 import { collections } from '@salto-io/lowerdash'
-import {
-  defaultMapper,
-  metadataTypeToFieldToMapDef,
-} from '../filters/convert_maps'
+import { defaultMapper, getMetadataTypeToFieldToMapDef } from '../filters/convert_maps'
 import {
   API_NAME_SEPARATOR,
+  MUTING_PERMISSION_SET_METADATA_TYPE,
   PERMISSION_SET_METADATA_TYPE,
   PROFILE_METADATA_TYPE,
 } from '../constants'
-import { getLookUpName } from '../transformers/reference_mapping'
 import { isInstanceOfTypeChange } from '../filters/utils'
 import { apiName } from '../transformers/transformer'
+import { FetchProfile } from '../types'
 
 const { awu } = collections.asynciterable
 
 const metadataTypesToValidate = [
   PROFILE_METADATA_TYPE,
   PERMISSION_SET_METADATA_TYPE,
+  MUTING_PERMISSION_SET_METADATA_TYPE,
 ]
 
-const isNum = (str: string | undefined): boolean =>
-  !_.isEmpty(str) && !Number.isNaN(_.toNumber(str))
+const isNum = (str: string | undefined): boolean => !_.isEmpty(str) && !Number.isNaN(_.toNumber(str))
 
-const getMapKeyErrors = async (
-  after: InstanceElement,
-): Promise<ChangeError[]> => {
+const getMapKeyErrors = async (after: InstanceElement, fetchProfile: FetchProfile): Promise<ChangeError[]> => {
   const errors: ChangeError[] = []
   const type = await after.getType()
   const typeName = await apiName(type)
-  const mapper = metadataTypeToFieldToMapDef[typeName]
+  const mapper = getMetadataTypeToFieldToMapDef(fetchProfile)[typeName]
   await awu(Object.entries(after.value))
     .filter(
-      async ([fieldName]) =>
-        isMapType(await type.fields[fieldName]?.getType()) &&
-        mapper[fieldName] !== undefined,
+      async ([fieldName]) => isMapType(await type.fields[fieldName]?.getType()) && mapper[fieldName] !== undefined,
     )
     .forEach(async ([fieldName, fieldValues]) => {
       const fieldType = (await type.fields[fieldName].getType()) as MapType
       const mapDef = mapper[fieldName]
-      const findInvalidPaths: TransformFunc = async ({
-        value,
-        path,
-        field,
-      }) => {
+      const findInvalidPaths: TransformFunc = async ({ value, path, field }) => {
         if (isObjectType(await field?.getType()) && path !== undefined) {
           if (value[mapDef.key] === undefined) {
             errors.push({
@@ -88,18 +70,10 @@ const getMapKeyErrors = async (
             return undefined
           }
           // we reached the map's inner value
-          const expectedPath = defaultMapper(value[mapDef.key]).slice(
-            0,
-            mapDef.nested ? 2 : 1,
-          )
-          const pathParts = path
-            .getFullNameParts()
-            .filter((part) => !isNum(part))
+          const expectedPath = defaultMapper(value[mapDef.key]).slice(0, mapDef.nested ? 2 : 1)
+          const pathParts = path.getFullNameParts().filter(part => !isNum(part))
           const actualPath = pathParts.slice(-expectedPath.length)
-          const previewPrefix = actualPath.slice(
-            0,
-            actualPath.findIndex((val, idx) => val !== expectedPath[idx]) + 1,
-          )
+          const previewPrefix = actualPath.slice(0, actualPath.findIndex((val, idx) => val !== expectedPath[idx]) + 1)
           if (!_.isEqual(actualPath, expectedPath)) {
             errors.push({
               elemID: after.elemID.createNestedID(fieldName, ...previewPrefix),
@@ -126,16 +100,16 @@ const getMapKeyErrors = async (
   return errors
 }
 
-const changeValidator: ChangeValidator = async (changes) =>
-  awu(changes)
-    .filter(isAdditionOrModificationChange)
-    .filter(isInstanceChange)
-    .filter(isInstanceOfTypeChange(...metadataTypesToValidate))
-    .flatMap(async (change) =>
-      getMapKeyErrors(
-        await resolveValues(getChangeData(change), getLookUpName),
-      ),
-    )
-    .toArray()
+const changeValidator =
+  (getLookupNameFunc: GetLookupNameFunc, fetchProfile: FetchProfile): ChangeValidator =>
+  async changes =>
+    awu(changes)
+      .filter(isAdditionOrModificationChange)
+      .filter(isInstanceChange)
+      .filter(isInstanceOfTypeChange(...metadataTypesToValidate))
+      .flatMap(async change =>
+        getMapKeyErrors(await resolveValues(getChangeData(change), getLookupNameFunc), fetchProfile),
+      )
+      .toArray()
 
 export default changeValidator

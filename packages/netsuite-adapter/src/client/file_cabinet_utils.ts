@@ -1,17 +1,9 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
 import _ from 'lodash'
 import { posix } from 'path'
@@ -38,70 +30,70 @@ const BYTES_IN_GB = 1024 ** 3
 
 const folderSizeSum = (numbers: FolderSize[]): number => numbers.reduce((acc, folder) => acc + folder.size, 0)
 
-export const largeFoldersToExclude = (files: FileSize[], maxFileCabinetSizeInGB: number): string[] => {
-  const createFlatFolderSizes = (fileSizes: FileSize[]): FolderSizeMap => {
-    const flatFolderSizes: FolderSizeMap = {}
-    fileSizes.forEach(({ path, size }) => {
-      posix
-        .dirname(path)
-        .split(sep)
-        .reduce((currentPath, nextFolder) => {
-          const nextPath = posix.join(currentPath, nextFolder)
-          if (nextPath in flatFolderSizes) {
-            flatFolderSizes[nextPath].size += size
-          } else {
-            flatFolderSizes[nextPath] = {
-              path: nextPath,
-              size,
-              folders: [],
-            }
+const createFlatFolderSizes = (fileSizes: FileSize[]): FolderSizeMap => {
+  const flatFolderSizes: FolderSizeMap = {}
+  fileSizes.forEach(({ path, size }) => {
+    posix
+      .dirname(path)
+      .split(sep)
+      .reduce((currentPath, nextFolder) => {
+        const nextPath = posix.join(currentPath, nextFolder)
+        if (nextPath in flatFolderSizes) {
+          flatFolderSizes[nextPath].size += size
+        } else {
+          flatFolderSizes[nextPath] = {
+            path: nextPath,
+            size,
+            folders: [],
           }
-          return nextPath
-        })
-    })
-    return flatFolderSizes
-  }
+        }
+        return nextPath
+      })
+  })
+  return flatFolderSizes
+}
 
-  const createFolderHierarchy = (flatFolderSizes: FolderSizeMap): FolderSize[] => {
-    const folderGraph: FolderSize[] = []
-    Object.keys(flatFolderSizes).forEach(folderName => {
-      if (folderName.indexOf(sep) === -1) {
-        // Top level folder
-        folderGraph.push(flatFolderSizes[folderName])
-      } else {
-        // Sub folder
-        const parentFolder = posix.dirname(folderName)
-        flatFolderSizes[parentFolder].folders.push(flatFolderSizes[folderName])
-      }
-    })
-    return folderGraph
-  }
+const createFolderHierarchy = (flatFolderSizes: FolderSizeMap): FolderSize[] => {
+  const folderGraph: FolderSize[] = []
+  Object.keys(flatFolderSizes).forEach(folderName => {
+    if (folderName.indexOf(sep) === -1) {
+      // Top level folder
+      folderGraph.push(flatFolderSizes[folderName])
+    } else {
+      // Sub folder
+      const parentFolder = posix.dirname(folderName)
+      flatFolderSizes[parentFolder].folders.push(flatFolderSizes[folderName])
+    }
+  })
+  return folderGraph
+}
 
+const filterSingleFolder = (largestFolder: FolderSize, overflowSize: number): FolderSize[] => {
+  const nextLargeFolder = largestFolder.folders.find(folderSize => folderSize.size > overflowSize)
+  if (!nextLargeFolder) {
+    return [largestFolder]
+  }
+  return filterSingleFolder(nextLargeFolder, overflowSize)
+}
+
+const filterMultipleFolders = (folderSizes: FolderSize[], overflowSize: number): FolderSize[] => {
+  const sortedSizes = _.orderBy(folderSizes, 'size', 'desc')
+  const selectedFolders: FolderSize[] = []
+  sortedSizes.reduce((selectedSize, folderSize) => {
+    if (selectedSize < overflowSize) {
+      selectedFolders.push(folderSize)
+      return selectedSize + folderSize.size
+    }
+    return selectedSize
+  }, 0)
+  return selectedFolders
+}
+
+export const largeFoldersToExclude = (files: FileSize[], maxFileCabinetSizeInGB: number): string[] => {
   const folderSizes = createFolderHierarchy(createFlatFolderSizes(files))
   const maxSizeInBytes = BYTES_IN_GB * maxFileCabinetSizeInGB
   const totalFolderSize = folderSizeSum(folderSizes)
   const overflowSize = totalFolderSize - maxSizeInBytes
-
-  const filterSingleFolder = (largestFolder: FolderSize): FolderSize[] => {
-    const nextLargeFolder = largestFolder.folders.find(folderSize => folderSize.size > overflowSize)
-    if (!nextLargeFolder) {
-      return [largestFolder]
-    }
-    return filterSingleFolder(nextLargeFolder)
-  }
-
-  const filterMultipleFolders = (): FolderSize[] => {
-    const sortedSizes = _.orderBy(folderSizes, 'size', 'desc')
-    const selectedFolders: FolderSize[] = []
-    sortedSizes.reduce((selectedSize, folderSize) => {
-      if (selectedSize < overflowSize) {
-        selectedFolders.push(folderSize)
-        return selectedSize + folderSize.size
-      }
-      return selectedSize
-    }, 0)
-    return selectedFolders
-  }
 
   if (overflowSize <= 0) {
     if (totalFolderSize > BYTES_IN_GB * WARNING_MAX_FILE_CABINET_SIZE_IN_GB) {
@@ -114,7 +106,10 @@ export const largeFoldersToExclude = (files: FileSize[], maxFileCabinetSizeInGB:
   }
 
   const largeTopLevelFolder = folderSizes.find(folderSize => folderSize.size > overflowSize)
-  const foldersToExclude = largeTopLevelFolder ? filterSingleFolder(largeTopLevelFolder) : filterMultipleFolders()
+  const foldersToExclude = largeTopLevelFolder
+    ? filterSingleFolder(largeTopLevelFolder, overflowSize)
+    : filterMultipleFolders(folderSizes, overflowSize)
+
   log.warn(
     `FileCabinet has exceeded the defined size limit of ${maxFileCabinetSizeInGB} GB,` +
       ` its size is ${strings.humanFileSize(totalFolderSize)}.` +

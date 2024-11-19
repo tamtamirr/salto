@@ -1,17 +1,9 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
 import _ from 'lodash'
 import { Element, InstanceElement } from '@salto-io/adapter-api'
@@ -122,10 +114,13 @@ export const createState = (elements: Element[], persistent = true): State =>
       pathIndex: new InMemoryRemoteMap<Path[]>(),
       topLevelPathIndex: new InMemoryRemoteMap<Path[]>(),
       referenceSources: new InMemoryRemoteMap(),
-      accountsUpdateDate: new InMemoryRemoteMap(),
+      accounts: new InMemoryRemoteMap([{ key: 'account_names', value: [] }]),
       changedBy: new InMemoryRemoteMap([{ key: 'name@@account', value: ['elemId'] }]),
-      saltoMetadata: new InMemoryRemoteMap([{ key: 'version', value: '0.0.1' }]),
+      saltoMetadata: new InMemoryRemoteMap(),
       staticFilesSource: mockStaticFilesSource(),
+      deprecated: {
+        accountsUpdateDate: new InMemoryRemoteMap(),
+      },
     }),
     persistent,
   )

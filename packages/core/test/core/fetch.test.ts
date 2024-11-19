@@ -1,17 +1,9 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
 import _ from 'lodash'
 import { EventEmitter } from 'pietile-eventemitter'
@@ -40,7 +32,6 @@ import {
   StaticFile,
   isStaticFile,
   toChange,
-  isModificationChange,
   toServiceIdsString,
   ElemIdGetter,
   ServiceIds,
@@ -953,7 +944,7 @@ describe('fetch', () => {
         })
       })
 
-      describe.each(['static files', 'multiline strings'] as const)(
+      describe.each(['static files', 'multiline strings', 'lists'] as const)(
         'when the working copy has some mergeable changes in %s',
         type => {
           const instanceName = 'name'
@@ -966,18 +957,38 @@ describe('fetch', () => {
             mergedModifiedValue: 'Hello World!\nmy name is:\nNaCls the great!',
             mergedAddedValue: 'Hello World!\nmy name is:\nNaCls\nthe great!',
             tooLongValue: 'hello world!\nmy name is:\nNaCls the great!'.padEnd(10 * 1024 * 1024 + 1, '!'),
+            mismatchValue: 1234,
           }
 
-          const allValues =
-            type === 'static files'
-              ? {
-                  ..._.mapValues(
-                    strings,
-                    content => new StaticFile({ filepath: 'abc', content: Buffer.from(content) }),
-                  ),
-                  mismatchValue: new StaticFile({ filepath: 'def', content: Buffer.from(strings.mergeableValue) }),
+          const getValues = (): Record<keyof typeof strings, unknown> => {
+            switch (type) {
+              case 'lists':
+                return {
+                  stateValue: [1, 2, 3],
+                  serviceValue: [1, 2, 3, 4],
+                  mergeableValue: [0, 2, 1, 3],
+                  unmergeableValue: [1, 2, 3, 5],
+                  addedValue: [0, 1, 2, 5, 3],
+                  mergedModifiedValue: [0, 2, 1, 3, 4],
+                  mergedAddedValue: [0, 1, 2, 5, 3, 4],
+                  tooLongValue: _.range(10_001),
+                  mismatchValue: { name: 'abc' },
                 }
-              : { ...strings, mismatchValue: 1234 }
+              case 'static files': {
+                return {
+                  ..._.mapValues(strings, content =>
+                    typeof content === 'string'
+                      ? new StaticFile({ filepath: 'abc', content: Buffer.from(content) })
+                      : new StaticFile({ filepath: 'def', content: Buffer.from(strings.mergeableValue) }),
+                  ),
+                }
+              }
+              default:
+                return strings
+            }
+          }
+
+          const allValues = getValues()
 
           const stateInstance = new InstanceElement(instanceName, typeWithField, {
             mergeableContent: allValues.stateValue,
@@ -998,35 +1009,7 @@ describe('fetch', () => {
             unmergeableAddedContent: allValues.unmergeableValue,
             mismatchValue: allValues.mismatchValue,
           })
-          describe('when auto merge is disabled', () => {
-            beforeEach(async () => {
-              process.env.SALTO_AUTO_MERGE_DISABLE = '1'
-              mockAdapters[testID.adapter].fetch.mockResolvedValueOnce(Promise.resolve({ elements: [serviceInstance] }))
-              const result = await fetchChanges(
-                mockAdapters,
-                createElementSource([workspaceInstance]),
-                createElementSource([stateInstance]),
-                { [testID.adapter]: 'dummy' },
-                [],
-              )
-              changes = [...result.changes]
-            })
-            afterEach(() => {
-              delete process.env.SALTO_AUTO_MERGE_DISABLE
-            })
-            it('should calculate fetch changes', () => {
-              expect(changes).toHaveLength(5)
-            })
-            it('should not merge any change', () => {
-              expect(
-                changes.every(
-                  change =>
-                    isModificationChange(change.change) && _.isEqual(change.change.data.after, allValues.serviceValue),
-                ),
-              ).toBeTrue()
-            })
-          })
-          describe('when auto merge is enabled', () => {
+          describe('merge content', () => {
             beforeEach(async () => {
               mockAdapters[testID.adapter].fetch.mockResolvedValueOnce(Promise.resolve({ elements: [serviceInstance] }))
               const result = await fetchChanges(
@@ -1728,7 +1711,7 @@ describe('fetch from workspace', () => {
     it('should fail if the source workspace has errors (not warnings) and fetch not from state', async () => {
       const sourceWS = mockWorkspace({
         accounts: ['salto'],
-        errors: [{ message: 'A glitch', severity: 'Error' }],
+        errors: [{ message: 'A glitch', severity: 'Error', detailedMessage: 'detailedMessage' }],
       })
 
       const fetchRes = await fetchChangesFromWorkspace(
@@ -2085,7 +2068,7 @@ describe('fetch from workspace', () => {
               index: await awu(pi.entries()).toArray(),
               accountConfigs: { salto: configs[0] },
               stateElements,
-              errors: [{ message: 'A warnings', severity: 'Warning' }],
+              errors: [{ message: 'A warnings', severity: 'Warning', detailedMessage: 'detailedMessage' }],
               staticFilesSource: otherWorkspaceStaticFilesSource,
             }),
             ['salto'],
@@ -2200,8 +2183,8 @@ describe('fetch from workspace', () => {
               accountConfigs: { salto: configs[0] },
               stateElements,
               errors: [
-                { message: 'what is this madness', severity: 'Error' },
-                { message: 'A warnings', severity: 'Warning' },
+                { message: 'what is this madness', severity: 'Error', detailedMessage: 'detailedMessage' },
+                { message: 'A warnings', severity: 'Warning', detailedMessage: 'detailedMessage' },
               ],
               staticFilesSource: otherWorkspaceStaticFilesSource,
             }),
@@ -2303,34 +2286,141 @@ describe('fetch from workspace', () => {
 
 // TODO: SALTO-4460 only deletion scenarios are covered here. The rest should be moved from under “fetchChanges”
 describe('calc fetch changes', () => {
-  const existingElement = new ObjectType({
-    elemID: new ElemID('salto', 'existing'),
-    path: ['salto', 'existing', 'all'],
+  describe('calculate deletions in partial fetch', () => {
+    it('should calculate a remove change when instanceA was deleted in service', async () => {
+      const existingElement = new ObjectType({
+        elemID: new ElemID('salto', 'existing'),
+        path: ['salto', 'existing', 'all'],
+      })
+      const instanceA = new InstanceElement('instanceA', existingElement)
+      const instanceB = new InstanceElement('instanceB', existingElement)
+      const { changes, serviceToStateChanges } = await calcFetchChanges({
+        accountElements: [existingElement],
+        mergedAccountElements: [existingElement],
+        stateElements: createInMemoryElementSource([existingElement, instanceA, instanceB]),
+        workspaceElements: createInMemoryElementSource([existingElement, instanceA, instanceB]),
+        partiallyFetchedAccounts: new Map([['salto', { deletedElements: new Set([instanceA.elemID.getFullName()]) }]]),
+        allFetchedAccounts: new Set(['salto']),
+      })
+
+      expect(changes).toHaveLength(1)
+      expect(changes[0].change.action).toEqual('remove')
+      expect(changes[0].change.id.getFullName()).toEqual(instanceA.elemID.getFullName())
+
+      expect(changes[0].serviceChanges).toHaveLength(1)
+      expect(changes[0].serviceChanges[0].action).toEqual('remove')
+      expect(changes[0].serviceChanges[0].id.getFullName()).toEqual(instanceA.elemID.getFullName())
+
+      expect(changes[0].pendingChanges ?? []).toHaveLength(0)
+
+      expect(serviceToStateChanges).toHaveLength(1)
+      expect(serviceToStateChanges[0].action).toEqual('remove')
+      expect(serviceToStateChanges[0].id.getFullName()).toEqual(instanceA.elemID.getFullName())
+    })
   })
-  const instanceA = new InstanceElement('instanceA', existingElement)
-  const instanceB = new InstanceElement('instanceB', existingElement)
-  it('should calculate a remove change when instanceA was deleted in service', async () => {
-    const { changes, serviceToStateChanges } = await calcFetchChanges(
-      [existingElement],
-      [existingElement],
-      createInMemoryElementSource([existingElement, instanceA, instanceB]),
-      createInMemoryElementSource([existingElement, instanceA, instanceB]),
-      new Map([['salto', { deletedElements: new Set([instanceA.elemID.getFullName()]) }]]),
-      new Set(['salto']),
-    )
 
-    expect(changes).toHaveLength(1)
-    expect(changes[0].change.action).toEqual('remove')
-    expect(changes[0].change.id.getFullName()).toEqual(instanceA.elemID.getFullName())
-
-    expect(changes[0].serviceChanges).toHaveLength(1)
-    expect(changes[0].serviceChanges[0].action).toEqual('remove')
-    expect(changes[0].serviceChanges[0].id.getFullName()).toEqual(instanceA.elemID.getFullName())
-
-    expect(changes[0].pendingChanges ?? []).toHaveLength(0)
-
-    expect(serviceToStateChanges).toHaveLength(1)
-    expect(serviceToStateChanges[0].action).toEqual('remove')
-    expect(serviceToStateChanges[0].id.getFullName()).toEqual(instanceA.elemID.getFullName())
+  describe('calculatePendingChanges parameter', () => {
+    let params: Parameters<typeof calcFetchChanges>[0]
+    let changes: FetchChange[]
+    const accountName = 'salto'
+    const elemID = new ElemID(accountName, 'type')
+    beforeEach(() => {
+      const accountElement = new ObjectType({ elemID, annotations: { test: true } })
+      const workspaceElement = new ObjectType({ elemID, annotations: { test: false } })
+      params = {
+        accountElements: [accountElement],
+        mergedAccountElements: [accountElement],
+        stateElements: createInMemoryElementSource(),
+        workspaceElements: createInMemoryElementSource([workspaceElement]),
+        partiallyFetchedAccounts: new Map([['salto', {}]]),
+        allFetchedAccounts: new Set([accountName]),
+      }
+    })
+    describe('when not passing the calculatePendingChanges parameter', () => {
+      beforeEach(async () => {
+        const result = await calcFetchChanges(params)
+        changes = result.changes
+      })
+      it('should calculate pending changes', async () => {
+        expect(changes).toEqual([
+          {
+            change: expect.objectContaining({
+              id: elemID.createNestedID('attr', 'test'),
+              action: 'modify',
+              data: { before: false, after: true },
+            }),
+            serviceChanges: [
+              expect.objectContaining({
+                id: elemID,
+                action: 'add',
+              }),
+            ],
+            pendingChanges: [
+              expect.objectContaining({
+                id: elemID,
+                action: 'add',
+              }),
+            ],
+            metadata: {},
+          },
+        ])
+      })
+    })
+    describe('when calculatePendingChanges is true', () => {
+      beforeEach(async () => {
+        const result = await calcFetchChanges({ ...params, calculatePendingChanges: true })
+        changes = result.changes
+      })
+      it('should calculate pending changes', async () => {
+        expect(changes).toEqual([
+          {
+            change: expect.objectContaining({
+              id: elemID.createNestedID('attr', 'test'),
+              action: 'modify',
+              data: { before: false, after: true },
+            }),
+            serviceChanges: [
+              expect.objectContaining({
+                id: elemID,
+                action: 'add',
+              }),
+            ],
+            pendingChanges: [
+              expect.objectContaining({
+                id: elemID,
+                action: 'add',
+              }),
+            ],
+            metadata: {},
+          },
+        ])
+      })
+    })
+    describe('when calculatePendingChanges is false', () => {
+      beforeEach(async () => {
+        const result = await calcFetchChanges({ ...params, calculatePendingChanges: false })
+        changes = result.changes
+      })
+      it('should not calculate pending changes', async () => {
+        expect(changes).toEqual([
+          {
+            change: expect.objectContaining({
+              id: elemID.createNestedID('attr', 'test'),
+              action: 'modify',
+              data: { before: false, after: true },
+            }),
+            serviceChanges: [
+              expect.objectContaining({
+                id: elemID.createNestedID('attr', 'test'),
+                action: 'modify',
+                data: { before: false, after: true },
+              }),
+            ],
+            pendingChanges: [],
+            metadata: {},
+          },
+        ])
+      })
+    })
   })
 })

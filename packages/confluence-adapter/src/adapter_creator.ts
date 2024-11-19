@@ -1,19 +1,11 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
-import { createAdapter, credentials, client, filters } from '@salto-io/adapter-components'
+import { createAdapter, credentials, client, filters, fetch as fetchUtils } from '@salto-io/adapter-components'
 import { Credentials, credentialsType } from './auth'
 import { DEFAULT_CONFIG, UserConfig } from './config'
 import { createConnection } from './client/connection'
@@ -29,7 +21,7 @@ import deploySpaceAndPermissionsFilterCreator from './filters/deploy_space_and_p
 import createChangeValidator from './change_validator'
 import groupsAndUsersFilterCreator from './filters/groups_and_users_filter'
 
-const { DEFAULT_RETRY_OPTS, RATE_LIMIT_UNLIMITED_MAX_CONCURRENT_REQUESTS } = client
+const { RATE_LIMIT_UNLIMITED_MAX_CONCURRENT_REQUESTS } = client
 const { defaultCredentialsFromConfig } = credentials
 
 export const adapter = createAdapter<Credentials, Options, UserConfig>({
@@ -74,8 +66,11 @@ export const adapter = createAdapter<Credentials, Options, UserConfig>({
       get: 60,
       deploy: 2,
     },
-    maxRequestsPerMinute: RATE_LIMIT_UNLIMITED_MAX_CONCURRENT_REQUESTS,
-    retry: DEFAULT_RETRY_OPTS,
   },
   customConvertError,
+  allCriteria: {
+    name: fetchUtils.query.nameCriterion,
+    status: fetchUtils.query.fieldCriterionCreator('status'),
+    type: fetchUtils.query.fieldCriterionCreator('type'),
+  },
 })

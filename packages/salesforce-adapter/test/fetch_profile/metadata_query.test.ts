@@ -1,17 +1,9 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
 
 import { InstanceElement } from '@salto-io/adapter-api'
@@ -26,6 +18,9 @@ import {
 import {
   CUSTOM_METADATA,
   CUSTOM_OBJECT,
+  FLOW_DEFINITION_METADATA_TYPE,
+  FLOW_METADATA_TYPE,
+  SETTINGS_METADATA_TYPE,
   TOPICS_FOR_OBJECTS_METADATA_TYPE,
 } from '../../src/constants'
 import { MetadataInstance, MetadataQuery } from '../../src/types'
@@ -130,6 +125,49 @@ describe('validateMetadataParams', () => {
 
 describe('buildMetadataQuery', () => {
   describe('isInstanceMatch', () => {
+    describe('when instance is of nested type', () => {
+      describe('when Instance is included by its parent type', () => {
+        it('should return true', () => {
+          const query = buildMetadataQuery({
+            fetchParams: {
+              metadata: {
+                include: [{ metadataType: FLOW_METADATA_TYPE, name: 'TestFlow' }],
+              },
+            },
+          })
+          expect(
+            query.isInstanceMatch({
+              metadataType: FLOW_DEFINITION_METADATA_TYPE,
+              namespace: '',
+              name: 'TestFlow',
+              isFolderType: false,
+              changedAt: undefined,
+            }),
+          ).toBeTrue()
+        })
+      })
+      describe('when instance is excluded by its parent type', () => {
+        it('should return false', () => {
+          const query = buildMetadataQuery({
+            fetchParams: {
+              metadata: {
+                exclude: [{ metadataType: FLOW_METADATA_TYPE, name: 'TestFlow' }],
+              },
+            },
+          })
+          expect(
+            query.isInstanceMatch({
+              metadataType: FLOW_DEFINITION_METADATA_TYPE,
+              namespace: '',
+              name: 'TestFlow',
+              isFolderType: false,
+              changedAt: undefined,
+            }),
+          ).toBeFalse()
+        })
+      })
+    })
+
     it('filter with namespace', () => {
       const query = buildMetadataQuery({
         fetchParams: {
@@ -251,12 +289,8 @@ describe('buildMetadataQuery', () => {
       const query = buildMetadataQuery({
         fetchParams: {
           metadata: {
-            include: [
-              { namespace: 'aaa.*', metadataType: 'bbb.*', name: 'ccc.*' },
-            ],
-            exclude: [
-              { namespace: '.*aaa', metadataType: '.*bbb', name: '.*ccc' },
-            ],
+            include: [{ namespace: 'aaa.*', metadataType: 'bbb.*', name: 'ccc.*' }],
+            exclude: [{ namespace: '.*aaa', metadataType: '.*bbb', name: '.*ccc' }],
           },
         },
       })
@@ -414,15 +448,78 @@ describe('buildMetadataQuery', () => {
     })
   })
 
+  describe('isTypeMatch on nested types', () => {
+    let metadataQuery: MetadataQuery
+    describe('when parent type is included', () => {
+      beforeEach(() => {
+        metadataQuery = buildMetadataQuery({
+          fetchParams: {
+            metadata: {
+              include: [{ metadataType: CUSTOM_OBJECT }],
+            },
+          },
+        })
+      })
+      it('should return true for nested types', () => {
+        expect(metadataQuery.isTypeMatch('ValidationRule')).toBeTrue()
+        expect(metadataQuery.isTypeMatch('CustomField')).toBeTrue()
+        expect(metadataQuery.isTypeMatch('FieldSet')).toBeTrue()
+      })
+    })
+    describe('when parent type is excluded', () => {
+      beforeEach(() => {
+        metadataQuery = buildMetadataQuery({
+          fetchParams: {
+            metadata: {
+              exclude: [{ metadataType: CUSTOM_OBJECT }],
+            },
+          },
+        })
+      })
+      it('should return false for nested types', () => {
+        expect(metadataQuery.isTypeMatch('ValidationRule')).toBeFalse()
+        expect(metadataQuery.isTypeMatch('CustomField')).toBeFalse()
+        expect(metadataQuery.isTypeMatch('FieldSet')).toBeFalse()
+      })
+    })
+    describe('when parent type is included and type is excluded', () => {
+      beforeEach(() => {
+        metadataQuery = buildMetadataQuery({
+          fetchParams: {
+            metadata: {
+              include: [{ metadataType: CUSTOM_OBJECT }],
+              exclude: [{ metadataType: 'ValidationRule' }],
+            },
+          },
+        })
+      })
+      it('should return true for the nested type', () => {
+        expect(metadataQuery.isTypeMatch('ValidationRule')).toBeTrue()
+      })
+    })
+    describe('when parent type is excluded and type is included', () => {
+      beforeEach(() => {
+        metadataQuery = buildMetadataQuery({
+          fetchParams: {
+            metadata: {
+              include: [{ metadataType: 'ValidationRule' }],
+              exclude: [{ metadataType: CUSTOM_OBJECT }],
+            },
+          },
+        })
+      })
+      it('should return false for the nested type', () => {
+        expect(metadataQuery.isTypeMatch('ValidationRule')).toBeFalse()
+      })
+    })
+  })
+
   it('isTypeMatch should return correct results', () => {
     const query = buildMetadataQuery({
       fetchParams: {
         metadata: {
           include: [{ metadataType: 'aaa.*' }],
-          exclude: [
-            { metadataType: '.*bbb' },
-            { metadataType: '.*ccc', name: 'someName' },
-          ],
+          exclude: [{ metadataType: '.*bbb' }, { metadataType: '.*ccc', name: 'someName' }],
         },
       },
     })
@@ -473,6 +570,7 @@ describe('buildMetadataQuery', () => {
       })
     })
   })
+
   describe('with InFolderMetadataType', () => {
     const inFolderType = 'Report'
     const folderType = `${inFolderType}Folder`
@@ -516,6 +614,7 @@ describe('buildMetadataQuery', () => {
       })
     })
   })
+
   describe('with FolderMetadataType', () => {
     const folderType = 'ReportFolder'
     let query: MetadataQuery
@@ -535,35 +634,29 @@ describe('buildMetadataQuery', () => {
           },
         })
       })
-      it.each(['TopFolder', 'NestedFolder', 'NestedNestedFolder'])(
-        'should match folder %p',
-        (folderName) => {
-          expect(
-            query.isInstanceMatch({
-              metadataType: folderType,
-              namespace: '',
-              name: folderName,
-              isFolderType: true,
-              changedAt: undefined,
-            }),
-          ).toBeTrue()
-        },
-      )
+      it.each(['TopFolder', 'NestedFolder', 'NestedNestedFolder'])('should match folder %p', folderName => {
+        expect(
+          query.isInstanceMatch({
+            metadataType: folderType,
+            namespace: '',
+            name: folderName,
+            isFolderType: true,
+            changedAt: undefined,
+          }),
+        ).toBeTrue()
+      })
 
-      it.each(['NonIncludedFolder', 'NonIncludedNestedFolder'])(
-        'should not match folder %p',
-        (folderName) => {
-          expect(
-            query.isInstanceMatch({
-              metadataType: folderType,
-              namespace: '',
-              name: folderName,
-              isFolderType: true,
-              changedAt: undefined,
-            }),
-          ).toBeFalse()
-        },
-      )
+      it.each(['NonIncludedFolder', 'NonIncludedNestedFolder'])('should not match folder %p', folderName => {
+        expect(
+          query.isInstanceMatch({
+            metadataType: folderType,
+            namespace: '',
+            name: folderName,
+            isFolderType: true,
+            changedAt: undefined,
+          }),
+        ).toBeFalse()
+      })
     })
     describe('with included wildcard', () => {
       beforeEach(() => {
@@ -579,20 +672,17 @@ describe('buildMetadataQuery', () => {
           },
         })
       })
-      it.each(['TopFolder', 'NestedFolder', 'NestedNestedFolder'])(
-        'should match folder %p',
-        (folderName) => {
-          expect(
-            query.isInstanceMatch({
-              metadataType: folderType,
-              namespace: '',
-              name: folderName,
-              isFolderType: true,
-              changedAt: undefined,
-            }),
-          ).toBeTrue()
-        },
-      )
+      it.each(['TopFolder', 'NestedFolder', 'NestedNestedFolder'])('should match folder %p', folderName => {
+        expect(
+          query.isInstanceMatch({
+            metadataType: folderType,
+            namespace: '',
+            name: folderName,
+            isFolderType: true,
+            changedAt: undefined,
+          }),
+        ).toBeTrue()
+      })
     })
     describe('with included regex paths', () => {
       beforeEach(() => {
@@ -609,52 +699,43 @@ describe('buildMetadataQuery', () => {
           },
         })
       })
-      it.each(['TopFolder', 'TopFolder1', 'TopFolder2', 'TopFolder3'])(
-        'should match folder %p',
-        (folderName) => {
-          expect(
-            query.isInstanceMatch({
-              metadataType: folderType,
-              namespace: '',
-              name: folderName,
-              isFolderType: true,
-              changedAt: undefined,
-            }),
-          ).toBeTrue()
-        },
-      )
+      it.each(['TopFolder', 'TopFolder1', 'TopFolder2', 'TopFolder3'])('should match folder %p', folderName => {
+        expect(
+          query.isInstanceMatch({
+            metadataType: folderType,
+            namespace: '',
+            name: folderName,
+            isFolderType: true,
+            changedAt: undefined,
+          }),
+        ).toBeTrue()
+      })
 
-      it.each(['TopFolder4', 'NestedFolder'])(
-        'should not match folder %p',
-        (folderName) => {
-          expect(
-            query.isInstanceMatch({
-              metadataType: folderType,
-              namespace: '',
-              name: folderName,
-              isFolderType: true,
-              changedAt: undefined,
-            }),
-          ).toBeFalse()
-        },
-      )
+      it.each(['TopFolder4', 'NestedFolder'])('should not match folder %p', folderName => {
+        expect(
+          query.isInstanceMatch({
+            metadataType: folderType,
+            namespace: '',
+            name: folderName,
+            isFolderType: true,
+            changedAt: undefined,
+          }),
+        ).toBeFalse()
+      })
     })
     describe('isFetchWithChangesDetection', () => {
       it('should return false', () => {
-        expect(
-          buildMetadataQuery({ fetchParams: {} }).isFetchWithChangesDetection(),
-        ).toBeFalse()
+        expect(buildMetadataQuery({ fetchParams: {} }).isFetchWithChangesDetection()).toBeFalse()
       })
     })
     describe('isInstanceIncluded', () => {
       it('should have the same implementation as isInstanceMatch', () => {
         const metadataQuery = buildMetadataQuery({ fetchParams: {} })
-        expect(metadataQuery.isInstanceIncluded).toEqual(
-          metadataQuery.isInstanceMatch,
-        )
+        expect(metadataQuery.isInstanceIncluded).toEqual(metadataQuery.isInstanceMatch)
       })
     })
   })
+
   describe('buildMetadataQueryForFetchWithChangesDetection', () => {
     const INCLUDED_TYPE = 'Role'
     const EXCLUDED_TYPE = 'CustomLabels'
@@ -663,9 +744,7 @@ describe('buildMetadataQuery', () => {
     let metadataQuery: MetadataQuery
     beforeEach(async () => {
       changedAtSingleton = mockInstances().ChangedAtSingleton
-      const elementsSource = buildElementsSourceFromElements([
-        changedAtSingleton,
-      ])
+      const elementsSource = buildElementsSourceFromElements([changedAtSingleton])
       metadataQuery = await buildMetadataQueryForFetchWithChangesDetection({
         fetchParams: {
           metadata: {
@@ -678,8 +757,7 @@ describe('buildMetadataQuery', () => {
           },
         },
         elementsSource,
-        lastChangeDateOfTypesWithNestedInstances:
-          emptyLastChangeDateOfTypesWithNestedInstances(),
+        lastChangeDateOfTypesWithNestedInstances: emptyLastChangeDateOfTypesWithNestedInstances(),
         customObjectsWithDeletedFields: new Set(),
       })
     })
@@ -699,8 +777,7 @@ describe('buildMetadataQuery', () => {
             },
             // In first fetch, the ChangedAtSingleton won't be defined
             elementsSource: buildElementsSourceFromElements([]),
-            lastChangeDateOfTypesWithNestedInstances:
-              emptyLastChangeDateOfTypesWithNestedInstances(),
+            lastChangeDateOfTypesWithNestedInstances: emptyLastChangeDateOfTypesWithNestedInstances(),
             customObjectsWithDeletedFields: new Set(),
           }),
         ).rejects.toThrow()
@@ -726,11 +803,8 @@ describe('buildMetadataQuery', () => {
         beforeEach(async () => {
           metadataQuery = await buildMetadataQueryForFetchWithChangesDetection({
             fetchParams: { target: ['CustomObject'] },
-            elementsSource: buildElementsSourceFromElements([
-              changedAtSingleton,
-            ]),
-            lastChangeDateOfTypesWithNestedInstances:
-              emptyLastChangeDateOfTypesWithNestedInstances(),
+            elementsSource: buildElementsSourceFromElements([changedAtSingleton]),
+            lastChangeDateOfTypesWithNestedInstances: emptyLastChangeDateOfTypesWithNestedInstances(),
             customObjectsWithDeletedFields: new Set(),
           })
         })
@@ -803,6 +877,7 @@ describe('buildMetadataQuery', () => {
       })
     })
   })
+
   describe('buildFilePropsMetadataQuery', () => {
     const CHANGED_AT = '2023-11-07T00:00:00.000Z'
 
@@ -880,6 +955,51 @@ describe('buildMetadataQuery', () => {
           })
         })
       })
+    })
+  })
+
+  describe('with settings types', () => {
+    let query: MetadataQuery
+
+    beforeEach(() => {
+      query = buildMetadataQuery({
+        fetchParams: {
+          metadata: {
+            include: [{ metadataType: 'AccountSettings' }],
+          },
+          optionalFeatures: {
+            retrieveSettings: true,
+          },
+        },
+      })
+    })
+
+    it('should include the Settings type', () => {
+      expect(query.isTypeMatch(SETTINGS_METADATA_TYPE)).toBeTrue()
+    })
+
+    it('should match the included settings instance', () => {
+      expect(
+        query.isInstanceMatch({
+          name: 'Account',
+          namespace: '',
+          metadataType: 'Settings',
+          isFolderType: false,
+          changedAt: undefined,
+        }),
+      ).toBeTrue()
+    })
+
+    it('should not match a different settings instance', () => {
+      expect(
+        query.isInstanceMatch({
+          name: 'Company',
+          namespace: '',
+          metadataType: 'Settings',
+          isFolderType: false,
+          changedAt: undefined,
+        }),
+      ).toBeFalse()
     })
   })
 })

@@ -1,17 +1,9 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
 
 import {
@@ -29,6 +21,7 @@ import {
   Value,
   Values,
   isReferenceExpression,
+  getField,
 } from '@salto-io/adapter-api'
 import { safeJsonStringify } from '@salto-io/adapter-utils'
 import { collections } from '@salto-io/lowerdash'
@@ -46,8 +39,13 @@ type FieldDef = {
 const FIELD_NAME_TO_INNER_CONTEXT_FIELD: Record<string, FieldDef> = {
   applicationVisibilities: { name: 'application' },
   recordTypeVisibilities: { name: 'recordType', nested: true },
+
+  // TODO(SALTO-4990): Remove once picklistsAsMaps FF is deployed and removed.
   standardValue: { name: 'label' },
   customValue: { name: 'label' },
+
+  'standardValue.values': { name: 'label' },
+  'customValue.values': { name: 'label' },
 }
 
 type ValueSetInnerObject = {
@@ -55,14 +53,31 @@ type ValueSetInnerObject = {
   label: string
 } & Values[]
 
-type FieldWithValueSet = Field & {
+type FieldWithValueSetList = Field & {
   annotations: {
     valueSet: Array<ValueSetInnerObject>
   }
 }
 
-const isFieldWithValueSet = (field: Field): field is FieldWithValueSet =>
+// TODO(SALTO-4990): Remove once picklistsAsMaps FF is deployed and removed.
+type FieldWithValueSetOrderedMap = Field & {
+  annotations: {
+    valueSet: {
+      values: Array<ValueSetInnerObject>
+    }
+  }
+}
+
+type FieldWithValueSet = FieldWithValueSetList | FieldWithValueSetOrderedMap
+
+const isFieldWithValueSetList = (field: Field): field is FieldWithValueSetList =>
   _.isArray(field.annotations[FIELD_ANNOTATIONS.VALUE_SET])
+
+const isFieldWithOrderedMapValueSet = (field: Field): field is FieldWithValueSetOrderedMap =>
+  _.isArray(field.annotations[FIELD_ANNOTATIONS.VALUE_SET]?.order)
+
+const isFieldWithValueSet = (field: Field): field is FieldWithValueSet =>
+  isFieldWithValueSetList(field) || isFieldWithOrderedMapValueSet(field)
 
 const formatContext = (context: Value): string => {
   if (isReferenceExpression(context)) {
@@ -74,11 +89,7 @@ const formatContext = (context: Value): string => {
   return safeJsonStringify(context)
 }
 
-const createInstanceChangeError = (
-  field: Field,
-  contexts: string[],
-  instance: InstanceElement,
-): ChangeError => {
+const createInstanceChangeError = (field: Field, contexts: string[], instance: InstanceElement): ChangeError => {
   const instanceName = instance.elemID.name
   return {
     elemID: instance.elemID,
@@ -88,45 +99,33 @@ const createInstanceChangeError = (
   }
 }
 
-const createFieldChangeError = (
-  field: Field,
-  contexts: string[],
-): ChangeError => ({
+const createFieldChangeError = (field: Field, contexts: string[]): ChangeError => ({
   elemID: field.elemID,
   severity: 'Warning',
   message: 'Types cannot have more than one default',
   detailedMessage: `There cannot be more than one 'default' ${field.name} in type ${field.parent.elemID.name}.\nThe following ${FIELD_NAME_TO_INNER_CONTEXT_FIELD[field.name]?.name ?? LABEL}s are set to default: ${contexts}`,
 })
 
-const getPicklistMultipleDefaultsErrors = (
-  field: FieldWithValueSet,
-): ChangeError[] => {
-  const contexts = field.annotations.valueSet
-    .filter((obj) => obj.default)
-    .map((obj) => obj[LABEL])
+const getPicklistMultipleDefaultsErrors = (field: FieldWithValueSet): ChangeError[] => {
+  const contexts = (
+    isFieldWithValueSetList(field) ? field.annotations.valueSet : Object.values(field.annotations.valueSet.values)
+  )
+    .filter(obj => obj.default)
+    .map(obj => obj[LABEL])
     .map(formatContext)
   return contexts.length > 1 ? [createFieldChangeError(field, contexts)] : []
 }
 
-const getInstancesMultipleDefaultsErrors = async (
-  after: InstanceElement,
-): Promise<ChangeError[]> => {
-  const getDefaultObjectsList = async (
-    val: Value,
-    type: TypeElement,
-  ): Promise<Value[]> => {
+const getInstancesMultipleDefaultsErrors = async (after: InstanceElement): Promise<ChangeError[]> => {
+  const getDefaultObjectsList = async (val: Value, type: TypeElement): Promise<Value[]> => {
     if (isMapType(type)) {
       return awu(Object.values(val))
-        .flatMap(async (inner) =>
-          getDefaultObjectsList(inner, await type.getInnerType()),
-        )
+        .flatMap(async inner => getDefaultObjectsList(inner, await type.getInnerType()))
         .toArray()
     }
     if (isListType(type) && _.isArray(val)) {
       return awu(val)
-        .flatMap(async (inner) =>
-          getDefaultObjectsList(inner, await type.getInnerType()),
-        )
+        .flatMap(async inner => getDefaultObjectsList(inner, await type.getInnerType()))
         .toArray()
     }
     return val
@@ -138,9 +137,12 @@ const getInstancesMultipleDefaultsErrors = async (
     valueName: string,
   ): Promise<string[] | undefined> => {
     const defaultObjects = await getDefaultObjectsList(value, fieldType)
+    if (!_.isArray(defaultObjects)) {
+      return undefined
+    }
     const contexts = defaultObjects
-      .filter((val) => val.default)
-      .map((obj) => obj[valueName])
+      .filter(val => val.default)
+      .map(obj => obj[valueName])
       .map(formatContext)
     return contexts.length > 1 ? contexts : undefined
   }
@@ -156,41 +158,25 @@ const getInstancesMultipleDefaultsErrors = async (
     return []
   }
 
-  const errors: ChangeError[] = await awu(Object.entries(after.value))
-    .filter(([fieldName]) =>
-      Object.keys(FIELD_NAME_TO_INNER_CONTEXT_FIELD).includes(fieldName),
-    )
-    .flatMap(async ([fieldName, value]) => {
-      const field = (await after.getType()).fields[fieldName]
+  const errors: ChangeError[] = await awu(Object.keys(FIELD_NAME_TO_INNER_CONTEXT_FIELD))
+    .filter(fieldPath => _.has(after.value, fieldPath))
+    .flatMap(async fieldPath => {
+      const value = _.get(after.value, fieldPath)
+      const field = await getField(await after.getType(), fieldPath.split('.'))
       if (field === undefined) {
         // Can happen if the field exists in the instance but not in the type.
         return []
       }
       const fieldType = await field.getType()
-      const valueName = FIELD_NAME_TO_INNER_CONTEXT_FIELD[fieldName].name
-      if (
-        _.isPlainObject(value) &&
-        FIELD_NAME_TO_INNER_CONTEXT_FIELD[fieldName].nested
-      ) {
-        return awu(Object.entries(value)).flatMap(
-          async ([_key, innerValue]) => {
-            const startLevelType = isMapType(fieldType)
-              ? await fieldType.getInnerType()
-              : fieldType
-            const defaultsContexts = await findMultipleDefaults(
-              innerValue,
-              startLevelType,
-              valueName,
-            )
-            return createChangeErrorFromContext(field, defaultsContexts, after)
-          },
-        )
+      const valueName = FIELD_NAME_TO_INNER_CONTEXT_FIELD[fieldPath].name
+      if (_.isPlainObject(value) && FIELD_NAME_TO_INNER_CONTEXT_FIELD[fieldPath].nested) {
+        return awu(Object.entries(value)).flatMap(async ([_key, innerValue]) => {
+          const startLevelType = isMapType(fieldType) ? await fieldType.getInnerType() : fieldType
+          const defaultsContexts = await findMultipleDefaults(innerValue, startLevelType, valueName)
+          return createChangeErrorFromContext(field, defaultsContexts, after)
+        })
       }
-      const defaultsContexts = await findMultipleDefaults(
-        value,
-        fieldType,
-        valueName,
-      )
+      const defaultsContexts = await findMultipleDefaults(value, fieldType, valueName)
       return createChangeErrorFromContext(field, defaultsContexts, after)
     })
     .toArray()
@@ -201,7 +187,7 @@ const getInstancesMultipleDefaultsErrors = async (
 /**
  * It is forbidden to set more than one 'default' field as 'true' for some types.
  */
-const changeValidator: ChangeValidator = async (changes) => {
+const changeValidator: ChangeValidator = async changes => {
   const instanceChangesErrors = await awu(changes)
     .filter(isAdditionOrModificationChange)
     .filter(isInstanceChange)

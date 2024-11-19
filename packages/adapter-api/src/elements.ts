@@ -1,17 +1,9 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
 /* eslint-disable no-use-before-define */
 
@@ -118,6 +110,17 @@ export abstract class Element {
    * @return {Type} the cloned instance
    */
   abstract clone(annotations?: Values): Element
+
+  /**
+   * Assign all element fields from other.
+   * Needs to be overridden by each subclass as this is structure dependent.
+   * Note that the element ID is not changed.
+   */
+  assign(other: Element): void {
+    this.annotationRefTypes = other.annotationRefTypes
+    this.annotations = other.annotations
+    this.path = other.path
+  }
 }
 export type ElementMap = Record<string, Element>
 
@@ -168,6 +171,11 @@ export class ListType<T extends TypeElement = TypeElement> extends Element {
 
   clone(): ListType {
     return new ListType(this.refInnerType.clone())
+  }
+
+  assign(other: ListType): void {
+    super.assign(other)
+    this.refInnerType = other.refInnerType
   }
 
   async getInnerType(elementsSource?: ReadOnlyElementsSource): Promise<TypeElement> {
@@ -225,6 +233,11 @@ export class MapType<T extends TypeElement = TypeElement> extends Element {
 
   clone(): MapType {
     return new MapType(this.refInnerType.clone())
+  }
+
+  assign(other: MapType): void {
+    super.assign(other)
+    this.refInnerType = other.refInnerType
   }
 
   async getInnerType(elementsSource?: ReadOnlyElementsSource): Promise<TypeElement> {
@@ -298,6 +311,13 @@ export class Field extends Element {
       annotations === undefined ? this.cloneAnnotations() : annotations,
     )
   }
+
+  assign(other: Field): void {
+    super.assign(other)
+    this.parent = other.parent
+    this.name = other.name
+    this.refType = other.refType
+  }
 }
 export type FieldMap = Record<string, Field>
 
@@ -341,6 +361,11 @@ export class PrimitiveType<Primitive extends PrimitiveTypes = PrimitiveTypes> ex
     })
     res.annotate(additionalAnnotations)
     return res
+  }
+
+  assign(other: PrimitiveType<Primitive>): void {
+    super.assign(other)
+    this.primitive = other.primitive
   }
 }
 
@@ -465,6 +490,13 @@ export class ObjectType extends Element {
     return res
   }
 
+  assign(other: ObjectType): void {
+    super.assign(other)
+    this.fields = other.fields
+    this.metaType = other.metaType
+    this.isSettings = other.isSettings
+  }
+
   getFieldsElemIDsFullName(): string[] {
     return Object.values(this.fields).map(field => field.elemID.getFullName())
   }
@@ -541,6 +573,17 @@ export class InstanceElement extends Element {
       cloneDeepWithoutRefs(this.annotations),
     )
   }
+
+  assign(other: InstanceElement): void {
+    if (!this.refType.elemID.isEqual(other.refType.elemID)) {
+      throw Error(
+        `Cannot replace instance with type ${this.refType.elemID} with instance with type ${this.refType.elemID}.`,
+      )
+    }
+
+    super.assign(other)
+    this.value = other.value
+  }
 }
 
 export class Variable extends Element {
@@ -558,6 +601,11 @@ export class Variable extends Element {
 
   clone(): Variable {
     return new Variable(this.elemID, cloneDeepWithoutRefs(this.value), this.path)
+  }
+
+  assign(other: Variable): void {
+    super.assign(other)
+    this.value = other.value
   }
 }
 

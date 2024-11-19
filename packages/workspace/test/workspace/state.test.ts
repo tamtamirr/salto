@@ -1,17 +1,9 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
 import {
   ObjectType,
@@ -22,6 +14,7 @@ import {
   Field,
   InstanceElement,
   Element,
+  TypeReference,
 } from '@salto-io/adapter-api'
 import { collections } from '@salto-io/lowerdash'
 import { mockFunction, MockInterface } from '@salto-io/test-utils'
@@ -43,8 +36,6 @@ describe('state', () => {
   const elem = new ObjectType({ elemID, path: ['test', 'new'] })
   let pathIndex: PathIndex
   let topLevelPathIndex: PathIndex
-  const updateDate = new Date()
-  const accountsUpdateDate = { [adapter]: updateDate }
 
   let loadStateData: () => Promise<StateData>
   let stateStaticFilesSource: MockInterface<StaticFilesSource>
@@ -62,11 +53,14 @@ describe('state', () => {
     stateStaticFilesSource = mockStaticFilesSource() as MockInterface<StaticFilesSource>
     loadStateData = async () => ({
       elements: createInMemoryElementSource([elem]),
-      accountsUpdateDate: new InMemoryRemoteMap([{ key: adapter, value: updateDate }]),
+      accounts: new InMemoryRemoteMap([{ key: 'account_names', value: [adapter] }]),
       pathIndex,
       topLevelPathIndex,
-      saltoMetadata: new InMemoryRemoteMap([{ key: 'version', value: '0.0.1' }]),
+      saltoMetadata: new InMemoryRemoteMap(),
       staticFilesSource: stateStaticFilesSource,
+      deprecated: {
+        accountsUpdateDate: new InMemoryRemoteMap([{ key: adapter, value: new Date() }]),
+      },
     })
 
     newElemID = new ElemID('dummy', 'newElem')
@@ -142,9 +136,6 @@ describe('state', () => {
       it('should set element such that get would return it', async () => {
         expect(await state.get(newElemID)).toEqual(newElem)
       })
-      it('should not change account update date', async () => {
-        expect(await state.getAccountsUpdateDates()).toEqual(accountsUpdateDate)
-      })
     })
     it('remove', async () => {
       await state.set(newElem)
@@ -156,9 +147,6 @@ describe('state', () => {
     it('setAll', async () => {
       await state.setAll(awu([newElem]))
       expect(await state.get(newElemID)).toEqual(newElem)
-    })
-    it('getAccountsUpdateDates', async () => {
-      expect(await state.getAccountsUpdateDates()).toEqual(accountsUpdateDate)
     })
     it('existingAccounts', async () => {
       expect(await state.existingAccounts()).toEqual([adapter])
@@ -174,7 +162,6 @@ describe('state', () => {
       expect(await awu(await state.getAll()).toArray()).toHaveLength(0)
       expect((await awu((await state.getPathIndex()).keys()).toArray()).length).toEqual(0)
       expect((await awu((await state.getTopLevelPathIndex()).keys()).toArray()).length).toEqual(0)
-      expect(await state.getAccountsUpdateDates()).toEqual({})
       expect(stateStaticFilesSource.clear).toHaveBeenCalled()
     })
 
@@ -187,44 +174,47 @@ describe('state', () => {
       await expect(state.rename('bla')).resolves.not.toThrow()
     })
 
-    it('should return the salto version that was provided in load data', async () => {
-      expect(await state.getStateSaltoVersion()).toEqual('0.0.1')
-    })
-
     describe('updateStateFromChanges', () => {
       describe('elements state', () => {
-        const toRemove = new ObjectType({ elemID: new ElemID(adapter, 'remove', 'type') })
-        const toAdd = new ObjectType({ elemID: new ElemID(adapter, 'add', 'type') })
-        const toModify = new ObjectType({
-          elemID: new ElemID(adapter, 'modify', 'type'),
+        const toRemove = new ObjectType({ elemID: new ElemID(adapter, 'remove') })
+        const toAdd = new ObjectType({ elemID: new ElemID(adapter, 'add') })
+        const toModify = new ObjectType({ elemID: new ElemID(adapter, 'modify') })
+        const toModifyAfter = new ObjectType({
+          elemID: new ElemID(adapter, 'modify'),
+          metaType: new TypeReference(new ElemID(adapter, 'meta')),
+        })
+        const toModifyField = new ObjectType({
+          elemID: new ElemID(adapter, 'modifyField'),
           fields: { removeMe: { refType: BuiltinTypes.STRING }, modifyMe: { refType: BuiltinTypes.STRING } },
         })
 
-        const fieldToAdd = new Field(toModify, 'addMe', BuiltinTypes.STRING)
-        const fieldToModify = new Field(toModify, 'modifyMe', BuiltinTypes.NUMBER)
-        const fieldToRemove = new Field(toModify, 'removeMe', BuiltinTypes.STRING)
-        const fieldToAddElemID = new ElemID(adapter, toModify.elemID.name, 'field', 'addMe')
-        const fieldToModifyElemID = new ElemID(adapter, toModify.elemID.name, 'field', 'modifyMe')
-        const fieldToRemoveElemID = new ElemID(adapter, toModify.elemID.name, 'field', 'removeMe')
+        const fieldToAdd = new Field(toModifyField, 'addMe', BuiltinTypes.STRING)
+        const fieldToModify = new Field(toModifyField, 'modifyMe', BuiltinTypes.NUMBER)
+        const fieldToModifyAfter = new Field(toModifyField, 'modifyMe', BuiltinTypes.BOOLEAN)
+        const fieldToRemove = new Field(toModifyField, 'removeMe', BuiltinTypes.STRING)
+        const fieldToAddElemID = new ElemID(adapter, toModifyField.elemID.name, 'field', 'addMe')
+        const fieldToModifyElemID = new ElemID(adapter, toModifyField.elemID.name, 'field', 'modifyMe')
+        const fieldToRemoveElemID = new ElemID(adapter, toModifyField.elemID.name, 'field', 'removeMe')
 
         let allElements: Element[]
         beforeAll(async () => {
           await state.clear()
-          await state.setAll([toRemove, toModify, newElem])
+          await state.setAll([toRemove, toModify, toModifyField, newElem])
 
           await state.updateStateFromChanges({
             changes: [
               { action: 'add', data: { after: toAdd }, id: toAdd.elemID }, // Element to be added
               { action: 'remove', data: { before: toRemove }, id: toRemove.elemID }, // Element to be removed
+              { action: 'modify', data: { before: toModify, after: toModifyAfter }, id: toModify.elemID }, // Element to be modified
 
               { action: 'add', data: { after: fieldToAdd }, id: fieldToAddElemID }, // Field to be added
               { action: 'remove', data: { before: fieldToRemove }, id: fieldToRemoveElemID }, // Field to be removed
-              { action: 'modify', data: { before: fieldToModify, after: fieldToModify }, id: fieldToModifyElemID }, // Field to be modified
+              { action: 'modify', data: { before: fieldToModify, after: fieldToModifyAfter }, id: fieldToModifyElemID }, // Field to be modified
             ],
           })
 
           allElements = await awu(await state.getAll()).toArray()
-          expect(allElements).toHaveLength(3)
+          expect(allElements).toHaveLength(4)
         })
 
         it('should not remove existing elements', () => {
@@ -237,14 +227,17 @@ describe('state', () => {
           expect(allElements.some(e => e.isEqual(toAdd))).toBeTruthy()
         })
         it('should modify elements that were modified', () => {
+          expect(allElements[2].isEqual(toModifyAfter)).toBeTrue()
+        })
+        it('should modify element fields that were modified', () => {
           expect(
-            allElements[2].isEqual(
+            allElements[3].isEqual(
               new ObjectType({
-                elemID: new ElemID(adapter, 'modify', 'type'),
-                fields: { modifyMe: { refType: BuiltinTypes.NUMBER }, addMe: { refType: BuiltinTypes.STRING } },
+                elemID: toModifyField.elemID,
+                fields: { modifyMe: { refType: BuiltinTypes.BOOLEAN }, addMe: { refType: BuiltinTypes.STRING } },
               }),
             ),
-          ).toBeTruthy()
+          ).toBeTrue()
         })
       })
       describe('pathIndex', () => {
@@ -303,15 +296,6 @@ describe('state', () => {
           expect(updatePathSpyIndex).not.toHaveBeenCalled()
           expect(updateTopLevelPathSpyIndex).not.toHaveBeenCalled()
         })
-      })
-      it('should update the accounts update dates', async () => {
-        const accountsUpdateDates = await state.getAccountsUpdateDates()
-        await state.updateStateFromChanges({
-          changes: [],
-          fetchAccounts: [adapter],
-        })
-        const newAccountsUpdateDates = await state.getAccountsUpdateDates()
-        expect(accountsUpdateDates[adapter] < newAccountsUpdateDates[adapter]).toBeTruthy()
       })
       it('should call removal of static file that was removed', async () => {
         const beforeElem = new InstanceElement('elem', new ObjectType({ elemID: new ElemID('salesforce', 'type') }), {

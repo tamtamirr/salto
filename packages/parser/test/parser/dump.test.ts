@@ -1,17 +1,9 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
 import {
   ObjectType,
@@ -27,6 +19,7 @@ import {
   MapType,
   isContainerType,
   createRefToElmWithValue,
+  TemplateExpression,
 } from '@salto-io/adapter-api'
 import _ from 'lodash'
 import { parse } from '../../src/parser'
@@ -159,6 +152,10 @@ describe('Salto Dump', () => {
     ],
   })
 
+  const instanceWithTemplateExpression = new InstanceElement('template_inst', model, {
+    template: new TemplateExpression({ parts: ['Hello ', new ReferenceExpression(new ElemID('salto', 'ref'))] }),
+  })
+
   describe('dump elements', () => {
     let body: string
 
@@ -176,6 +173,7 @@ describe('Salto Dump', () => {
           instanceStartsWithNumber,
           instanceWithFunctions,
           instanceWithArray,
+          instanceWithTemplateExpression,
           unknownType,
         ],
         functions,
@@ -214,6 +212,15 @@ describe('Salto Dump', () => {
       })
       it('has annotation values', () => {
         expect(body).toMatch(new RegExp(`${CORE_ANNOTATIONS.DEPENDS_ON}\\s+=\\s+"test"`))
+      })
+    })
+
+    describe('dumped instance template expressions', () => {
+      it('has instance block', () => {
+        expect(body).toMatch(/salesforce.test template_inst {/)
+      })
+      it('has template expression', () => {
+        expect(body).toMatch(/template = "Hello \${ salto.ref }"/)
       })
     })
 
@@ -311,7 +318,7 @@ describe('Salto Dump', () => {
       const { elements, errors } = result
       const [listTypes, nonListElements] = _.partition(elements, e => isContainerType(e))
       expect(errors).toHaveLength(0)
-      expect(elements).toHaveLength(14)
+      expect(elements).toHaveLength(15)
       expect(nonListElements[0]).toEqual(strType)
       expect(nonListElements[1]).toEqual(numType)
       expect(nonListElements[2]).toEqual(boolType)
@@ -324,7 +331,8 @@ describe('Salto Dump', () => {
       expectInstancesToMatch(nonListElements[8] as InstanceElement, instanceStartsWithNumber)
       expectInstancesToMatch(nonListElements[9] as InstanceElement, instanceWithFunctions)
       expectInstancesToMatch(nonListElements[10] as InstanceElement, instanceWithArray)
-      expect(nonListElements[11]).toEqual(unknownType)
+      expectInstancesToMatch(nonListElements[11] as InstanceElement, instanceWithTemplateExpression)
+      expect(nonListElements[12]).toEqual(unknownType)
     })
   })
   describe('dump field', () => {

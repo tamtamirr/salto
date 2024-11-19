@@ -1,17 +1,9 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
 import { Values } from '@salto-io/adapter-api'
 import {
@@ -28,6 +20,11 @@ import {
   BRAND_TYPE_NAME,
   BRAND_THEME_TYPE_NAME,
   DOMAIN_TYPE_NAME,
+  IDENTITY_PROVIDER_TYPE_NAME,
+  PASSWORD_POLICY_TYPE_NAME,
+  PASSWORD_RULE_TYPE_NAME,
+  AUTHORIZATION_POLICY,
+  AUTHORIZATION_POLICY_RULE,
 } from '../src/constants'
 
 export const mockDefaultValues: Record<string, Values> = {
@@ -41,10 +38,6 @@ export const mockDefaultValues: Record<string, Values> = {
     status: 'ACTIVE',
     name: 'authentication rule',
     system: false,
-    conditions: {
-      network: { connection: 'ANYWHERE' },
-      riskScore: { level: 'ANY' },
-    },
     actions: {
       appSignOn: {
         access: 'ALLOW',
@@ -56,6 +49,99 @@ export const mockDefaultValues: Record<string, Values> = {
       },
     },
     type: 'ACCESS_POLICY',
+  },
+  [PASSWORD_POLICY_TYPE_NAME]: {
+    status: 'ACTIVE',
+    name: 'password policy',
+    type: 'PASSWORD',
+    system: false,
+    settings: {
+      password: {
+        complexity: {
+          minLength: 8,
+          minLowerCase: 1,
+          minUpperCase: 1,
+          minNumber: 1,
+          minSymbol: 0,
+          excludeUsername: true,
+          dictionary: {
+            common: {
+              exclude: false,
+            },
+          },
+        },
+        age: {
+          maxAgeDays: 0,
+          expireWarnDays: 0,
+          minAgeMinutes: 0,
+          historyCount: 4,
+        },
+        lockout: {
+          maxAttempts: 10,
+          autoUnlockMinutes: 0,
+          showLockoutFailures: false,
+        },
+      },
+      recovery: {
+        factors: {
+          recovery_question: {
+            status: 'INACTIVE',
+            properties: {
+              complexity: {
+                minLength: 4,
+              },
+            },
+          },
+          okta_email: {
+            status: 'INACTIVE',
+            properties: {
+              recoveryToken: {
+                tokenLifetimeMinutes: 60,
+              },
+            },
+          },
+          okta_sms: {
+            status: 'INACTIVE',
+          },
+          okta_call: {
+            status: 'INACTIVE',
+          },
+        },
+      },
+      delegation: {
+        options: {
+          skipUnlock: false,
+        },
+      },
+    },
+  },
+  [PASSWORD_RULE_TYPE_NAME]: {
+    status: 'ACTIVE',
+    name: 'password rule',
+    type: 'PASSWORD',
+    system: false,
+    conditions: {
+      network: { connection: 'ANYWHERE' },
+    },
+    actions: {
+      passwordChange: {
+        access: 'DENY',
+      },
+      selfServicePasswordReset: {
+        access: 'DENY',
+        requirement: {
+          primary: {
+            methods: ['email'],
+          },
+          stepUp: {
+            required: false,
+          },
+        },
+      },
+      selfServiceUnlock: {
+        access: 'ALLOW',
+      },
+    },
   },
   [APPLICATION_TYPE_NAME]: {
     label: 'SAML Test',
@@ -114,6 +200,9 @@ export const mockDefaultValues: Record<string, Values> = {
         allowMultipleAcsEndpoints: false,
         samlSignedRequestEnabled: false,
         slo: {
+          enabled: false,
+        },
+        assertionEncryption: {
           enabled: false,
         },
       },
@@ -221,5 +310,113 @@ export const mockDefaultValues: Record<string, Values> = {
   [DOMAIN_TYPE_NAME]: {
     certificateSourceType: 'OKTA_MANAGED',
     validationStatus: 'NOT_STARTED',
+  },
+  [IDENTITY_PROVIDER_TYPE_NAME]: {
+    issuerMode: 'DYNAMIC',
+    status: 'ACTIVE',
+    protocol: {
+      type: 'OIDC',
+      endpoints: {
+        authorization: {
+          url: 'https://idp.example.io/auth',
+          binding: 'HTTP-REDIRECT',
+        },
+        token: {
+          url: 'https://idp.example.io/token',
+          binding: 'HTTP-POST',
+        },
+        jwks: {
+          url: 'https://idp.example.io/jwk',
+          binding: 'HTTP-REDIRECT',
+        },
+      },
+      scopes: ['email', 'openid', 'profile'],
+      issuer: {
+        url: 'https://idp.example.io/login/test',
+      },
+      credentials: {
+        client: {
+          token_endpoint_auth_method: 'private_key_jwt',
+          client_id: 'dummyClientId',
+          pkce_required: true,
+        },
+        signing: {
+          algorithm: 'RS256',
+        },
+      },
+    },
+    policy: {
+      provisioning: {
+        action: 'AUTO',
+        profileMaster: false,
+        groups: {
+          action: 'NONE',
+        },
+        conditions: {
+          deprovisioned: {
+            action: 'NONE',
+          },
+          suspended: {
+            action: 'NONE',
+          },
+        },
+      },
+      accountLink: {
+        action: 'DISABLED',
+      },
+      subject: {
+        userNameTemplate: {
+          template: 'idpuser.email',
+        },
+        filter: '',
+        matchType: 'USERNAME',
+        matchAttribute: '',
+      },
+      maxClockSkew: 0,
+      transformedUsernameMatchingEnabled: false,
+    },
+    type: 'OIDC',
+  },
+  [AUTHORIZATION_POLICY]: {
+    status: 'ACTIVE',
+    name: 'authServerPolicy',
+    description: 'some desc',
+    system: false,
+    type: 'OAUTH_AUTHORIZATION_POLICY',
+  },
+  [AUTHORIZATION_POLICY_RULE]: {
+    status: 'ACTIVE',
+    name: 'authServerRule',
+    system: false,
+    type: 'RESOURCE_ACCESS',
+    conditions: {
+      people: {
+        groups: {
+          include: ['EVERYONE'],
+        },
+      },
+      grantTypes: {
+        include: [
+          'implicit',
+          'urn:ietf:params:oauth:grant-type:saml2-bearer',
+          'client_credentials',
+          'password',
+          'urn:ietf:params:oauth:grant-type:device_code',
+          'authorization_code',
+          'urn:openid:params:grant-type:ciba',
+          'urn:ietf:params:oauth:grant-type:token-exchange',
+        ],
+      },
+      scopes: {
+        include: ['*'],
+      },
+    },
+    actions: {
+      token: {
+        accessTokenLifetimeMinutes: 60,
+        refreshTokenLifetimeMinutes: 129600,
+        refreshTokenWindowMinutes: 10080,
+      },
+    },
   },
 }

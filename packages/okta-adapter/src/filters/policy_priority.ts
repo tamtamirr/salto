@@ -1,17 +1,9 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
 import {
   BuiltinTypes,
@@ -30,8 +22,13 @@ import {
 } from '@salto-io/adapter-api'
 import _ from 'lodash'
 import { collections } from '@salto-io/lowerdash'
-import { getParents, invertNaclCase, naclCase, pathNaclCase } from '@salto-io/adapter-utils'
-import { fetch, elements as adapterElements, client as clientUtils } from '@salto-io/adapter-components'
+import { getParents, invertNaclCase, naclCase, pathNaclCase, safeJsonStringify } from '@salto-io/adapter-utils'
+import {
+  fetch,
+  elements as adapterElements,
+  client as clientUtils,
+  definitions as definitionsUtils,
+} from '@salto-io/adapter-components'
 import { logger } from '@salto-io/logging'
 import { FilterCreator } from '../filter'
 import {
@@ -39,40 +36,50 @@ import {
   ACCESS_POLICY_RULE_TYPE_NAME,
   ACCESS_POLICY_TYPE_NAME,
   AUTHORIZATION_POLICY,
+  AUTHORIZATION_POLICY_PRIORITY_TYPE_NAME,
   AUTHORIZATION_POLICY_RULE,
   AUTHORIZATION_POLICY_RULE_PRIORITY_TYPE_NAME,
+  AUTHORIZATION_SERVER,
   IDP_POLICY_TYPE_NAME,
   IDP_RULE_PRIORITY_TYPE_NAME,
   IDP_RULE_TYPE_NAME,
+  MFA_POLICY_PRIORITY_TYPE_NAME,
   MFA_POLICY_TYPE_NAME,
   MFA_RULE_PRIORITY_TYPE_NAME,
   MFA_RULE_TYPE_NAME,
   OKTA,
+  PASSWORD_POLICY_PRIORITY_TYPE_NAME,
   PASSWORD_POLICY_TYPE_NAME,
   PASSWORD_RULE_PRIORITY_TYPE_NAME,
   PASSWORD_RULE_TYPE_NAME,
-  POLICY_PRIORITY_TYPE_NAMES,
-  POLICY_RULE_PRIORITY_TYPE_NAMES,
+  SIGN_ON_POLICY_PRIORITY_TYPE_NAME,
   SIGN_ON_POLICY_TYPE_NAME,
   SIGN_ON_RULE_PRIORITY_TYPE_NAME,
   SIGN_ON_RULE_TYPE_NAME,
 } from '../constants'
-import { deployChanges } from '../deployment'
-import { API_DEFINITIONS_CONFIG, OktaSwaggerApiConfig } from '../config'
+import { deployChanges } from '../deprecated_deployment'
 
 const log = logger(module)
 const { awu } = collections.asynciterable
-const { createUrl } = fetch.resource
-export const POLICY_RULE_TYPES_WITH_PRIORITY_INSTANCE = [
+const { replaceAllArgs } = fetch.request
+export const POLICY_RULE_WITH_PRIORITY = [
   ACCESS_POLICY_RULE_TYPE_NAME,
   IDP_RULE_TYPE_NAME,
   MFA_RULE_TYPE_NAME,
   SIGN_ON_RULE_TYPE_NAME,
   PASSWORD_RULE_TYPE_NAME,
   AUTHORIZATION_POLICY_RULE,
+  // not a policy rule, but managed similarly as there is a policy per authorization server
+  AUTHORIZATION_POLICY,
 ]
-export const ALL_SUPPORTED_POLICY_NAMES = [SIGN_ON_POLICY_TYPE_NAME, MFA_POLICY_TYPE_NAME, PASSWORD_POLICY_TYPE_NAME]
-// Automation and PofileEnrollmentPolicyRule is not included in the list of supported policy rules because it is not supported
+const POLICY_WITH_PRIORITY = [SIGN_ON_POLICY_TYPE_NAME, MFA_POLICY_TYPE_NAME, PASSWORD_POLICY_TYPE_NAME] as const
+export const ALL_SUPPORTED_POLICY_NAMES = POLICY_WITH_PRIORITY as readonly string[]
+type PolicyTypeWithPriority = (typeof POLICY_WITH_PRIORITY)[number]
+
+const isPolicyTypeWithPriority = (typeName: string): typeName is PolicyTypeWithPriority =>
+  ALL_SUPPORTED_POLICY_NAMES.includes(typeName)
+
+// Automation and ProfileEnrollmentPolicyRule is not included in the list of supported policy rules because it is not supported
 const POLICY_NAME_TO_RULE_PRIORITY_NAME: Record<string, string> = {
   [ACCESS_POLICY_TYPE_NAME]: ACCESS_POLICY_RULE_PRIORITY_TYPE_NAME,
   [IDP_POLICY_TYPE_NAME]: IDP_RULE_PRIORITY_TYPE_NAME,
@@ -80,13 +87,18 @@ const POLICY_NAME_TO_RULE_PRIORITY_NAME: Record<string, string> = {
   [SIGN_ON_POLICY_TYPE_NAME]: SIGN_ON_RULE_PRIORITY_TYPE_NAME,
   [PASSWORD_POLICY_TYPE_NAME]: PASSWORD_RULE_PRIORITY_TYPE_NAME,
   [AUTHORIZATION_POLICY]: AUTHORIZATION_POLICY_RULE_PRIORITY_TYPE_NAME,
+  [AUTHORIZATION_SERVER]: AUTHORIZATION_POLICY_PRIORITY_TYPE_NAME,
 }
 
-const POLICY_NAME_TO_PRIORITY_NAME: Record<string, string> = {
-  [SIGN_ON_POLICY_TYPE_NAME]: 'OktaSignOnPolicyPriority',
-  [MFA_POLICY_TYPE_NAME]: 'MultifactorEnrollmentPolicyPriority',
-  [PASSWORD_POLICY_TYPE_NAME]: 'PasswordPolicyPriority',
+const POLICY_NAME_TO_PRIORITY_NAME: Record<PolicyTypeWithPriority, string> = {
+  [SIGN_ON_POLICY_TYPE_NAME]: SIGN_ON_POLICY_PRIORITY_TYPE_NAME,
+  [MFA_POLICY_TYPE_NAME]: MFA_POLICY_PRIORITY_TYPE_NAME,
+  [PASSWORD_POLICY_TYPE_NAME]: PASSWORD_POLICY_PRIORITY_TYPE_NAME,
 }
+
+export const POLICY_PRIORITY_TYPE_NAMES = Object.values(POLICY_NAME_TO_PRIORITY_NAME)
+export const POLICY_RULE_PRIORITY_TYPE_NAMES = Object.values(POLICY_NAME_TO_RULE_PRIORITY_NAME)
+
 export const createPriorityType = (typeName: string, defaultFieldName: string): ObjectType =>
   new ObjectType({
     elemID: new ElemID(OKTA, typeName),
@@ -156,74 +168,125 @@ const createPolicyRulePriorityInstance = ({
   const fullValue = defaultRule
     ? { ...value, defaultRule: new ReferenceExpression(defaultRule.elemID, defaultRule) }
     : value
-  return new InstanceElement(name, type, fullValue, [...(policy.path ?? []).slice(0, -1), pathNaclCase(name)], {
+  const parentPath = (policy.path ?? []).slice(0, -1)
+  const path =
+    policy.elemID.typeName === AUTHORIZATION_SERVER
+      ? [...parentPath, 'policies', pathNaclCase(name)]
+      : [...parentPath, pathNaclCase(name)]
+  return new InstanceElement(name, type, fullValue, path, {
     [CORE_ANNOTATIONS.PARENT]: new ReferenceExpression(policy.elemID, policy),
   })
 }
 
 // For AccessPolicyRules, the priority index starts from 0, while for others it starts from 1.
-const setPriority = (typeName: string, priority: number): number => {
-  if (typeName === ACCESS_POLICY_RULE_TYPE_NAME) {
-    return priority
-  }
-  return priority + 1
-}
+const getPriorityValue = (typeName: string, priority: number): number =>
+  typeName === ACCESS_POLICY_RULE_TYPE_NAME ? priority : priority + 1
 
-const getParentPolicy = (rule: InstanceElement): InstanceElement | undefined => {
+export const getParentPolicy = (rule: InstanceElement): InstanceElement | undefined => {
   if (rule.elemID.typeName === AUTHORIZATION_POLICY_RULE) {
     return getParents(rule).find(parent => parent.elemID.typeName === AUTHORIZATION_POLICY)?.value
   }
   return getParents(rule)[0]?.value
 }
 
-const deployPriorityChange = async ({
+// use polling to overcome edge case where the policy is not yet updated
+const getWithPolling = async ({
+  args,
   client,
-  priority,
-  instance,
-  apiDefinitions,
-  additionalUrlVars,
 }: {
+  args: clientUtils.ClientBaseParams
   client: clientUtils.HTTPWriteClientInterface & clientUtils.HTTPReadClientInterface
-  priority: number
-  instance: InstanceElement
-  apiDefinitions: OktaSwaggerApiConfig
-  additionalUrlVars: Record<string, string>
-}): Promise<void> => {
-  const { type } = instance.value
-  const ruleTypeName = instance.elemID.typeName
-  const baseData = { priority: setPriority(ruleTypeName, priority), type, name: instance.value.name }
-  // For sign on rules, we need to include the actions in the data
-  const data =
-    instance.elemID.typeName === SIGN_ON_RULE_TYPE_NAME ? { ...baseData, actions: instance.value.actions } : baseData
-  const typeDefinition = apiDefinitions.types[instance.elemID.typeName]
-  const deployRequest = typeDefinition.deployRequests ? typeDefinition.deployRequests.modify : undefined
-  const deployUrl = deployRequest?.url
-  if (deployUrl === undefined) {
-    throw new Error('Failed to deploy priority change due to missing url')
+}): Promise<clientUtils.Response<clientUtils.ResponseValue | clientUtils.ResponseValue[]>> => {
+  const pollingArgs: definitionsUtils.PollingArgs = {
+    interval: 1000,
+    retries: 3,
+    checkStatus: response => response.status === 200,
+    retryOnStatus: [404],
   }
-  const url = createUrl({ instance, url: deployUrl, additionalUrlVars })
-
-  await client.put({ url, data })
+  const clientGet = async ({
+    url,
+  }: clientUtils.ClientBaseParams): Promise<
+    clientUtils.Response<clientUtils.ResponseValue | clientUtils.ResponseValue[]>
+  > => client.get({ url })
+  const res = await clientUtils.executeWithPolling(args, pollingArgs, clientGet)
+  return res
 }
 
-const getAdditionalUrlVars = (instance: InstanceElement): Record<string, string> =>
-  POLICY_RULE_TYPES_WITH_PRIORITY_INSTANCE.includes(instance.elemID.typeName)
-    ? { ruleId: instance.value.id, policyId: getParentPolicy(instance)?.value.id }
-    : { policyId: instance.value.id }
+const updatePriorityField = async ({
+  client,
+  requiredPriority,
+  instance,
+  deployPolicyPath,
+  fieldsToOmit,
+}: {
+  client: clientUtils.HTTPWriteClientInterface & clientUtils.HTTPReadClientInterface
+  requiredPriority: number
+  instance: InstanceElement
+  deployPolicyPath: definitionsUtils.EndpointPath
+  fieldsToOmit: string[]
+}): Promise<void> => {
+  const pathContext = {
+    ...instance.value,
+    parent_id: getParentPolicy(instance)?.value?.id,
+    second_parent_id: getParents(instance)[1]?.value?.value.id, // only applies for AuthorizationServerPolicyRule
+  }
+  const { path } = replaceAllArgs({
+    value: { path: deployPolicyPath },
+    context: pathContext,
+    throwOnUnresolvedArgs: true,
+  })
+  const response = await getWithPolling({ args: { url: path }, client })
+  const fieldToUpdate = (Array.isArray(response.data) ? response.data[0] : response.data).priority
+  if (fieldToUpdate === requiredPriority) {
+    log.debug(
+      `skipped updating priority field for ${instance.elemID.getFullName()}, priority is already set to ${requiredPriority}`,
+    )
+    return
+  }
+  const data = { ..._.omit(response.data, fieldsToOmit), priority: requiredPriority }
+  try {
+    await client.put({ url: path, data })
+  } catch (error) {
+    log.error(
+      'Failed to update priority field for %s: with error %s',
+      instance.elemID.getFullName(),
+      safeJsonStringify(error),
+    )
+    throw error
+  }
+}
+
+const getSinglePolicyPath = (typeName: string): definitionsUtils.EndpointPath => {
+  switch (typeName) {
+    case AUTHORIZATION_POLICY:
+      return '/api/v1/authorizationServers/{parent_id}/policies/{id}'
+    case AUTHORIZATION_POLICY_RULE:
+      return '/api/v1/authorizationServers/{second_parent_id}/policies/{parent_id}/rules/{id}'
+    case ACCESS_POLICY_RULE_TYPE_NAME:
+    case IDP_RULE_TYPE_NAME:
+    case MFA_RULE_TYPE_NAME:
+    case SIGN_ON_RULE_TYPE_NAME:
+    case PASSWORD_RULE_TYPE_NAME:
+      return '/api/v1/policies/{parent_id}/rules/{id}'
+    default:
+      return '/api/v1/policies/{id}'
+  }
+}
 
 /*
  * Manages the priorities of policies and policy rules by generating an InstanceElement
  * for the priorities. Each priority instance contains the instances sorted by their
  * priority, including the default instance. The default instance is always set to be
- * last. In deployment, we deploy the priorities, not the instances themselves.
+ * last.
+ *
+ * In deployment, we update the policy priorities by using a GET request to get the current policy data,
+ * with a following PUT request to update the priority field only.
  */
-const filter: FilterCreator = ({ definitions, oldApiDefinitions }) => ({
+const filter: FilterCreator = ({ definitions }) => ({
   name: 'policyPrioritiesFilter',
   onFetch: async elements => {
     const instances = elements.filter(isInstanceElement)
-    const policiesRules = instances.filter(instance =>
-      POLICY_RULE_TYPES_WITH_PRIORITY_INSTANCE.includes(instance.elemID.typeName),
-    )
+    const policiesRules = instances.filter(instance => POLICY_RULE_WITH_PRIORITY.includes(instance.elemID.typeName))
     const priorityTypes = POLICY_RULE_PRIORITY_TYPE_NAMES.map(name => createPriorityType(name, 'defaultRule')).concat(
       POLICY_PRIORITY_TYPE_NAMES.map(name => createPriorityType(name, 'defaultPolicy')),
     )
@@ -265,22 +328,22 @@ const filter: FilterCreator = ({ definitions, oldApiDefinitions }) => ({
     })
     // Responsible for creating the priority instances for the policies
     const policyTypeNameToPolicies = _.groupBy(
-      instances.filter(instance => ALL_SUPPORTED_POLICY_NAMES.includes(instance.elemID.typeName)),
+      instances.filter(instance => isPolicyTypeWithPriority(instance.elemID.typeName)),
       instance => instance.elemID.typeName,
     )
     Object.entries(policyTypeNameToPolicies).forEach(([policyTypeName, policies]) => {
+      if (!isPolicyTypeWithPriority(policyTypeName)) {
+        return
+      }
       logDuplicatePriorities(policies)
-      const type = priorityTypeNameToPriorityType[POLICY_NAME_TO_PRIORITY_NAME[policyTypeName]]
+      const type =
+        priorityTypeNameToPriorityType[POLICY_NAME_TO_PRIORITY_NAME[policyTypeName as PolicyTypeWithPriority]]
       const priorityInstance = createPolicyPriorityInstance({
         policies,
         type,
         typeName: policyTypeName,
       })
       elements.push(priorityInstance)
-    })
-    // Remove priority field from the instances
-    policiesRules.concat(Object.values(policyTypeNameToPolicies).flat()).forEach(rule => {
-      delete rule.value.priority
     })
   },
   deploy: async changes => {
@@ -291,16 +354,18 @@ const filter: FilterCreator = ({ definitions, oldApiDefinitions }) => ({
     )
     const deployResult = await deployChanges(relevantChanges.filter(isInstanceChange), async change => {
       const instance = getChangeData(change)
+      const fieldsToOmit = [...fetch.element.getFieldsToOmit(definitions, instance.elemID.typeName)]
       if (isAdditionChange(change)) {
         await awu(instance.value.priorities)
           .filter(isReferenceExpression)
           .forEach(async (ref, priority) => {
-            await deployPriorityChange({
+            const path = getSinglePolicyPath(ref.elemID.typeName)
+            await updatePriorityField({
               client: definitions.clients.options.main.httpClient,
-              priority,
+              requiredPriority: getPriorityValue(ref.elemID.typeName, priority),
               instance: ref.value,
-              apiDefinitions: oldApiDefinitions[API_DEFINITIONS_CONFIG],
-              additionalUrlVars: getAdditionalUrlVars(ref.value),
+              deployPolicyPath: path,
+              fieldsToOmit,
             })
           })
       }
@@ -310,12 +375,13 @@ const filter: FilterCreator = ({ definitions, oldApiDefinitions }) => ({
           .filter(isReferenceExpression)
           .forEach(async (ref, priority) => {
             if (positionsBefore[priority]?.elemID.getFullName() !== ref.elemID.getFullName()) {
-              await deployPriorityChange({
+              const path = getSinglePolicyPath(ref.elemID.typeName)
+              await updatePriorityField({
                 client: definitions.clients.options.main.httpClient,
-                priority,
+                requiredPriority: getPriorityValue(ref.elemID.typeName, priority),
                 instance: ref.value,
-                apiDefinitions: oldApiDefinitions[API_DEFINITIONS_CONFIG],
-                additionalUrlVars: getAdditionalUrlVars(ref.value),
+                deployPolicyPath: path,
+                fieldsToOmit,
               })
             }
           })

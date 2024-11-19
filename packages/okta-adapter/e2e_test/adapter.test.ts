@@ -1,17 +1,9 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
 import _ from 'lodash'
 import { v4 as uuidv4 } from 'uuid'
@@ -24,7 +16,6 @@ import {
   InstanceElement,
   isAdditionChange,
   isAdditionOrModificationChange,
-  isEqualValues,
   isInstanceChange,
   isInstanceElement,
   isObjectType,
@@ -40,7 +31,7 @@ import {
   buildElementsSourceFromElements,
   detailedCompare,
   getParents,
-  inspectValue,
+  invertNaclCase,
   naclCase,
   safeJsonStringify,
 } from '@salto-io/adapter-utils'
@@ -49,6 +40,7 @@ import { definitions as definitionsUtils, fetch as fetchUtils } from '@salto-io/
 import { collections } from '@salto-io/lowerdash'
 import { CredsLease } from '@salto-io/e2e-credentials-store'
 import {
+  ACCESS_POLICY_RULE_PRIORITY_TYPE_NAME,
   ACCESS_POLICY_RULE_TYPE_NAME,
   ACCESS_POLICY_TYPE_NAME,
   APP_GROUP_ASSIGNMENT_TYPE_NAME,
@@ -56,14 +48,25 @@ import {
   APP_USER_SCHEMA_TYPE_NAME,
   APPLICATION_TYPE_NAME,
   AUTHENTICATOR_TYPE_NAME,
+  AUTHORIZATION_POLICY,
+  AUTHORIZATION_POLICY_PRIORITY_TYPE_NAME,
+  AUTHORIZATION_POLICY_RULE,
+  AUTHORIZATION_POLICY_RULE_PRIORITY_TYPE_NAME,
+  AUTHORIZATION_SERVER,
   BRAND_THEME_TYPE_NAME,
   BRAND_TYPE_NAME,
+  CUSTOM_NAME_FIELD,
   DOMAIN_TYPE_NAME,
   GROUP_RULE_TYPE_NAME,
   GROUP_TYPE_NAME,
+  IDENTITY_PROVIDER_TYPE_NAME,
   INACTIVE_STATUS,
   NETWORK_ZONE_TYPE_NAME,
   ORG_SETTING_TYPE_NAME,
+  PASSWORD_POLICY_PRIORITY_TYPE_NAME,
+  PASSWORD_POLICY_TYPE_NAME,
+  PASSWORD_RULE_PRIORITY_TYPE_NAME,
+  PASSWORD_RULE_TYPE_NAME,
   PROFILE_ENROLLMENT_POLICY_TYPE_NAME,
   PROFILE_ENROLLMENT_RULE_TYPE_NAME,
   ROLE_TYPE_NAME,
@@ -76,6 +79,8 @@ import { Credentials } from '../src/auth'
 import { credsLease, realAdapter, Reals } from './adapter'
 import { mockDefaultValues } from './mock_elements'
 import { OktaOptions } from '../src/definitions/types'
+import { createFetchQuery } from '../test/utils'
+import './jest_matchers'
 
 const { awu } = collections.asynciterable
 const log = logger(module)
@@ -98,16 +103,17 @@ const createInstance = ({
   parent?: InstanceElement
   name?: string
 }): InstanceElement => {
-  const instValues = {
-    ...mockDefaultValues[typeName],
-    ...valuesOverride,
-  }
+  const instValues = _.merge({}, mockDefaultValues[typeName], valuesOverride)
   const type = types.find(t => t.elemID.typeName === typeName)
   if (type === undefined) {
     log.warn(`Could not find type ${typeName}, error while creating instance`)
     throw new Error(`Failed to find type ${typeName}`)
   }
-  const fetchDefinitions = createFetchDefinitions(DEFAULT_CONFIG, true)
+  const fetchDefinitions = createFetchDefinitions({
+    userConfig: DEFAULT_CONFIG,
+    fetchQuery: createFetchQuery(DEFAULT_CONFIG),
+    usePrivateAPI: true,
+  })
   const elemIDDef = definitionsUtils.queryWithDefault(fetchDefinitions.instances).query(typeName)?.element
     ?.topLevel?.elemID
   if (elemIDDef === undefined) {
@@ -125,7 +131,11 @@ const createInstance = ({
   )
 }
 
-const createChangesForDeploy = async (types: ObjectType[], testSuffix: string): Promise<Change[]> => {
+const createChangesForDeploy = async (
+  types: ObjectType[],
+  testSuffix: string,
+  authServerInstance?: InstanceElement,
+): Promise<Change[]> => {
   const createName = (type: string): string => `${TEST_PREFIX}${type}${testSuffix}`
 
   const groupInstance = createInstance({
@@ -174,11 +184,11 @@ const createChangesForDeploy = async (types: ObjectType[], testSuffix: string): 
     types,
     valuesOverride: { name: createName('policy') },
   })
-  const accessPolicyRule = createInstance({
+  const accessPolicyRuleA = createInstance({
     typeName: ACCESS_POLICY_RULE_TYPE_NAME,
     types,
     valuesOverride: {
-      name: createName('policyRule'),
+      name: createName('policyRuleA'),
       conditions: {
         network: {
           connection: 'ANYWHERE',
@@ -186,10 +196,162 @@ const createChangesForDeploy = async (types: ObjectType[], testSuffix: string): 
           // connection: 'ZONE',
           // include: [new ReferenceExpression(zoneInstance.elemID, zoneInstance)],
         },
-        riskScore: { level: 'ANY' },
+        riskScore: { level: 'MEDIUM' },
       },
     },
     parent: accessPolicy,
+  })
+  const accessPolicyRuleB = createInstance({
+    typeName: ACCESS_POLICY_RULE_TYPE_NAME,
+    types,
+    valuesOverride: {
+      name: createName('policyRuleB'),
+      conditions: {
+        network: { connection: 'ANYWHERE' },
+        riskScore: { level: 'ANY' },
+        platform: {
+          include: [
+            {
+              type: 'DESKTOP',
+              os: {
+                type: 'MACOS',
+              },
+            },
+            {
+              type: 'MOBILE',
+              os: {
+                type: 'ANDROID',
+              },
+            },
+          ],
+        },
+      },
+    },
+    parent: accessPolicy,
+  })
+  const defaultRule = createInstance({
+    typeName: ACCESS_POLICY_RULE_TYPE_NAME,
+    types,
+    valuesOverride: {
+      name: 'Catch-all Rule',
+      system: true,
+      actions: {
+        appSignOn: {
+          access: 'DENY',
+          verificationMethod: {
+            factorMode: '1FA',
+            type: 'ASSURANCE',
+            reauthenticateIn: 'PT12H',
+            constraints: [
+              {
+                knowledge: {
+                  types: ['password'],
+                },
+              },
+            ],
+          },
+        },
+      },
+    },
+    parent: accessPolicy,
+  })
+  const accessPolicyRulePriority = createInstance({
+    typeName: ACCESS_POLICY_RULE_PRIORITY_TYPE_NAME,
+    types,
+    name: naclCase(`${invertNaclCase(accessPolicy.elemID.name)}_priority`),
+    valuesOverride: {
+      priorities: [
+        new ReferenceExpression(accessPolicyRuleB.elemID, accessPolicyRuleB),
+        new ReferenceExpression(accessPolicyRuleA.elemID, accessPolicyRuleA),
+      ],
+      defaultRule: new ReferenceExpression(defaultRule.elemID, defaultRule),
+    },
+    parent: accessPolicy,
+  })
+  const passwordPolicyA = createInstance({
+    typeName: PASSWORD_POLICY_TYPE_NAME,
+    types,
+    valuesOverride: {
+      name: createName('passwordPolicyA'),
+      conditions: {
+        people: {
+          groups: {
+            include: [new ReferenceExpression(groupInstance.elemID, groupInstance)],
+          },
+        },
+        authProvider: {
+          provider: 'OKTA',
+        },
+      },
+      settings: {
+        password: {
+          complexity: {
+            minLength: 16,
+          },
+        },
+      },
+    },
+  })
+  const passwordPolicyB = createInstance({
+    typeName: PASSWORD_POLICY_TYPE_NAME,
+    types,
+    valuesOverride: {
+      name: createName('passwordPolicyB'),
+      conditions: {
+        people: {
+          groups: {
+            include: [new ReferenceExpression(groupInstance.elemID, groupInstance)],
+          },
+        },
+        authProvider: { provider: 'OKTA' },
+      },
+    },
+  })
+  const defaultPasswordPolicy = createInstance({
+    typeName: PASSWORD_POLICY_TYPE_NAME,
+    name: 'Default Policy',
+    types,
+    valuesOverride: { name: 'Default Policy', system: true },
+  })
+  const passwordPolicyPriority = createInstance({
+    typeName: PASSWORD_POLICY_PRIORITY_TYPE_NAME,
+    types,
+    name: 'PasswordPolicy_priority',
+    valuesOverride: {
+      priorities: [
+        new ReferenceExpression(passwordPolicyB.elemID, passwordPolicyB),
+        new ReferenceExpression(passwordPolicyA.elemID, passwordPolicyA),
+      ],
+      defaultPolicy: new ReferenceExpression(defaultPasswordPolicy.elemID, defaultPasswordPolicy),
+    },
+  })
+  const passwordPolicyRuleA = createInstance({
+    typeName: PASSWORD_RULE_TYPE_NAME,
+    types,
+    valuesOverride: {
+      name: createName('passwordRuleA'),
+    },
+    parent: passwordPolicyA,
+  })
+  const passwordPolicyRuleB = createInstance({
+    typeName: PASSWORD_RULE_TYPE_NAME,
+    types,
+    valuesOverride: {
+      name: createName('passwordRuleB'),
+    },
+    parent: passwordPolicyA,
+  })
+  const passwordPolicyRulePriority = createInstance({
+    typeName: PASSWORD_RULE_PRIORITY_TYPE_NAME,
+    types,
+    name: naclCase(`${invertNaclCase(passwordPolicyA.elemID.name)}_priority`),
+    valuesOverride: {
+      priorities: [
+        new ReferenceExpression(passwordPolicyRuleB.elemID, passwordPolicyRuleB),
+        new ReferenceExpression(passwordPolicyRuleA.elemID, passwordPolicyRuleA),
+      ],
+    },
+    parent: passwordPolicyA,
   })
   const profileEnrollment = createInstance({
     typeName: PROFILE_ENROLLMENT_POLICY_TYPE_NAME,
@@ -273,18 +435,118 @@ const createChangesForDeploy = async (types: ObjectType[], testSuffix: string): 
       removePoweredByOkta: true,
     },
   })
+  const identityProvider = createInstance({
+    typeName: IDENTITY_PROVIDER_TYPE_NAME,
+    types,
+    valuesOverride: {
+      name: createName(IDENTITY_PROVIDER_TYPE_NAME),
+    },
+  })
+  const authServerPolicyA = createInstance({
+    typeName: AUTHORIZATION_POLICY,
+    types,
+    valuesOverride: {
+      name: createName('AuthServerPolicyA'),
+    },
+    parent: authServerInstance,
+  })
+  const authServerPolicyB = createInstance({
+    typeName: AUTHORIZATION_POLICY,
+    types,
+    valuesOverride: {
+      name: createName('AuthServerPolicyB'),
+    },
+    parent: authServerInstance,
+  })
+  const authServerPolicyC = createInstance({
+    typeName: AUTHORIZATION_POLICY,
+    types,
+    valuesOverride: {
+      name: createName('AuthServerPolicyC'),
+    },
+    parent: authServerInstance,
+  })
+  const authServerPriority = createInstance({
+    typeName: AUTHORIZATION_POLICY_PRIORITY_TYPE_NAME,
+    types,
+    name: naclCase(`${invertNaclCase(authServerInstance?.elemID.name ?? 'default')}_priority`),
+    valuesOverride: {
+      priorities: [
+        new ReferenceExpression(authServerPolicyB.elemID, authServerPolicyB),
+        new ReferenceExpression(authServerPolicyC.elemID, authServerPolicyC),
+        new ReferenceExpression(authServerPolicyA.elemID, authServerPolicyA),
+      ],
+    },
+  })
+  const authServerRuleA = createInstance({
+    typeName: AUTHORIZATION_POLICY_RULE,
+    types,
+    valuesOverride: {
+      name: createName('authServerRuleA'),
+    },
+    parent: authServerPolicyA,
+  })
+  const authServerRuleB = createInstance({
+    typeName: AUTHORIZATION_POLICY_RULE,
+    types,
+    valuesOverride: {
+      name: createName('authServerRuleB'),
+      actions: {
+        token: {
+          accessTokenLifetimeMinutes: 180,
+        },
+      },
+    },
+    parent: authServerPolicyA,
+  })
+  if (authServerInstance !== undefined) {
+    authServerRuleA.annotations[CORE_ANNOTATIONS.PARENT].push(
+      new ReferenceExpression(authServerInstance.elemID, authServerInstance),
+    )
+    authServerRuleB.annotations[CORE_ANNOTATIONS.PARENT].push(
+      new ReferenceExpression(authServerInstance.elemID, authServerInstance),
+    )
+  }
+  const authServerPolicyRulePriority = createInstance({
+    typeName: AUTHORIZATION_POLICY_RULE_PRIORITY_TYPE_NAME,
+    types,
+    name: naclCase(`${invertNaclCase(authServerPolicyA?.elemID.name)}_priority`),
+    valuesOverride: {
+      priorities: [
+        new ReferenceExpression(authServerRuleB.elemID, authServerRuleB),
+        new ReferenceExpression(authServerRuleA.elemID, authServerRuleA),
+      ],
+    },
+  })
   return [
     toChange({ after: groupInstance }),
     toChange({ after: anotherGroupInstance }),
     toChange({ after: ruleInstance }),
     toChange({ after: zoneInstance }),
     toChange({ after: accessPolicy }),
-    toChange({ after: accessPolicyRule }),
+    toChange({ after: accessPolicyRuleA }),
+    toChange({ after: accessPolicyRuleB }),
+    toChange({ after: defaultRule }),
+    toChange({ after: accessPolicyRulePriority }),
+    toChange({ after: passwordPolicyA }),
+    toChange({ after: passwordPolicyRuleA }),
+    toChange({ after: passwordPolicyRuleB }),
+    toChange({ after: passwordPolicyB }),
+    toChange({ after: passwordPolicyPriority }),
+    toChange({ after: passwordPolicyRulePriority }),
     toChange({ after: profileEnrollment }),
     toChange({ after: profileEnrollmentRule }),
     toChange({ after: app }),
     toChange({ after: appGroupAssignment }),
     toChange({ after: brand }),
+    toChange({ after: identityProvider }),
+    toChange({ after: authServerPolicyA }),
+    toChange({ after: authServerPolicyB }),
+    toChange({ after: authServerPolicyC }),
+    toChange({ after: authServerPriority }),
+    toChange({ after: authServerRuleA }),
+    toChange({ after: authServerRuleB }),
+    toChange({ after: authServerPolicyRulePriority }),
   ]
 }
 
@@ -379,26 +641,16 @@ const getHiddenFieldsToOmit = (
 ): string[] => {
   const customizations = definitionsUtils.queryWithDefault(fetchDefinitions.instances).query(typeName)
     ?.element?.fieldCustomizations
-  return Object.entries(customizations ?? {})
-    .filter(([, customization]) => customization.hide === true)
-    .map(([fieldName]) => fieldName)
-    .filter(fieldName => fieldName !== 'id')
+  return (
+    Object.entries(customizations ?? {})
+      .filter(([, customization]) => customization.hide === true)
+      .map(([fieldName]) => fieldName)
+      // ignore fields that are written to nacl after deployment
+      .filter(fieldName => !['id', CUSTOM_NAME_FIELD].includes(fieldName))
+  )
 }
 
 describe('Okta adapter E2E', () => {
-  expect.extend({
-    toHaveEqualValues(received: Values, expected: InstanceElement) {
-      const pass = isEqualValues(received, expected.value)
-      return {
-        pass,
-        message: () =>
-          `Received unexpected result when fetching instance: ${expected.elemID.getFullName()}.\n` +
-          `Expected value: ${inspectValue(expected.value, { depth: 7 })},\n` +
-          `Received value: ${inspectValue(received, { depth: 7 })}`,
-      }
-    },
-  })
-
   describe('fetch and deploy', () => {
     let credLease: CredsLease<Credentials>
     let adapterAttr: Reals
@@ -406,6 +658,7 @@ describe('Okta adapter E2E', () => {
     let elements: Element[] = []
     let deployResults: DeployResult[]
     let fetchDefinitions: definitionsUtils.fetch.FetchApiDefinitions<OktaOptions>
+    let defaultAuthServerInstance: InstanceElement | undefined
 
     const deployAndFetch = async (changes: Change[]): Promise<void> => {
       deployResults = await deployChanges(adapterAttr, changes)
@@ -438,15 +691,24 @@ describe('Okta adapter E2E', () => {
       const fetchBeforeCleanupResult = await adapterAttr.adapter.fetch({
         progressReporter: { reportProgress: () => null },
       })
-      fetchDefinitions = createFetchDefinitions(DEFAULT_CONFIG, true)
+      fetchDefinitions = createFetchDefinitions({
+        userConfig: DEFAULT_CONFIG,
+        fetchQuery: createFetchQuery(DEFAULT_CONFIG),
+        usePrivateAPI: true,
+      })
       const types = fetchBeforeCleanupResult.elements.filter(isObjectType)
+      defaultAuthServerInstance = fetchBeforeCleanupResult.elements
+        .filter(isInstanceElement)
+        .find(inst => inst.elemID.typeName === AUTHORIZATION_SERVER && inst.value.default === true)
+        ?.clone()
       await deployCleanup(adapterAttr, fetchBeforeCleanupResult.elements.filter(isInstanceElement))
 
-      const changesToDeploy = await createChangesForDeploy(types, testSuffix)
+      const changesToDeploy = await createChangesForDeploy(types, testSuffix, defaultAuthServerInstance)
       await deployAndFetch(changesToDeploy)
     })
 
     afterAll(async () => {
+      log.info('Starting cleanup')
       const appliedChanges = deployResults
         .flatMap(res => res.appliedChanges)
         .filter(isAdditionChange)
@@ -528,6 +790,7 @@ describe('Okta adapter E2E', () => {
         'OrgSetting',
         'Brand',
         'BrandTheme',
+        'EmailTemplate',
         'Domain',
         'RateLimitAdminNotifications',
         'PerClientRateLimitSettings',

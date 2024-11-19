@@ -1,17 +1,9 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
 import _ from 'lodash'
 import { ElemIdGetter, Element, ObjectType, SaltoError, SeverityLevel, Values } from '@salto-io/adapter-api'
@@ -20,12 +12,19 @@ import { logger } from '@salto-io/logging'
 import { values as lowerdashValues } from '@salto-io/lowerdash'
 import { FetchElements } from '../types'
 import { generateInstancesWithInitialTypes } from './instance_element'
-import { InvalidSingletonType, getReachableTypes, hideAndOmitFields, overrideFieldTypes } from './type_utils'
+import {
+  InvalidSingletonType,
+  getReachableTypes,
+  hideAndOmitFields,
+  overrideFieldTypes,
+  createRemainingTypes,
+} from './type_utils'
 import { ElementAndResourceDefFinder } from '../../definitions/system/fetch/types'
 import { FetchApiDefinitionsOptions } from '../../definitions/system/fetch'
 import { ConfigChangeSuggestion, NameMappingFunctionMap, ResolveCustomNameMappingOptionsType } from '../../definitions'
 import { omitAllInstancesValues } from './instance_utils'
 import { AbortFetchOnFailure } from '../errors'
+import { UnauthorizedError } from '../../client'
 
 const log = logger(module)
 
@@ -83,9 +82,9 @@ export const getElementGenerator = <Options extends FetchApiDefinitionsOptions>(
   }
 
   const handleError: ElementGenerator['handleError'] = ({ typeName, error }) => {
-    // This can happen if the error was thrown inside a sub-type that has failEntireFetch set to true.
+    // AbortFetchOnFailure can happen if the error was thrown inside a sub-type that has failEntireFetch set to true.
     // In this case we should not call the parent's onError function.
-    if (error instanceof AbortFetchOnFailure) {
+    if (error instanceof AbortFetchOnFailure || error instanceof UnauthorizedError) {
       throw error
     }
 
@@ -102,6 +101,15 @@ export const getElementGenerator = <Options extends FetchApiDefinitionsOptions>(
         log.warn('failed to fetch type %s:%s, generating config suggestions', adapterName, typeName)
         configSuggestions.push(onErrorResult.value)
         break
+      case 'ignoreError': {
+        log.debug(
+          'failed to fetch type %s:%s, suppressing error with no action: %s',
+          adapterName,
+          typeName,
+          error.message,
+        )
+        break
+      }
       case 'failEntireFetch': {
         if (onErrorResult.value) {
           throw new AbortFetchOnFailure({ adapterName, typeName, message: error.message })
@@ -110,7 +118,10 @@ export const getElementGenerator = <Options extends FetchApiDefinitionsOptions>(
       // eslint-disable-next-line no-fallthrough
       case undefined:
       default:
-        log.warn('failed to fetch type %s:%s: %s', adapterName, typeName, error.message)
+        log.error('unexpectedly failed to fetch type %s:%s: %s', adapterName, typeName, error.message, {
+          adapterName,
+          typeName,
+        })
     }
   }
 
@@ -131,7 +142,11 @@ export const getElementGenerator = <Options extends FetchApiDefinitionsOptions>(
       } catch (e) {
         // TODO decide how to handle error based on args (SALTO-5842)
         if (e instanceof InvalidSingletonType) {
-          return { instances: [], types: [], errors: [{ message: e.message, severity: 'Warning' as SeverityLevel }] }
+          return {
+            instances: [],
+            types: [],
+            errors: [{ message: e.message, detailedMessage: e.message, severity: 'Warning' as SeverityLevel }],
+          }
         }
         throw e
       }
@@ -139,15 +154,13 @@ export const getElementGenerator = <Options extends FetchApiDefinitionsOptions>(
     const instances = allResults.flatMap(e => e.instances)
     const [finalTypeLists, typeListsToAdjust] = _.partition(allResults, t => t.typesAreFinal)
     const finalTypeNames = new Set(finalTypeLists.flatMap(t => t.types).map(t => t.elemID.name))
-    const definedTypes = _.defaults(
-      {},
-      _.keyBy(
-        // concatenating in this order so that the final types will take precedence
-        typeListsToAdjust.concat(finalTypeLists).flatMap(t => t.types),
-        t => t.elemID.name,
-      ),
-      predefinedTypes,
+    const typesByTypeName = _.keyBy(
+      // concatenating in this order so that the final types will take precedence
+      typeListsToAdjust.concat(finalTypeLists).flatMap(t => t.types),
+      t => t.elemID.name,
     )
+    const remainingTypes = createRemainingTypes({ adapterName, definedTypes: typesByTypeName, defQuery })
+    const definedTypes = _.defaults({}, typesByTypeName, predefinedTypes, remainingTypes)
 
     overrideFieldTypes({ definedTypes, defQuery, finalTypeNames })
     // omit fields based on the adjusted types

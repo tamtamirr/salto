@@ -1,17 +1,9 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
 import _ from 'lodash'
 import {
@@ -22,11 +14,11 @@ import {
   ChangeError,
   isAdditionChange,
 } from '@salto-io/adapter-api'
+import { GetLookupNameFunc } from '@salto-io/adapter-utils'
 import { values, collections } from '@salto-io/lowerdash'
 import { resolveValues } from '@salto-io/adapter-components'
 
 import { FIELD_ANNOTATIONS } from '../constants'
-import { getLookUpName } from '../transformers/reference_mapping'
 import { isInstanceOfCustomObjectChange } from '../custom_object_instances_deploy'
 
 const { awu } = collections.asynciterable
@@ -34,15 +26,14 @@ const { awu } = collections.asynciterable
 const getUpdateErrorsForNonUpdateableFields = async (
   before: InstanceElement,
   after: InstanceElement,
+  getLookupNameFunc: GetLookupNameFunc,
 ): Promise<ReadonlyArray<ChangeError>> => {
-  const beforeResolved = await resolveValues(before, getLookUpName)
-  const afterResolved = await resolveValues(after, getLookUpName)
+  const beforeResolved = await resolveValues(before, getLookupNameFunc)
+  const afterResolved = await resolveValues(after, getLookupNameFunc)
   return Object.values((await afterResolved.getType()).fields)
-    .filter((field) => !field.annotations[FIELD_ANNOTATIONS.UPDATEABLE])
-    .map((field) => {
-      if (
-        afterResolved.value[field.name] !== beforeResolved.value[field.name]
-      ) {
+    .filter(field => !field.annotations[FIELD_ANNOTATIONS.UPDATEABLE])
+    .map(field => {
+      if (afterResolved.value[field.name] !== beforeResolved.value[field.name]) {
         return {
           elemID: beforeResolved.elemID,
           severity: 'Warning',
@@ -57,11 +48,12 @@ const getUpdateErrorsForNonUpdateableFields = async (
 
 const getCreateErrorsForNonCreatableFields = async (
   after: InstanceElement,
+  getLookupNameFunc: GetLookupNameFunc,
 ): Promise<ReadonlyArray<ChangeError>> => {
-  const afterResolved = await resolveValues(after, getLookUpName)
+  const afterResolved = await resolveValues(after, getLookupNameFunc)
   return awu(Object.values((await afterResolved.getType()).fields))
-    .filter((field) => !field.annotations[FIELD_ANNOTATIONS.CREATABLE])
-    .map((field) => {
+    .filter(field => !field.annotations[FIELD_ANNOTATIONS.CREATABLE])
+    .map(field => {
       if (!_.isUndefined(afterResolved.value[field.name])) {
         return {
           elemID: afterResolved.elemID,
@@ -76,29 +68,30 @@ const getCreateErrorsForNonCreatableFields = async (
     .toArray()
 }
 
-const changeValidator: ChangeValidator = async (changes) => {
-  const updateChangeErrors = await awu(changes)
-    .filter(isInstanceOfCustomObjectChange)
-    .filter(isModificationChange)
-    .flatMap((change) =>
-      getUpdateErrorsForNonUpdateableFields(
-        change.data.before as InstanceElement,
-        change.data.after as InstanceElement,
-      ),
-    )
-    .toArray()
+const changeValidator =
+  (getLookupNameFunc: GetLookupNameFunc): ChangeValidator =>
+  async changes => {
+    const updateChangeErrors = await awu(changes)
+      .filter(isInstanceOfCustomObjectChange)
+      .filter(isModificationChange)
+      .flatMap(change =>
+        getUpdateErrorsForNonUpdateableFields(
+          change.data.before as InstanceElement,
+          change.data.after as InstanceElement,
+          getLookupNameFunc,
+        ),
+      )
+      .toArray()
 
-  const createChangeErrors = await awu(changes)
-    .filter(isInstanceOfCustomObjectChange)
-    .filter(isAdditionChange)
-    .flatMap((change) =>
-      getCreateErrorsForNonCreatableFields(
-        getChangeData(change) as InstanceElement,
-      ),
-    )
-    .toArray()
+    const createChangeErrors = await awu(changes)
+      .filter(isInstanceOfCustomObjectChange)
+      .filter(isAdditionChange)
+      .flatMap(change =>
+        getCreateErrorsForNonCreatableFields(getChangeData(change) as InstanceElement, getLookupNameFunc),
+      )
+      .toArray()
 
-  return [...updateChangeErrors, ...createChangeErrors]
-}
+    return [...updateChangeErrors, ...createChangeErrors]
+  }
 
 export default changeValidator

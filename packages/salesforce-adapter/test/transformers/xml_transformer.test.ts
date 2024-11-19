@@ -1,17 +1,9 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
 import { isStaticFile, StaticFile } from '@salto-io/adapter-api'
 import { promises } from '@salto-io/lowerdash'
@@ -24,30 +16,29 @@ import {
   createDeployPackage,
   DeployPackage,
   CONTENT_FILENAME_OVERRIDE,
+  xmlToValues,
 } from '../../src/transformers/xml_transformer'
-import {
-  MetadataValues,
-  createInstanceElement,
-} from '../../src/transformers/transformer'
+import { MetadataValues, createInstanceElement } from '../../src/transformers/transformer'
 import { API_VERSION } from '../../src/client/client'
 import { createEncodedZipContent } from '../utils'
 import { mockFileProperties } from '../connection'
 import { mockTypes, mockDefaultValues } from '../mock_elements'
-import {
-  LIGHTNING_COMPONENT_BUNDLE_METADATA_TYPE,
-  XML_ATTRIBUTE_PREFIX,
-} from '../../src/constants'
+import { LIGHTNING_COMPONENT_BUNDLE_METADATA_TYPE, XML_ATTRIBUTE_PREFIX } from '../../src/constants'
+import { FetchProfile } from '../../src/types'
+import { buildFetchProfile } from '../../src/fetch_profile/fetch_profile'
 
 describe('XML Transformer', () => {
+  let fetchProfile: FetchProfile
+  beforeEach(() => {
+    fetchProfile = buildFetchProfile({
+      fetchParams: {},
+    })
+  })
   describe('createDeployPackage', () => {
     const xmlParser = new XMLParser()
-    const getZipFiles = async (
-      pkg: DeployPackage,
-    ): Promise<Record<string, string>> => {
+    const getZipFiles = async (pkg: DeployPackage): Promise<Record<string, string>> => {
       const zip = await JSZip.loadAsync(await pkg.getZip())
-      return promises.object.mapValuesAsync(zip.files, (zipFile) =>
-        zipFile.async('string'),
-      )
+      return promises.object.mapValuesAsync(zip.files, zipFile => zipFile.async('string'))
     }
 
     const packageName = 'unpackaged'
@@ -58,21 +49,15 @@ describe('XML Transformer', () => {
 
     describe('getDeletionsPackageName', () => {
       it('get the right package name when deleteBeforeUpdate is true', () => {
-        expect(createDeployPackage(true).getDeletionsPackageName()).toBe(
-          'destructiveChanges.xml',
-        )
+        expect(createDeployPackage(true).getDeletionsPackageName()).toBe('destructiveChanges.xml')
       })
 
       it('get the right package name when deleteBeforeUpdate is false', () => {
-        expect(createDeployPackage(false).getDeletionsPackageName()).toBe(
-          'destructiveChangesPost.xml',
-        )
+        expect(createDeployPackage(false).getDeletionsPackageName()).toBe('destructiveChangesPost.xml')
       })
 
       it('get the right package name when deleteBeforeUpdate is undefined', () => {
-        expect(createDeployPackage(undefined).getDeletionsPackageName()).toBe(
-          'destructiveChangesPost.xml',
-        )
+        expect(createDeployPackage(undefined).getDeletionsPackageName()).toBe('destructiveChangesPost.xml')
       })
     })
 
@@ -104,12 +89,8 @@ describe('XML Transformer', () => {
         b: true,
       }
       beforeEach(async () => {
-        await pkg.add(
-          createInstanceElement({ fullName: 'TestLayout' }, mockTypes.Layout),
-        )
-        await pkg.add(
-          createInstanceElement({ fullName: 'TestLayout2' }, mockTypes.Layout),
-        )
+        await pkg.add(createInstanceElement({ fullName: 'TestLayout' }, mockTypes.Layout))
+        await pkg.add(createInstanceElement({ fullName: 'TestLayout2' }, mockTypes.Layout))
         await pkg.add(createInstanceElement(profileValues, mockTypes.Profile))
         pkg.delete(mockTypes.Profile, 'foo')
         zipFiles = await getZipFiles(pkg)
@@ -137,15 +118,9 @@ describe('XML Transformer', () => {
         })
       })
       it('should have xml files for each instance', () => {
-        expect(zipFiles).toHaveProperty([
-          `${packageName}/layouts/TestLayout.layout`,
-        ])
-        expect(zipFiles).toHaveProperty([
-          `${packageName}/layouts/TestLayout2.layout`,
-        ])
-        expect(zipFiles).toHaveProperty([
-          `${packageName}/profiles/TestProfile.profile`,
-        ])
+        expect(zipFiles).toHaveProperty([`${packageName}/layouts/TestLayout.layout`])
+        expect(zipFiles).toHaveProperty([`${packageName}/layouts/TestLayout2.layout`])
+        expect(zipFiles).toHaveProperty([`${packageName}/profiles/TestProfile.profile`])
       })
       describe('serialized xml file', () => {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -174,15 +149,8 @@ describe('XML Transformer', () => {
         content: Buffer.from('some data'),
       }
       beforeEach(async () => {
-        await pkg.add(
-          createInstanceElement(apexClassValues, mockTypes.ApexClass),
-        )
-        await pkg.add(
-          createInstanceElement(
-            { fullName: 'TestFolder' },
-            mockTypes.EmailFolder,
-          ),
-        )
+        await pkg.add(createInstanceElement(apexClassValues, mockTypes.ApexClass))
+        await pkg.add(createInstanceElement({ fullName: 'TestFolder' }, mockTypes.EmailFolder))
         zipFiles = await getZipFiles(pkg)
       })
       describe('for metadata with content', () => {
@@ -195,10 +163,7 @@ describe('XML Transformer', () => {
           })
         })
         it('should put content in its own file', () => {
-          expect(zipFiles).toHaveProperty(
-            [`${packageName}/classes/MyClass.cls`],
-            apexClassValues.content.toString(),
-          )
+          expect(zipFiles).toHaveProperty([`${packageName}/classes/MyClass.cls`], apexClassValues.content.toString())
         })
       })
       describe('for folder type', () => {
@@ -212,9 +177,7 @@ describe('XML Transformer', () => {
           })
         })
         it('should write values to meta file', () => {
-          expect(zipFiles).toHaveProperty([
-            `${packageName}/email/TestFolder-meta.xml`,
-          ])
+          expect(zipFiles).toHaveProperty([`${packageName}/email/TestFolder-meta.xml`])
         })
       })
     })
@@ -222,12 +185,7 @@ describe('XML Transformer', () => {
     describe('with complex types', () => {
       describe('AuraDefinitionBundle', () => {
         beforeEach(async () => {
-          await pkg.add(
-            createInstanceElement(
-              mockDefaultValues.AuraDefinitionBundle,
-              mockTypes.AuraDefinitionBundle,
-            ),
-          )
+          await pkg.add(createInstanceElement(mockDefaultValues.AuraDefinitionBundle, mockTypes.AuraDefinitionBundle))
           zipFiles = await getZipFiles(pkg)
         })
         it('should contain metadata xml', () => {
@@ -235,10 +193,7 @@ describe('XML Transformer', () => {
           expect(zipFiles).toHaveProperty([filePath])
           const data = xmlParser.parse(zipFiles[filePath])
           expect(data).toMatchObject({
-            AuraDefinitionBundle: _.pick(
-              mockDefaultValues.AuraDefinitionBundle,
-              ['apiVersion', 'description', 'type'],
-            ),
+            AuraDefinitionBundle: _.pick(mockDefaultValues.AuraDefinitionBundle, ['apiVersion', 'description', 'type']),
           })
         })
         it('should contain component content files', () => {
@@ -249,9 +204,7 @@ describe('XML Transformer', () => {
             const filePath = `${packageName}/aura/TestAuraDefinitionBundle/TestAuraDefinitionBundle${suffix}`
             expect(zipFiles).toHaveProperty([filePath])
             const data = zipFiles[filePath]
-            expect(data).toEqual(
-              mockDefaultValues.AuraDefinitionBundle[fieldName],
-            )
+            expect(data).toEqual(mockDefaultValues.AuraDefinitionBundle[fieldName])
           }
 
           checkContentFile('documentationContent', '.auradoc')
@@ -281,12 +234,18 @@ describe('XML Transformer', () => {
       })
       describe('LightningComponentBundle', () => {
         beforeEach(async () => {
-          await pkg.add(
-            createInstanceElement(
-              mockDefaultValues.LightningComponentBundle,
-              mockTypes.LightningComponentBundle,
-            ),
-          )
+          const mockLightningComponentBundleValues = _.clone(mockDefaultValues.LightningComponentBundle)
+          _.set(mockLightningComponentBundleValues.targetConfigs.targetConfig[0], 'property', [
+            {
+              name: 'testTrueProp',
+              default: 'true',
+            },
+            {
+              name: 'testFalseProp',
+              default: 'false',
+            },
+          ])
+          await pkg.add(createInstanceElement(mockLightningComponentBundleValues, mockTypes.LightningComponentBundle))
           zipFiles = await getZipFiles(pkg)
         })
         it('should contain metadata xml', () => {
@@ -307,6 +266,8 @@ describe('XML Transformer', () => {
             <objects>
                 <object>Contact</object>
             </objects>
+            <property name="testTrueProp" default="true"></property>
+            <property name="testFalseProp" default="false"></property>
         </targetConfig>
         <targetConfig targets="lightning__AppPage,lightning__HomePage">
             <supportedFormFactors>
@@ -322,12 +283,7 @@ describe('XML Transformer', () => {
     })
     describe('with Settings types', () => {
       beforeEach(async () => {
-        await pkg.add(
-          createInstanceElement(
-            { fullName: 'TestSettings', testField: true },
-            mockTypes.TestSettings,
-          ),
-        )
+        await pkg.add(createInstanceElement({ fullName: 'TestSettings', testField: true }, mockTypes.TestSettings))
         zipFiles = await getZipFiles(pkg)
       })
       it('manifest should include "Settings"', () => {
@@ -350,17 +306,9 @@ describe('XML Transformer', () => {
       describe('Territory2Model type', () => {
         beforeEach(async () => {
           await pkg.add(
-            createInstanceElement(
-              { fullName: 'testTerModel' },
-              mockTypes.TerritoryModel,
-              undefined,
-              {
-                [CONTENT_FILENAME_OVERRIDE]: [
-                  'testTerModel',
-                  'testTerModel.territory2Model',
-                ],
-              },
-            ),
+            createInstanceElement({ fullName: 'testTerModel' }, mockTypes.TerritoryModel, undefined, {
+              [CONTENT_FILENAME_OVERRIDE]: ['testTerModel', 'testTerModel.territory2Model'],
+            }),
           )
           zipFiles = await getZipFiles(pkg)
         })
@@ -381,18 +329,9 @@ describe('XML Transformer', () => {
       describe('Territory2Rule type', () => {
         beforeEach(async () => {
           await pkg.add(
-            createInstanceElement(
-              { fullName: 'testTerModel.testTerRule' },
-              mockTypes.TerritoryRule,
-              undefined,
-              {
-                [CONTENT_FILENAME_OVERRIDE]: [
-                  'testTerModel',
-                  'rules',
-                  'testTerRule.territory2Rule',
-                ],
-              },
-            ),
+            createInstanceElement({ fullName: 'testTerModel.testTerRule' }, mockTypes.TerritoryRule, undefined, {
+              [CONTENT_FILENAME_OVERRIDE]: ['testTerModel', 'rules', 'testTerRule.territory2Rule'],
+            }),
           )
           zipFiles = await getZipFiles(pkg)
         })
@@ -414,10 +353,8 @@ describe('XML Transformer', () => {
   })
 
   describe('fromRetrieveResult', () => {
-    const toResultProperties = (
-      requestProperties: FileProperties[],
-    ): FileProperties[] =>
-      requestProperties.map((props) => ({
+    const toResultProperties = (requestProperties: FileProperties[]): FileProperties[] =>
+      requestProperties.map(props => ({
         ...props,
         fileName: `unpackaged/${props.fileName}`,
       }))
@@ -461,19 +398,19 @@ describe('XML Transformer', () => {
       })
 
       it('should transform zip to MetadataInfo', async () => {
-        const values = await fromRetrieveResult(
-          retrieveResult,
-          fileProperties,
-          new Set(['ApexClass']),
-          new Set(['ApexClass']),
-          false,
-        )
+        const values = await fromRetrieveResult({
+          zip: await new JSZip().loadAsync(Buffer.from(retrieveResult.zipFile, 'base64')),
+          fileProps: fileProperties,
+          typesWithMetaFile: new Set(['ApexClass']),
+          typesWithContent: new Set(['ApexClass']),
+          fetchProfile,
+        })
         expect(values).toHaveLength(1)
         const [apex] = values
         expect(apex.file).toEqual(fileProperties[0])
         const metadataInfo = apex.values
         expect(metadataInfo.fullName).toEqual('MyApexClass')
-        expect(metadataInfo.apiVersion).toEqual(47)
+        expect(metadataInfo.apiVersion).toEqual('47.0')
         expect(metadataInfo.status).toEqual('Active')
         expect(metadataInfo.description).toEqual(
           "An Apex class to read & enjoy.\r\nIt's sure nice to have some special characters <here>.\rVery nice.",
@@ -485,14 +422,8 @@ describe('XML Transformer', () => {
             "public class MyApexClass {\n    public void printLog() {\n        System.debug('Created');\n    }\n}",
           ),
         )
-        expect(contentStaticFile.filepath).toEqual(
-          'salesforce/Records/ApexClass/MyApexClass.cls',
-        )
-        expect(
-          Object.keys(metadataInfo).every(
-            (key) => !key.startsWith(XML_ATTRIBUTE_PREFIX),
-          ),
-        ).toBeTruthy()
+        expect(contentStaticFile.filepath).toEqual('salesforce/Records/ApexClass/MyApexClass.cls')
+        expect(Object.keys(metadataInfo).every(key => !key.startsWith(XML_ATTRIBUTE_PREFIX))).toBeTruthy()
       })
     })
 
@@ -527,19 +458,19 @@ describe('XML Transformer', () => {
       })
 
       it('should transform zip to MetadataInfo', async () => {
-        const values = await fromRetrieveResult(
-          retrieveResult,
-          fileProperties,
-          new Set(['ApexClass']),
-          new Set(['ApexClass']),
-          false,
-        )
+        const values = await fromRetrieveResult({
+          zip: await new JSZip().loadAsync(Buffer.from(retrieveResult.zipFile, 'base64')),
+          fileProps: fileProperties,
+          typesWithMetaFile: new Set(['ApexClass']),
+          typesWithContent: new Set(['ApexClass']),
+          fetchProfile,
+        })
         expect(values).toHaveLength(1)
         const [apex] = values
         expect(apex.file).toEqual(fileProperties[0])
         const metadataInfo = apex.values
         expect(metadataInfo.fullName).toEqual('MyApexClass')
-        expect(metadataInfo.apiVersion).toEqual(47)
+        expect(metadataInfo.apiVersion).toEqual('47.0')
         expect(metadataInfo.status).toEqual('Active')
         expect(metadataInfo.content).toEqual('(hidden)')
       })
@@ -564,7 +495,7 @@ describe('XML Transformer', () => {
         const retrieveResult = {
           fileProperties: toResultProperties(fileProperties).map(
             // Due to a SF quirk we must ask for EmailTemplate type to get folders
-            (props) => ({ ...props, type: 'EmailTemplate' }),
+            props => ({ ...props, type: 'EmailTemplate' }),
           ),
           id: '09S4J000001e2eLUAQ',
           messages: [],
@@ -600,19 +531,15 @@ describe('XML Transformer', () => {
           ]),
         }
 
-        const values = await fromRetrieveResult(
-          retrieveResult,
-          fileProperties,
-          new Set(['EmailTemplate', 'EmailFolder']),
-          new Set(['EmailTemplate']),
-          false,
-        )
-        emailFolder = values.find(
-          (value) => value.file.type === 'EmailFolder',
-        )?.values
-        emailTemplate = values.find(
-          (value) => value.file.type === 'EmailTemplate',
-        )?.values
+        const values = await fromRetrieveResult({
+          zip: await new JSZip().loadAsync(Buffer.from(retrieveResult.zipFile, 'base64')),
+          fileProps: fileProperties,
+          typesWithMetaFile: new Set(['EmailTemplate', 'EmailFolder']),
+          typesWithContent: new Set(['EmailTemplate']),
+          fetchProfile,
+        })
+        emailFolder = values.find(value => value.file.type === 'EmailFolder')?.values
+        emailTemplate = values.find(value => value.file.type === 'EmailTemplate')?.values
       })
 
       it('should transform EmailFolder zip to MetadataInfo', () => {
@@ -628,12 +555,8 @@ describe('XML Transformer', () => {
         expect(emailTemplate?.name).toEqual('My Email Template')
         expect(isStaticFile(emailTemplate?.content)).toEqual(true)
         const contentStaticFile = emailTemplate?.content as StaticFile
-        expect(await contentStaticFile.getContent()).toEqual(
-          Buffer.from('Email Body'),
-        )
-        expect(contentStaticFile.filepath).toEqual(
-          'salesforce/Records/EmailTemplate/MyFolder/MyEmailTemplate.email',
-        )
+        expect(await contentStaticFile.getContent()).toEqual(Buffer.from('Email Body'))
+        expect(contentStaticFile.filepath).toEqual('salesforce/Records/EmailTemplate/MyFolder/MyEmailTemplate.email')
       })
 
       it('should decode XML encoded values', () => {
@@ -643,9 +566,7 @@ describe('XML Transformer', () => {
 
     describe('complex types', () => {
       describe('lightning component bundle', () => {
-        const createFileProperties = (
-          namespacePrefix?: string,
-        ): FileProperties =>
+        const createFileProperties = (namespacePrefix?: string): FileProperties =>
           mockFileProperties({
             fileName: 'lwc/myLightningComponentBundle',
             fullName: 'myLightningComponentBundle',
@@ -653,9 +574,7 @@ describe('XML Transformer', () => {
             namespacePrefix,
           })
 
-        const createRetrieveResult = async (
-          fileProperties: FileProperties[],
-        ): Promise<RetrieveResult> => ({
+        const createRetrieveResult = async (fileProperties: FileProperties[]): Promise<RetrieveResult> => ({
           fileProperties: toResultProperties(fileProperties),
           id: '09S4J000001dSRcUAM',
           messages: [],
@@ -689,24 +608,18 @@ describe('XML Transformer', () => {
           expect(lwc.file).toEqual(fileProperties)
           const metadataInfo = lwc.values
           expect(metadataInfo.fullName).toEqual('myLightningComponentBundle')
-          expect(_.get(metadataInfo, 'apiVersion')).toEqual(47)
+          expect(_.get(metadataInfo, 'apiVersion')).toEqual('47.0')
           const jsResource = metadataInfo.lwcResources.lwcResource[0]
           expect(jsResource).toBeDefined()
           expect(isStaticFile(jsResource.source)).toBe(true)
           const jsResourceStaticFile = jsResource.source as StaticFile
-          expect(await jsResourceStaticFile.getContent()).toEqual(
-            Buffer.from('// some javascript content'),
-          )
-          expect(jsResourceStaticFile.filepath).toEqual(
-            `${staticFilesExpectedFolder}/myLightningComponentBundle.js`,
-          )
+          expect(await jsResourceStaticFile.getContent()).toEqual(Buffer.from('// some javascript content'))
+          expect(jsResourceStaticFile.filepath).toEqual(`${staticFilesExpectedFolder}/myLightningComponentBundle.js`)
           const htmlResource = metadataInfo.lwcResources.lwcResource[1]
           expect(htmlResource).toBeDefined()
           expect(isStaticFile(htmlResource.source)).toBe(true)
           const htmlResourceStaticFile = htmlResource.source as StaticFile
-          expect(await htmlResourceStaticFile.getContent()).toEqual(
-            Buffer.from('// some html content'),
-          )
+          expect(await htmlResourceStaticFile.getContent()).toEqual(Buffer.from('// some html content'))
           expect(htmlResourceStaticFile.filepath).toEqual(
             `${staticFilesExpectedFolder}/myLightningComponentBundle.html`,
           )
@@ -714,13 +627,14 @@ describe('XML Transformer', () => {
 
         it('should transform zip to MetadataInfo', async () => {
           const fileProperties = createFileProperties()
-          const values = await fromRetrieveResult(
-            await createRetrieveResult([fileProperties]),
-            [fileProperties],
-            new Set(),
-            new Set(),
-            false,
-          )
+          const retrieveResult = await createRetrieveResult([fileProperties])
+          const values = await fromRetrieveResult({
+            zip: await new JSZip().loadAsync(Buffer.from(retrieveResult.zipFile, 'base64')),
+            fileProps: [fileProperties],
+            typesWithMetaFile: new Set(),
+            typesWithContent: new Set(),
+            fetchProfile,
+          })
           await verifyMetadataValues(
             values,
             fileProperties,
@@ -730,13 +644,14 @@ describe('XML Transformer', () => {
 
         it('should transform zip to MetadataInfo for instance with namespace', async () => {
           const fileProperties = createFileProperties('myNamespace')
-          const values = await fromRetrieveResult(
-            await createRetrieveResult([fileProperties]),
-            [fileProperties],
-            new Set(),
-            new Set(),
-            false,
-          )
+          const retrieveResult = await createRetrieveResult([fileProperties])
+          const values = await fromRetrieveResult({
+            zip: await new JSZip().loadAsync(Buffer.from(retrieveResult.zipFile, 'base64')),
+            fileProps: [fileProperties],
+            typesWithMetaFile: new Set(),
+            typesWithContent: new Set(),
+            fetchProfile,
+          })
           await verifyMetadataValues(
             values,
             fileProperties,
@@ -746,9 +661,7 @@ describe('XML Transformer', () => {
       })
 
       describe('aura definition bundle', () => {
-        const createRetrieveResult = async (
-          fileProperties: FileProperties[],
-        ): Promise<RetrieveResult> => ({
+        const createRetrieveResult = async (fileProperties: FileProperties[]): Promise<RetrieveResult> => ({
           fileProperties: toResultProperties(fileProperties),
           id: '09S4J000001dSRcUAM',
           messages: [],
@@ -797,9 +710,7 @@ describe('XML Transformer', () => {
           ]),
         })
 
-        const createFileProperties = (
-          namespacePrefix?: string,
-        ): FileProperties =>
+        const createFileProperties = (namespacePrefix?: string): FileProperties =>
           mockFileProperties({
             fileName: 'aura/myAuraDefinitionBundle',
             fullName: 'myAuraDefinitionBundle',
@@ -817,85 +728,56 @@ describe('XML Transformer', () => {
           expect(auraInstance.file).toEqual(fileProperties)
           const metadataInfo = auraInstance.values
           expect(metadataInfo.fullName).toEqual('myAuraDefinitionBundle')
-          expect(metadataInfo.apiVersion).toEqual(47)
+          expect(metadataInfo.apiVersion).toEqual('47.0')
           expect(metadataInfo.type).toEqual('Component')
           expect(isStaticFile(metadataInfo.markup)).toBe(true)
           const markupStaticFile = metadataInfo.markup as StaticFile
-          expect(await markupStaticFile.getContent()).toEqual(
-            Buffer.from('// some component content'),
-          )
-          expect(markupStaticFile.filepath).toEqual(
-            `${staticFilesExpectedFolder}/myAuraDefinitionBundle.cmp`,
-          )
+          expect(await markupStaticFile.getContent()).toEqual(Buffer.from('// some component content'))
+          expect(markupStaticFile.filepath).toEqual(`${staticFilesExpectedFolder}/myAuraDefinitionBundle.cmp`)
           expect(isStaticFile(metadataInfo.controllerContent)).toBe(true)
-          const controllerStaticFile =
-            metadataInfo.controllerContent as StaticFile
-          expect(await controllerStaticFile.getContent()).toEqual(
-            Buffer.from('// some controller content'),
-          )
+          const controllerStaticFile = metadataInfo.controllerContent as StaticFile
+          expect(await controllerStaticFile.getContent()).toEqual(Buffer.from('// some controller content'))
           expect(controllerStaticFile.filepath).toEqual(
             `${staticFilesExpectedFolder}/myAuraDefinitionBundleController.js`,
           )
           expect(isStaticFile(metadataInfo.designContent)).toBe(true)
           const designStaticFile = metadataInfo.designContent as StaticFile
-          expect(await designStaticFile.getContent()).toEqual(
-            Buffer.from('// some design content'),
-          )
-          expect(designStaticFile.filepath).toEqual(
-            `${staticFilesExpectedFolder}/myAuraDefinitionBundle.design`,
-          )
+          expect(await designStaticFile.getContent()).toEqual(Buffer.from('// some design content'))
+          expect(designStaticFile.filepath).toEqual(`${staticFilesExpectedFolder}/myAuraDefinitionBundle.design`)
           expect(isStaticFile(metadataInfo.documentationContent)).toBe(true)
-          const documentationStaticFile =
-            metadataInfo.documentationContent as StaticFile
-          expect(await documentationStaticFile.getContent()).toEqual(
-            Buffer.from('// some documentation content'),
-          )
+          const documentationStaticFile = metadataInfo.documentationContent as StaticFile
+          expect(await documentationStaticFile.getContent()).toEqual(Buffer.from('// some documentation content'))
           expect(documentationStaticFile.filepath).toEqual(
             `${staticFilesExpectedFolder}/myAuraDefinitionBundle.auradoc`,
           )
           expect(isStaticFile(metadataInfo.helperContent)).toBe(true)
           const helperStaticFile = metadataInfo.helperContent as StaticFile
-          expect(await helperStaticFile.getContent()).toEqual(
-            Buffer.from('// some helper content'),
-          )
-          expect(helperStaticFile.filepath).toEqual(
-            `${staticFilesExpectedFolder}/myAuraDefinitionBundleHelper.js`,
-          )
+          expect(await helperStaticFile.getContent()).toEqual(Buffer.from('// some helper content'))
+          expect(helperStaticFile.filepath).toEqual(`${staticFilesExpectedFolder}/myAuraDefinitionBundleHelper.js`)
           expect(isStaticFile(metadataInfo.rendererContent)).toBe(true)
           const rendererStaticFile = metadataInfo.rendererContent as StaticFile
-          expect(await rendererStaticFile.getContent()).toEqual(
-            Buffer.from('// some renderer content'),
-          )
-          expect(rendererStaticFile.filepath).toEqual(
-            `${staticFilesExpectedFolder}/myAuraDefinitionBundleRenderer.js`,
-          )
+          expect(await rendererStaticFile.getContent()).toEqual(Buffer.from('// some renderer content'))
+          expect(rendererStaticFile.filepath).toEqual(`${staticFilesExpectedFolder}/myAuraDefinitionBundleRenderer.js`)
           expect(isStaticFile(metadataInfo.styleContent)).toBe(true)
           const styleStaticFile = metadataInfo.styleContent as StaticFile
-          expect(await styleStaticFile.getContent()).toEqual(
-            Buffer.from('// some style content'),
-          )
-          expect(styleStaticFile.filepath).toEqual(
-            `${staticFilesExpectedFolder}/myAuraDefinitionBundle.css`,
-          )
+          expect(await styleStaticFile.getContent()).toEqual(Buffer.from('// some style content'))
+          expect(styleStaticFile.filepath).toEqual(`${staticFilesExpectedFolder}/myAuraDefinitionBundle.css`)
           expect(isStaticFile(metadataInfo.SVGContent)).toBe(true)
           const svgStaticFile = metadataInfo.SVGContent as StaticFile
-          expect(await svgStaticFile.getContent()).toEqual(
-            Buffer.from('// some svg content'),
-          )
-          expect(svgStaticFile.filepath).toEqual(
-            `${staticFilesExpectedFolder}/myAuraDefinitionBundle.svg`,
-          )
+          expect(await svgStaticFile.getContent()).toEqual(Buffer.from('// some svg content'))
+          expect(svgStaticFile.filepath).toEqual(`${staticFilesExpectedFolder}/myAuraDefinitionBundle.svg`)
         }
 
         it('should transform zip to MetadataInfo', async () => {
           const fileProperties = createFileProperties()
-          const values = await fromRetrieveResult(
-            await createRetrieveResult([fileProperties]),
-            [fileProperties],
-            new Set(),
-            new Set(),
-            false,
-          )
+          const retrieveResult = await createRetrieveResult([fileProperties])
+          const values = await fromRetrieveResult({
+            zip: await new JSZip().loadAsync(Buffer.from(retrieveResult.zipFile, 'base64')),
+            fileProps: [fileProperties],
+            typesWithMetaFile: new Set(),
+            typesWithContent: new Set(),
+            fetchProfile,
+          })
           await verifyMetadataValues(
             values,
             fileProperties,
@@ -905,13 +787,14 @@ describe('XML Transformer', () => {
 
         it('should transform zip to MetadataInfo for instance with namespace', async () => {
           const fileProperties = createFileProperties('myNamespace')
-          const values = await fromRetrieveResult(
-            await createRetrieveResult([fileProperties]),
-            [fileProperties],
-            new Set(),
-            new Set(),
-            false,
-          )
+          const retrieveResult = await createRetrieveResult([fileProperties])
+          const values = await fromRetrieveResult({
+            zip: await new JSZip().loadAsync(Buffer.from(retrieveResult.zipFile, 'base64')),
+            fileProps: [fileProperties],
+            typesWithMetaFile: new Set(),
+            typesWithContent: new Set(),
+            fetchProfile,
+          })
           await verifyMetadataValues(
             values,
             fileProperties,
@@ -945,18 +828,43 @@ describe('XML Transformer', () => {
         }
       })
       it('should return empty object', async () => {
-        const values = await fromRetrieveResult(
-          retrieveResult,
-          fileProperties,
-          new Set(),
-          new Set(),
-          false,
-        )
+        const values = await fromRetrieveResult({
+          zip: await new JSZip().loadAsync(Buffer.from(retrieveResult.zipFile, 'base64')),
+          fileProps: fileProperties,
+          typesWithMetaFile: new Set(),
+          typesWithContent: new Set(),
+          fetchProfile,
+        })
         expect(values).toContainEqual(
           expect.objectContaining({
             values: expect.objectContaining({ fullName: 'MyReportType' }),
           }),
         )
+      })
+    })
+    describe('with number values', () => {
+      const XML_STRING =
+        '<?xml version="1.0" encoding="UTF-8"?>\n' +
+        '<InstalledPackage xmlns="http://soap.sforce.com/2006/04/metadata">\n' +
+        '    <version>47.0</version>\n' +
+        '    <fullName>SBQQ</fullName>\n' +
+        '</AuraDefinitionBundle>\n'
+      // This is actually a bug and the current behavior in the adapter.
+      describe('when skipParsingXmlNumbers is false', () => {
+        it('should attempt to convert the string to number', () => {
+          expect(xmlToValues(XML_STRING, false).values).toEqual({
+            version: 47,
+            fullName: 'SBQQ',
+          })
+        })
+      })
+      describe('when skipParsingXmlNumbers is true', () => {
+        it('should not attempt to convert the string to number', () => {
+          expect(xmlToValues(XML_STRING, true).values).toEqual({
+            version: '47.0',
+            fullName: 'SBQQ',
+          })
+        })
       })
     })
   })

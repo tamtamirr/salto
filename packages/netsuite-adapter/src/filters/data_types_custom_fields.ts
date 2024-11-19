@@ -1,17 +1,9 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
 import {
   BuiltinTypes,
@@ -27,7 +19,6 @@ import { values } from '@salto-io/lowerdash'
 import _ from 'lodash'
 import { logger } from '@salto-io/logging'
 import { LocalFilterCreator } from '../filter'
-import { INTERNAL_ID_TO_TYPES } from '../data_elements/types'
 import { getFieldInstanceTypes } from '../data_elements/custom_fields'
 import { FILE, SCRIPT_ID } from '../constants'
 // eslint-disable-next-line camelcase
@@ -60,6 +51,7 @@ const getFieldType = (
   customField: CustomField,
   nameToType: Record<string, ObjectType>,
   customRecordTypes: Record<string, ObjectType>,
+  internalIdToTypes: Record<string, string[]>,
 ): {
   fieldType: TypeElement
   selectTypeIdAnnotation?: string
@@ -91,8 +83,8 @@ const getFieldType = (
     const customRecordType =
       customField.selectrecordtype in customRecordTypes ? customRecordTypes[customField.selectrecordtype] : undefined
     const types =
-      customField.selectrecordtype in INTERNAL_ID_TO_TYPES
-        ? INTERNAL_ID_TO_TYPES[customField.selectrecordtype]
+      customField.selectrecordtype in internalIdToTypes
+        ? internalIdToTypes[customField.selectrecordtype]
             .filter(name => name in nameToType)
             .map(name => nameToType[name])
         : []
@@ -125,21 +117,29 @@ export const getCustomField = ({
   customField,
   nameToType,
   customRecordTypes = {},
+  internalIdToTypes,
 }: {
   type: ObjectType
   customField: CustomField
   nameToType: Record<string, ObjectType>
   customRecordTypes?: Record<string, ObjectType>
+  internalIdToTypes: Record<string, string[]>
 }): Field => {
   const fieldName = toCustomFieldName(customField.scriptid)
-  const { fieldType, selectTypeIdAnnotation } = getFieldType(fieldName, customField, nameToType, customRecordTypes)
+  const { fieldType, selectTypeIdAnnotation } = getFieldType(
+    fieldName,
+    customField,
+    nameToType,
+    customRecordTypes,
+    internalIdToTypes,
+  )
 
   return new Field(type, fieldName, fieldType, {
     select_type_id: selectTypeIdAnnotation,
   })
 }
 
-const filterCreator: LocalFilterCreator = ({ isPartial, elementsSourceIndex }) => ({
+const filterCreator: LocalFilterCreator = ({ isPartial, elementsSourceIndex, internalIdToTypes }) => ({
   name: 'dataTypesCustomFields',
   onFetch: async elements => {
     const nameToType = _.keyBy(elements.filter(isObjectType), e => e.elemID.name)
@@ -162,6 +162,7 @@ const filterCreator: LocalFilterCreator = ({ isPartial, elementsSourceIndex }) =
                 type,
                 customField: fieldInstance.value as CustomField,
                 nameToType,
+                internalIdToTypes,
               })
               field.annotate({
                 field_instance: new ReferenceExpression(fieldInstance.elemID.createNestedID(SCRIPT_ID)),
@@ -173,7 +174,7 @@ const filterCreator: LocalFilterCreator = ({ isPartial, elementsSourceIndex }) =
 
     const instances = elements.filter(isInstanceElement)
     instances.forEach(fieldInstance => {
-      getFieldInstanceTypes(fieldInstance)
+      getFieldInstanceTypes(fieldInstance, internalIdToTypes)
         .map(typeName => nameToType[typeName])
         .filter(values.isDefined)
         .forEach(type => {
@@ -181,6 +182,7 @@ const filterCreator: LocalFilterCreator = ({ isPartial, elementsSourceIndex }) =
             type,
             customField: fieldInstance.value as CustomField,
             nameToType,
+            internalIdToTypes,
           })
           field.annotate({
             field_instance: new ReferenceExpression(fieldInstance.elemID.createNestedID(SCRIPT_ID)),

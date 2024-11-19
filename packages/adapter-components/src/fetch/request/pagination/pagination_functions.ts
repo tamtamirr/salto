@@ -1,17 +1,9 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
 import _ from 'lodash'
 import * as parse from 'parse-link-header'
@@ -21,13 +13,16 @@ import { collections } from '@salto-io/lowerdash'
 import { PaginationFunction } from '../../../definitions/system/requests/pagination'
 import { DATA_FIELD_ENTIRE_OBJECT } from '../../../definitions'
 import { ResponseValue } from '../../../client'
+import { MaxResultsExceeded } from '../../errors'
 
 const log = logger(module)
 
-const getItems = (value: ResponseValue | ResponseValue[], dataField: string): unknown[] =>
+export const getItems = (value: ResponseValue | ResponseValue[], dataField: string): unknown[] =>
   collections.array
     .makeArray(value)
-    .map(item => (dataField === DATA_FIELD_ENTIRE_OBJECT ? item : _.get(item, dataField)))
+    .flatMap(item => (dataField === DATA_FIELD_ENTIRE_OBJECT ? item : _.get(item, dataField)))
+
+const defaultGetItems = (value: ResponseValue | ResponseValue[]): unknown[] => getItems(value, DATA_FIELD_ENTIRE_OBJECT)
 
 /**
  * Make paginated requests using the specified pagination field
@@ -305,4 +300,30 @@ export const tokenPagination = ({
     ]
   }
   return nextPageTokenPages
+}
+
+export const getPaginationWithLimitedResults = ({
+  maxResultsNumber,
+  paginationFunc,
+  getItemsFunc = defaultGetItems,
+}: {
+  maxResultsNumber: number
+  paginationFunc: PaginationFunction
+  getItemsFunc?: (value: ResponseValue | ResponseValue[]) => unknown[]
+}): PaginationFunction => {
+  const UNLIMITED_RESULTS = -1
+  let totalResults = 0
+  log.debug('creating pagination function with max results: %d', maxResultsNumber)
+  const paginationWithLimitedResults: PaginationFunction = args => {
+    if (maxResultsNumber !== UNLIMITED_RESULTS) {
+      const currentPageResults = getItemsFunc(args.responseData).length
+      totalResults += currentPageResults
+      if (totalResults > maxResultsNumber) {
+        log.error('reached max results for endpoint %s, stopping pagination', args.endpointIdentifier.path)
+        throw new MaxResultsExceeded({ endpoint: args.endpointIdentifier.path, maxResults: maxResultsNumber })
+      }
+    }
+    return paginationFunc(args)
+  }
+  return paginationWithLimitedResults
 }

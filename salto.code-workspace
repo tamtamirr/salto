@@ -45,6 +45,10 @@
       "path": "packages/e2e-credentials-store",
     },
     {
+      "name": "microsoft-entra-adapter",
+      "path": "packages/microsoft-entra-adapter",
+    },
+    {
       "name": "file",
       "path": "packages/file",
     },
@@ -77,8 +81,8 @@
       "path": "packages/lowerdash",
     },
     {
-      "name": "microsoft-entra-adapter",
-      "path": "packages/microsoft-entra-adapter",
+      "name": "microsoft-security-adapter",
+      "path": "packages/microsoft-security-adapter",
     },
     {
       "name": "netsuite-adapter",
@@ -206,6 +210,7 @@
       "petstore",
       "PICKLIST",
       "picklists",
+      "pietile",
       "plaintextarea",
       "prefilterable",
       "pricebook",
@@ -247,6 +252,7 @@
       "undeployed",
       "unfethced",
       "unfiled",
+      "unmergeable",
       "unpackaged",
       "updateable",
       "upsert",

@@ -1,17 +1,9 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
 import wu from 'wu'
 import _ from 'lodash'
@@ -65,7 +57,6 @@ import commandDefinitions from '../src/commands/index'
 import { CommandOrGroupDef, CommandArgs } from '../src/command_builder'
 import { Spinner, SpinnerCreator } from '../src/types'
 import { getCliTelemetry } from '../src/telemetry'
-import { version as currentVersion } from '../src/generated/version.json'
 
 const { InMemoryRemoteMap } = remoteMap
 const { createInMemoryElementSource } = elementSource
@@ -284,7 +275,6 @@ export const withEnvironmentParam = 'inactive'
 
 type MockWorkspaceArgs = {
   uid?: string
-  name?: string
   envs?: string[]
   accounts?: string[]
   getElements?: () => Element[]
@@ -301,7 +291,6 @@ export const mockStateStaticFilesSource = (): MockInterface<staticFiles.StateSta
 
 export const mockWorkspace = ({
   uid = '123',
-  name = '',
   envs = ['active', 'inactive'],
   accounts = ['salesforce', 'netsuite'],
   getElements = elements,
@@ -310,18 +299,17 @@ export const mockWorkspace = ({
     elements: createInMemoryElementSource(getElements()),
     pathIndex: new InMemoryRemoteMap<pathIndex.Path[]>(),
     topLevelPathIndex: new InMemoryRemoteMap<pathIndex.Path[]>(),
-    accountsUpdateDate: new InMemoryRemoteMap(),
-    saltoMetadata: new InMemoryRemoteMap([{ key: 'version', value: currentVersion }] as {
-      key: wsState.StateMetadataKey
-      value: string
-    }[]),
+    accounts: new InMemoryRemoteMap([{ key: 'account_names', value: accounts }]),
+    saltoMetadata: new InMemoryRemoteMap(),
     staticFilesSource: mockStateStaticFilesSource(),
+    deprecated: {
+      accountsUpdateDate: new InMemoryRemoteMap<Date>(),
+    },
   })
   const stateByEnv = Object.fromEntries(envs.map(env => [env, wsState.buildInMemState(mockStateData)]))
   let currentEnv = envs[0]
   return {
     uid,
-    name,
     elements: mockFunction<Workspace['elements']>().mockResolvedValue(createInMemoryElementSource(getElements())),
     state: mockFunction<Workspace['state']>().mockImplementation(env => stateByEnv[env ?? currentEnv]),
     envs: mockFunction<Workspace['envs']>().mockReturnValue(envs),
@@ -389,12 +377,7 @@ export const mockWorkspace = ({
     updateServiceCredentials: mockFunction<Workspace['updateServiceCredentials']>(),
     updateAccountConfig: mockFunction<Workspace['updateAccountConfig']>(),
     updateServiceConfig: mockFunction<Workspace['updateServiceConfig']>(),
-    getStateRecency: mockFunction<Workspace['getStateRecency']>().mockImplementation(async accountName => ({
-      serviceName: accountName,
-      accountName,
-      status: 'Nonexistent',
-      date: undefined,
-    })),
+
     getAllChangedByAuthors: mockFunction<Workspace['getAllChangedByAuthors']>(),
     getChangedElementsByAuthors: mockFunction<Workspace['getChangedElementsByAuthors']>(),
     promote: mockFunction<Workspace['promote']>(),
@@ -432,7 +415,12 @@ export const mockCredentialsType = (adapterName: string): AdapterAuthentication 
             refType: BuiltinTypes.STRING,
             annotations: {},
           },
-          sandbox: { refType: BuiltinTypes.BOOLEAN },
+          sandbox: {
+            refType: BuiltinTypes.BOOLEAN,
+            annotations: {
+              _required: true,
+            },
+          },
         },
       }),
     },

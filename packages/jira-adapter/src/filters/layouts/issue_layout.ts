@@ -1,17 +1,9 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
 import _ from 'lodash'
 import { logger } from '@salto-io/logging'
@@ -30,7 +22,7 @@ import {
 } from '@salto-io/adapter-api'
 import { values as lowerDashValues } from '@salto-io/lowerdash'
 import { getParent, isResolvedReferenceExpression } from '@salto-io/adapter-utils'
-import { client as clientUtils, elements as elementUtils } from '@salto-io/adapter-components'
+import { elements as elementUtils } from '@salto-io/adapter-components'
 import {
   ISSUE_LAYOUT_TYPE,
   ISSUE_TYPE_SCHEMA_NAME,
@@ -103,7 +95,7 @@ const getProjectToScreenMappingUnresolved = (elements: Element[]): Record<string
         issueTypeScheme.value.id,
         issueTypeScheme.value.issueTypeIds?.map(
           (issueTypeIdRecord: Record<string, string>) => issueTypeIdRecord.issueTypeId,
-        ),
+        ) ?? [],
       ]),
   )
 
@@ -156,15 +148,8 @@ const getProjectToScreenMappingUnresolved = (elements: Element[]): Record<string
 }
 
 const verifyProjectDeleted = async (projectId: string, client: JiraClient): Promise<boolean> => {
-  try {
-    const res = await client.get({ url: `/rest/api/3/project/${projectId}` })
-    return res.status === 404
-  } catch (error) {
-    if (error instanceof clientUtils.HTTPError && error.response?.status === 404) {
-      return true
-    }
-    throw error
-  }
+  const res = await client.get({ url: `/rest/api/3/project/${projectId}` })
+  return res.status === 404
 }
 
 const deployLayoutChange = async (change: Change<InstanceElement>, client: JiraClient): Promise<void> => {
@@ -203,6 +188,15 @@ const deployLayoutChange = async (change: Change<InstanceElement>, client: JiraC
           },
         }
       }
+      if (item.type === 'PANEL') {
+        // Panel that is not a reference Expression
+        return {
+          type: item.type,
+          sectionType: item.sectionType.toLocaleLowerCase(),
+          key: item.key,
+          data: item.data,
+        }
+      }
       return undefined
     })
     .filter(isDefined)
@@ -226,7 +220,7 @@ const deployLayoutChange = async (change: Change<InstanceElement>, client: JiraC
     }
     const response = await getLayoutResponse({ variables, client, typeName })
     if (!isIssueLayoutResponse(response.data)) {
-      log.error('received invalid response from jira', response)
+      log.error('received invalid response from jira due to error %s', response.errors)
       throw Error(
         'Failed to deploy issue layout changes due to an unexpected response from Jira. Your target environment might not be synced, please fetch it and try again.',
       )

@@ -1,17 +1,9 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
 import _ from 'lodash'
 import {
@@ -26,9 +18,10 @@ import {
 import { buildElementsSourceFromElements } from '@salto-io/adapter-utils'
 import NetsuiteClient from '../../src/client/client'
 import {
+  ADDITIONAL_QUERIES,
   INTERNAL_IDS_MAP,
-  QUERIES_BY_TABLE_NAME,
   SUITEQL_TABLE,
+  getQueriesByTableName,
   getSuiteQLTableElements,
   updateSuiteQLTableInstances,
 } from '../../src/data_elements/suiteql_table_elements'
@@ -36,10 +29,11 @@ import { ALLOCATION_TYPE, NETSUITE, TAX_SCHEDULE } from '../../src/constants'
 import { NetsuiteConfig } from '../../src/config/types'
 import { fullFetchConfig } from '../../src/config/config_creator'
 
-export const NUM_OF_SUITEQL_ELEMENTS =
-  Object.values(QUERIES_BY_TABLE_NAME).filter(query => query !== undefined).length +
-  // additional elements are the type, and instances from getAdditionalInstances
-  4
+const NUM_OF_TYPES = 1
+export const getNumberOfSuiteQLTableElements = (config: NetsuiteConfig): number =>
+  Object.values(getQueriesByTableName(config)).filter(query => query !== undefined).length +
+  Object.keys(ADDITIONAL_QUERIES).length +
+  NUM_OF_TYPES
 
 const runSuiteQLMock = jest.fn()
 const runSavedSearchQueryMock = jest.fn()
@@ -59,9 +53,11 @@ describe('SuiteQL table elements', () => {
   beforeEach(() => {
     jest.clearAllMocks()
     config = {
-      fetch: {
-        ...fullFetchConfig(),
-        resolveAccountSpecificValues: true,
+      fetch: fullFetchConfig(),
+      suiteAppClient: {
+        additionalSuiteQLTables: [
+          { name: 'someothertype', typeId: '111', queryParams: { internalIdField: 'id', nameField: 'name' } },
+        ],
       },
     }
     suiteQLTableType = new ObjectType({ elemID: new ElemID(NETSUITE, SUITEQL_TABLE) })
@@ -83,14 +79,15 @@ describe('SuiteQL table elements', () => {
 
   it('should return new elements', async () => {
     result = await getSuiteQLTableElements(config, elementsSource, false)
-    expect(result.elements).toHaveLength(NUM_OF_SUITEQL_ELEMENTS)
+    expect(result.elements).toHaveLength(getNumberOfSuiteQLTableElements(config))
     expect(result.elements.every(element => element.annotations[CORE_ANNOTATIONS.HIDDEN] === true)).toBeTruthy()
     expect(result.elements.filter(isInstanceElement).every(instance => _.isEmpty(instance.value))).toBeTruthy()
+    expect(result.elements.find(element => element.elemID.name === 'someothertype')).toBeDefined()
   })
 
   it('should return existing elements when isPartial=true', async () => {
     result = await getSuiteQLTableElements(config, elementsSource, true)
-    expect(result.elements).toHaveLength(NUM_OF_SUITEQL_ELEMENTS)
+    expect(result.elements).toHaveLength(getNumberOfSuiteQLTableElements(config))
     expect(result.elements.every(element => element.annotations[CORE_ANNOTATIONS.HIDDEN] === true)).toBeTruthy()
     const existingInstances = result.elements.filter(isInstanceElement).filter(instance => !_.isEmpty(instance.value))
     expect(existingInstances).toHaveLength(1)
@@ -153,6 +150,7 @@ describe('SuiteQL table elements', () => {
         })
         await updateSuiteQLTableInstances({
           client,
+          config,
           queryBy: 'internalId',
           itemsToQuery: [
             { tableName: 'currency', item: '3' },
@@ -290,6 +288,7 @@ describe('SuiteQL table elements', () => {
         })
         await updateSuiteQLTableInstances({
           client,
+          config,
           queryBy: 'name',
           itemsToQuery: [
             { tableName: 'currency', item: 'Some name 4' },

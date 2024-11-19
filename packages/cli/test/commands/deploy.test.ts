@@ -1,23 +1,13 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
-import semver from 'semver'
-import moment from 'moment'
 import { DeployResult, GroupProperties } from '@salto-io/core'
 import * as saltoCoreModule from '@salto-io/core'
-import { Workspace, state, remoteMap, elementSource, pathIndex } from '@salto-io/workspace'
+import { Workspace } from '@salto-io/workspace'
 import * as saltoFileModule from '@salto-io/file'
 import { Artifact } from '@salto-io/adapter-api'
 import Prompts from '../../src/prompts'
@@ -25,11 +15,6 @@ import { CliExitCode } from '../../src/types'
 import * as callbacks from '../../src/callbacks'
 import * as mocks from '../mocks'
 import { action } from '../../src/commands/deploy'
-import { version as currentVersion } from '../../src/generated/version.json'
-import * as workspaceModule from '../../src/workspace/workspace'
-
-const { InMemoryRemoteMap } = remoteMap
-const { createInMemoryElementSource } = elementSource
 
 const mockDeploy = mocks.deploy
 const mockPreview = mocks.preview
@@ -78,12 +63,6 @@ describe('deploy command', () => {
     cliCommandArgs = mocks.mockCliCommandArgs(commandName, cliArgs)
     output = cliArgs.output
     workspace = mocks.mockWorkspace({})
-    workspace.getStateRecency.mockImplementation(async accountName => ({
-      serviceName: accountName,
-      accountName,
-      status: 'Valid',
-      date: new Date(),
-    }))
     mockGetUserBooleanInput.mockReset()
     mockShouldCancel.mockReset()
   })
@@ -367,7 +346,9 @@ describe('deploy command', () => {
 
   describe('invalid deploy', () => {
     it('should fail gracefully', async () => {
-      workspace.errors.mockResolvedValue(mocks.mockErrors([{ severity: 'Error', message: 'some error' }]))
+      workspace.errors.mockResolvedValue(
+        mocks.mockErrors([{ severity: 'Error', message: 'some error', detailedMessage: 'some error' }]),
+      )
       const result = await action({
         ...cliCommandArgs,
         input: {
@@ -382,7 +363,9 @@ describe('deploy command', () => {
       expect(result).toBe(CliExitCode.AppError)
     })
     it('should allow the user to cancel when there are warnings', async () => {
-      workspace.errors.mockResolvedValue(mocks.mockErrors([{ severity: 'Warning', message: 'some warning' }]))
+      workspace.errors.mockResolvedValue(
+        mocks.mockErrors([{ severity: 'Warning', message: 'some warning', detailedMessage: 'some warning' }]),
+      )
       mockGetUserBooleanInput.mockResolvedValue(false)
       const result = await action({
         ...cliCommandArgs,
@@ -403,7 +386,9 @@ describe('deploy command', () => {
     beforeEach(() => {
       workspace.updateNaclFiles.mockImplementationOnce(async () => {
         // Make the workspace errored after the call to updateNaclFiles
-        workspace.errors.mockResolvedValueOnce(mocks.mockErrors([{ severity: 'Error', message: '' }]))
+        workspace.errors.mockResolvedValueOnce(
+          mocks.mockErrors([{ severity: 'Error', message: '', detailedMessage: '' }]),
+        )
         return { naclFilesChangesCount: 0, stateOnlyChangesCount: 0 }
       })
       mockGetUserBooleanInput.mockReturnValue(true)
@@ -505,164 +490,6 @@ describe('deploy command', () => {
         workspace,
       })
       expect(workspace.setCurrentEnv).toHaveBeenCalledWith(mocks.withEnvironmentParam, false)
-    })
-  })
-  describe('recommend fetch flow', () => {
-    const mockState = (data: Partial<state.StateData>, saltoVersion?: string): state.State => {
-      const metaData = saltoVersion
-        ? ([{ key: 'version', value: saltoVersion }] as { key: state.StateMetadataKey; value: string }[])
-        : []
-      const saltoMetadata = new InMemoryRemoteMap<string, state.StateMetadataKey>(metaData)
-      return state.buildInMemState(async () => ({
-        elements: createInMemoryElementSource(),
-        pathIndex: new InMemoryRemoteMap<pathIndex.Path[]>(),
-        topLevelPathIndex: new InMemoryRemoteMap<pathIndex.Path[]>(),
-        accountsUpdateDate: data.accountsUpdateDate ?? new InMemoryRemoteMap(),
-        saltoMetadata,
-        staticFilesSource: mocks.mockStateStaticFilesSource(),
-      }))
-    }
-    const inputOptions = {
-      force: false,
-      dryRun: false,
-      detailedPlan: false,
-      checkOnly: false,
-    }
-    describe('when state salto version does not exist', () => {
-      beforeEach(async () => {
-        mockShouldCancel.mockResolvedValue(true)
-        workspace.state.mockReturnValue(mockState({}))
-        await action({
-          ...cliCommandArgs,
-          input: inputOptions,
-          workspace,
-        })
-      })
-      it('should recommend cancel', () => {
-        expect(callbacks.shouldCancelCommand).toHaveBeenCalledTimes(1)
-      })
-    })
-    describe('when state version is newer than the current version', () => {
-      beforeEach(async () => {
-        mockShouldCancel.mockResolvedValue(true)
-        workspace.state.mockReturnValue(mockState({}, semver.inc(currentVersion, 'patch') as string))
-        await action({
-          ...cliCommandArgs,
-          input: inputOptions,
-          workspace,
-        })
-      })
-      it('should recommend cancel', () => {
-        expect(callbacks.shouldCancelCommand).toHaveBeenCalledTimes(1)
-      })
-    })
-    describe('when state version is the current version', () => {
-      beforeEach(async () => {
-        // answer false so we do not continue with deploy
-        mockGetUserBooleanInput.mockResolvedValue(false)
-
-        workspace.state.mockReturnValue(mockState({}, currentVersion))
-      })
-      describe('when all accounts are valid', () => {
-        beforeEach(async () => {
-          await action({
-            ...cliCommandArgs,
-            input: inputOptions,
-            workspace,
-          })
-        })
-        it('should not recommend cancel', () => {
-          expect(callbacks.shouldCancelCommand).not.toHaveBeenCalled()
-        })
-      })
-      describe('when some accounts were never fetched', () => {
-        beforeEach(async () => {
-          workspace.getStateRecency.mockImplementationOnce(async accountName => ({
-            serviceName: accountName,
-            accountName,
-            status: 'Nonexistent',
-            date: undefined,
-          }))
-          await action({
-            ...cliCommandArgs,
-            input: inputOptions,
-            workspace,
-          })
-        })
-        it('should recommend cancel', () => {
-          expect(callbacks.shouldCancelCommand).toHaveBeenCalledTimes(1)
-        })
-      })
-      describe('when some services are old', () => {
-        beforeEach(async () => {
-          workspace.getStateRecency.mockImplementationOnce(async accountName => ({
-            serviceName: accountName,
-            accountName,
-            status: 'Old',
-            date: moment(new Date()).subtract(1, 'month').toDate(),
-          }))
-          await action({
-            ...cliCommandArgs,
-            input: inputOptions,
-            workspace,
-          })
-        })
-        it('should recommend cancel', () => {
-          expect(callbacks.shouldCancelCommand).toHaveBeenCalledTimes(1)
-        })
-      })
-    })
-    describe('when state version is older than the current version by more than one patch', () => {
-      const decreaseVersion = (version: semver.SemVer): semver.SemVer => {
-        const prev = new semver.SemVer(version)
-        if (prev.patch > 1) {
-          prev.patch -= 2
-        } else if (prev.minor > 0) {
-          prev.minor -= 1
-        } else if (prev.major > 0) {
-          prev.major -= 1
-        } else {
-          throw new Error(`Cannot decrease version ${version.format()}`)
-        }
-        return prev
-      }
-      beforeEach(async () => {
-        mockShouldCancel.mockResolvedValue(true)
-        const prevVersion = decreaseVersion(semver.parse(currentVersion) as semver.SemVer)
-
-        workspace.state.mockReturnValue(mockState({}, prevVersion.format()))
-        await action({
-          ...cliCommandArgs,
-          input: inputOptions,
-          workspace,
-        })
-      })
-      it('should recommend cancel', () => {
-        expect(callbacks.shouldCancelCommand).toHaveBeenCalledTimes(1)
-      })
-    })
-    describe('when the user provides the checkOnly option', () => {
-      let result: number
-      let updateWorkspaceSpy: jest.SpyInstance
-      beforeEach(async () => {
-        updateWorkspaceSpy = jest.spyOn(workspaceModule, 'updateWorkspace')
-        mockGetUserBooleanInput.mockResolvedValueOnce(true)
-        result = await action({
-          ...cliCommandArgs,
-          input: {
-            force: false,
-            dryRun: false,
-            detailedPlan: false,
-            checkOnly: true,
-            accounts,
-          },
-          workspace,
-        })
-      })
-      it('should not flush workspace', () => {
-        expect(result).toBe(0)
-        expect(updateWorkspaceSpy).not.toHaveBeenCalled()
-      })
     })
   })
 })

@@ -1,26 +1,11 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
-import {
-  DetailedChange,
-  Element,
-  ElemID,
-  getChangeData,
-  isAdditionChange,
-  isRemovalChange,
-} from '@salto-io/adapter-api'
+import { DetailedChange, Element, ElemID, getChangeData, isRemovalChange } from '@salto-io/adapter-api'
 import { logger } from '@salto-io/logging'
 import { collections } from '@salto-io/lowerdash'
 import _ from 'lodash'
@@ -36,8 +21,14 @@ const { awu } = collections.asynciterable
 
 const log = logger(module)
 
-type InMemoryState = State & {
-  setVersion(version: string): Promise<void>
+type InMemoryState = State
+
+const getExistingAccounts = async (stateData: StateData): Promise<string[]> => {
+  const accounts = await stateData.accounts.get('account_names')
+  if (accounts !== undefined) {
+    return accounts
+  }
+  return awu(stateData.deprecated.accountsUpdateDate.keys()).toArray()
 }
 
 export const buildInMemState = (loadData: () => Promise<StateData>, persistent = true): InMemoryState => {
@@ -60,9 +51,12 @@ export const buildInMemState = (loadData: () => Promise<StateData>, persistent =
   }
 
   const updateAccounts = async (accounts?: string[]): Promise<void> => {
+    if (!accounts) {
+      return
+    }
     const data = await stateData()
-    const newAccounts = accounts ?? (await awu(data.accountsUpdateDate.keys()).toArray())
-    return data.accountsUpdateDate.setAll(newAccounts.map(s => ({ key: s, value: new Date(Date.now()) })))
+    const existingAccounts = await getExistingAccounts(data)
+    await data.accounts.set('account_names', _.union(existingAccounts, accounts))
   }
 
   const updateStatePathIndex = async (
@@ -84,7 +78,8 @@ export const buildInMemState = (loadData: () => Promise<StateData>, persistent =
 
   const deleteRemovedStaticFiles = async (elemChanges: DetailedChange[]): Promise<void> => {
     const { staticFilesSource } = await stateData()
-    const files = getDanglingStaticFiles(elemChanges)
+    // SALTO-5898 We don't pass a static file index here, which could wrongly require deleting static files whose one element deleted the static file
+    const files = await getDanglingStaticFiles(elemChanges)
     await Promise.all(files.map(file => staticFilesSource.delete(file)))
   }
 
@@ -95,14 +90,16 @@ export const buildInMemState = (loadData: () => Promise<StateData>, persistent =
         change.id.createTopLevelParentID().parent.getFullName(),
       )
       await awu(Object.values(changesByTopLevelElement)).forEach(async elemChanges => {
-        const elemID = elemChanges[0].id
-        // If the first change is top level, it means the element was added or removed, and it will include all changes
+        const firstChange = elemChanges[0]
+        const elemID = firstChange.id
+        // If the first change is top level it will include all changes
         if (elemID.isTopLevel()) {
-          if (isRemovalChange(elemChanges[0])) {
+          if (isRemovalChange(firstChange)) {
             await removeId(elemID)
-          } else if (isAdditionChange(elemChanges[0])) {
-            await state.set(getChangeData(elemChanges[0]))
+          } else {
+            await state.set(getChangeData(firstChange))
           }
+
           return
         }
 
@@ -122,8 +119,9 @@ export const buildInMemState = (loadData: () => Promise<StateData>, persistent =
     const state = await stateData()
     const beforeElement = await state.elements.get(element.elemID)
 
+    // SALTO-5898 We don't pass a static file index here, which could wrongly require deleting static files whose one element deleted the static file
     const filesToDelete =
-      beforeElement !== undefined ? getDanglingStaticFiles(detailedCompare(beforeElement, element)) : []
+      beforeElement !== undefined ? await getDanglingStaticFiles(detailedCompare(beforeElement, element)) : []
 
     await state.elements.set(element)
     await Promise.all(filesToDelete.map(f => state.staticFilesSource.delete(f)))
@@ -148,11 +146,7 @@ export const buildInMemState = (loadData: () => Promise<StateData>, persistent =
     setAll: async (elements: ThenableIterable<Element>): Promise<void> => awu(elements).forEach(setElement),
     remove: removeId,
     isEmpty: async (): Promise<boolean> => (await stateData()).elements.isEmpty(),
-    getAccountsUpdateDates: async () => {
-      const stateDataVal = await awu((await stateData()).accountsUpdateDate.entries()).toArray()
-      return Object.fromEntries(stateDataVal.map(e => [e.key, e.value]))
-    },
-    existingAccounts: async (): Promise<string[]> => awu((await stateData()).accountsUpdateDate.keys()).toArray(),
+    existingAccounts: async () => getExistingAccounts(await stateData()),
     getPathIndex: async (): Promise<PathIndex> => (await stateData()).pathIndex,
     getTopLevelPathIndex: async (): Promise<PathIndex> => (await stateData()).topLevelPathIndex,
     clear: async () => {
@@ -160,7 +154,8 @@ export const buildInMemState = (loadData: () => Promise<StateData>, persistent =
       await currentStateData.elements.clear()
       await currentStateData.pathIndex.clear()
       await currentStateData.topLevelPathIndex.clear()
-      await currentStateData.accountsUpdateDate.clear()
+      await currentStateData.accounts.clear()
+      await currentStateData.deprecated.accountsUpdateDate.clear()
       await currentStateData.saltoMetadata.clear()
       await currentStateData.staticFilesSource.clear()
     },
@@ -172,7 +167,8 @@ export const buildInMemState = (loadData: () => Promise<StateData>, persistent =
       await currentStateData.elements.flush()
       await currentStateData.pathIndex.flush()
       await currentStateData.topLevelPathIndex.flush()
-      await currentStateData.accountsUpdateDate.flush()
+      await currentStateData.accounts.flush()
+      await currentStateData.deprecated.accountsUpdateDate.flush()
       await currentStateData.saltoMetadata.flush()
       await currentStateData.staticFilesSource.flush()
     },
@@ -181,8 +177,6 @@ export const buildInMemState = (loadData: () => Promise<StateData>, persistent =
     setHash: async newHash => (await stateData()).saltoMetadata.set('hash', newHash),
     // hash doesn't get calculated in memory
     calculateHash: async () => Promise.resolve(),
-    getStateSaltoVersion: async () => (await stateData()).saltoMetadata.get('version'),
-    setVersion: async (version: string) => (await stateData()).saltoMetadata.set('version', version),
     updateStateFromChanges: async ({ changes, unmergedElements = [], fetchAccounts }: UpdateStateElementsArgs) => {
       await updateStateElements(changes)
       if (!_.isEmpty(fetchAccounts)) {

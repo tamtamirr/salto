@@ -1,17 +1,9 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
 
 import _ from 'lodash'
@@ -62,7 +54,7 @@ import {
   getArticleAttachments,
   isAttachments,
   maybeModifySourceLocaleInGuideObject,
-  updateArticleTranslationBody,
+  replaceAttachmentReferencesInArticleTranslationBody,
 } from './utils'
 import { API_DEFINITIONS_CONFIG, CLIENT_CONFIG, FETCH_CONFIG, isGuideEnabled, ZendeskConfig } from '../../config'
 
@@ -306,10 +298,11 @@ const handleArticleAttachmentsPreDeploy = async ({
     const modificationAndAdditionInlineInstances = modificationAndAdditionInlineChanges.map(getChangeData)
     // All the attachments in the current change_group share the same parent article instance
     const articleValues = getParents(modificationAndAdditionInlineInstances[0])[0]
-    await updateArticleTranslationBody({
+    await replaceAttachmentReferencesInArticleTranslationBody({
       client,
       articleValues,
       attachmentInstances: modificationAndAdditionInlineInstances,
+      elementsSource,
     })
   }
   return attachmentChanges.map(getChangeData)

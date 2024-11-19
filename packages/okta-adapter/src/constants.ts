@@ -1,17 +1,9 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
 export const OKTA = 'okta'
 export const APPLICATION_TYPE_NAME = 'Application'
@@ -52,9 +44,12 @@ export const SIGN_ON_RULE_PRIORITY_TYPE_NAME = 'OktaSignOnPolicyRulePriority'
 export const PASSWORD_RULE_PRIORITY_TYPE_NAME = 'PasswordPolicyRulePriority'
 export const SIGN_ON_POLICY_PRIORITY_TYPE_NAME = 'OktaSignOnPolicyPriority'
 export const MFA_POLICY_PRIORITY_TYPE_NAME = 'MultifactorEnrollmentPolicyPriority'
+export const AUTHORIZATION_POLICY_PRIORITY_TYPE_NAME = 'AuthorizationServerPolicyPriority'
 export const PASSWORD_POLICY_PRIORITY_TYPE_NAME = 'PasswordPolicyPriority'
 export const AUTOMATION_TYPE_NAME = 'Automation'
 export const AUTOMATION_RULE_TYPE_NAME = 'AutomationRule'
+export const JWK_TYPE_NAME = 'JsonWebKey'
+export const EMBEDDED_SIGN_IN_SUPPORT_TYPE_NAME = 'EmbeddedSignInSuppport'
 export const ACTIVE_STATUS = 'ACTIVE'
 export const INACTIVE_STATUS = 'INACTIVE'
 export const POLICY_TYPE_NAMES = [
@@ -73,19 +68,8 @@ export const POLICY_RULE_TYPE_NAMES = [
   PASSWORD_RULE_TYPE_NAME,
   PROFILE_ENROLLMENT_RULE_TYPE_NAME,
 ]
-export const POLICY_RULE_PRIORITY_TYPE_NAMES = [
-  ACCESS_POLICY_RULE_PRIORITY_TYPE_NAME,
-  IDP_RULE_PRIORITY_TYPE_NAME,
-  MFA_RULE_PRIORITY_TYPE_NAME,
-  SIGN_ON_RULE_PRIORITY_TYPE_NAME,
-  PASSWORD_RULE_PRIORITY_TYPE_NAME,
-  AUTHORIZATION_POLICY_RULE_PRIORITY_TYPE_NAME,
-]
-export const POLICY_PRIORITY_TYPE_NAMES = [
-  SIGN_ON_POLICY_PRIORITY_TYPE_NAME,
-  MFA_POLICY_PRIORITY_TYPE_NAME,
-  PASSWORD_POLICY_PRIORITY_TYPE_NAME,
-]
+export const ID_FIELD = 'id'
+export const NAME_FIELD = 'name'
 export const CUSTOM_NAME_FIELD = 'customName'
 export const LINKS_FIELD = '_links'
 export const DEFINITIONS_FIELD = 'definitions'
@@ -96,6 +80,8 @@ export const APP_USER_SCHEMA_TYPE_NAME = 'AppUserSchema'
 export const APP_LOGO_TYPE_NAME = 'AppLogo'
 export const BRAND_TYPE_NAME = 'Brand'
 export const BRAND_THEME_TYPE_NAME = 'BrandTheme'
+export const EMAIL_TEMPLATE_TYPE_NAME = 'EmailTemplate'
+export const EMAIL_CUSTOMIZATION_TYPE_NAME = 'EmailCustomization'
 export const BRAND_LOGO_TYPE_NAME = 'BrandLogo'
 export const FAV_ICON_TYPE_NAME = 'FavIcon'
 export const GROUP_MEMBERSHIP_TYPE_NAME = 'GroupMembership'
@@ -107,3 +93,7 @@ export const GROUP_PUSH_RULE_TYPE_NAME = 'GroupPushRule'
 export const DOMAIN_TYPE_NAME = 'Domain'
 export const USER_TYPE_NAME = 'User'
 export const SMS_TEMPLATE_TYPE_NAME = 'SmsTemplate'
+export const SCHEMA_TYPES = [GROUP_SCHEMA_TYPE_NAME, APP_USER_SCHEMA_TYPE_NAME, USER_SCHEMA_TYPE_NAME]
+export const EMAIL_DOMAIN_TYPE_NAME = 'EmailDomain'
+export const SIGN_IN_PAGE_TYPE_NAME = 'SignInPage'
+export const ERROR_PAGE_TYPE_NAME = 'ErrorPage'

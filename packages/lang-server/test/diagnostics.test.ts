@@ -1,17 +1,9 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
 import _ from 'lodash'
 import { Workspace } from '@salto-io/workspace'
@@ -32,7 +24,7 @@ describe('diagnostics', () => {
     baseWs = await mockWorkspace()
     baseWs.errors = mockFunction<Workspace['errors']>().mockResolvedValue(
       mockErrors(
-        [{ severity: 'Error', message: 'Blabla' }],
+        [{ severity: 'Error', message: 'Blabla', detailedMessage: 'Blabla' }],
         [
           {
             message: 'parse',
@@ -44,6 +36,7 @@ describe('diagnostics', () => {
             subject: parseRange,
             severity: 'Error',
             summary: 'parse error',
+            detailedMessage: 'parse error',
           },
         ],
       ),
@@ -80,8 +73,8 @@ describe('diagnostics', () => {
   it('should not return wanrnings when errors exist', async () => {
     baseWs.errors = mockFunction<Workspace['errors']>().mockResolvedValue(
       mockErrors([
-        { severity: 'Error', message: 'Blabla' },
-        { severity: 'Warning', message: 'test' },
+        { severity: 'Error', message: 'Blabla', detailedMessage: 'Blabla' },
+        { severity: 'Warning', message: 'test', detailedMessage: 'test' },
       ]),
     )
     const workspace = new EditorWorkspace('bla', baseWs)
@@ -95,7 +88,7 @@ describe('diagnostics', () => {
   })
   it('should return wanrnings when there are no errors', async () => {
     baseWs.errors = mockFunction<Workspace['errors']>().mockResolvedValue(
-      mockErrors([{ severity: 'Warning', message: 'Blabla' }]),
+      mockErrors([{ severity: 'Warning', message: 'Blabla', detailedMessage: 'Blabla' }]),
     )
     const workspace = new EditorWorkspace('bla', baseWs)
     const diag = (await getDiagnostics(workspace)).errors['/parse_error.nacl']

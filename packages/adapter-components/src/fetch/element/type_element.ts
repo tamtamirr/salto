@@ -1,17 +1,9 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
 import _ from 'lodash'
 import {
@@ -42,7 +34,7 @@ const log = logger(module)
 const generateNestedType = <Options extends FetchApiDefinitionsOptions>(
   args: lowerdashTypes.PickyRequired<GenerateTypeArgs<Options>, 'parentName'>,
 ): NestedTypeWithNestedTypes => {
-  const { typeName, parentName, entries, isUnknownEntry, isMapWithDynamicType } = args
+  const { typeName, parentName, entries, isUnknownEntry, isMapWithDynamicType, defQuery } = args
 
   const validEntries = entries.filter(entry => entry !== undefined && entry !== null)
 
@@ -86,10 +78,13 @@ const generateNestedType = <Options extends FetchApiDefinitionsOptions>(
   }
 
   if (validEntries.every(entry => _.isObjectLike(entry))) {
+    // if a specific type name was defined, use it instead of the default ducktype name
+    const nestedTypeName =
+      defQuery.query(parentName)?.resource?.recurseInto?.[typeName]?.typeName ?? toNestedTypeName(parentName, typeName)
     // eslint-disable-next-line no-use-before-define
     return generateType({
       ...args,
-      typeName: toNestedTypeName(parentName, typeName),
+      typeName: nestedTypeName,
       entries: validEntries,
       isSubType: true,
     })

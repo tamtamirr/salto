@@ -1,17 +1,9 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
 import _ from 'lodash'
 import {
@@ -57,6 +49,7 @@ import {
   DuplicateAnnotationFieldDefinitionError,
   DuplicateAnnotationTypeError,
   ConflictingSettingError,
+  ConflictingMetaTypeError,
 } from '../../src/merger/internal/object_types'
 import { DuplicateInstanceKeyError } from '../../src/merger/internal/instances'
 import { MultiplePrimitiveTypesError } from '../../src/merger/internal/primitives'
@@ -556,6 +549,7 @@ describe('State/cache serialization', () => {
     let duplicateInstanceKeyError: DuplicateInstanceKeyError
     let multiplePrimitiveTypesUnsupportedError: MultiplePrimitiveTypesError
     let duplicateVariableNameError: DuplicateVariableNameError
+    let conflictingMetaTypeError: ConflictingMetaTypeError
     beforeAll(async () => {
       duplicateAnnotationError = new DuplicateAnnotationError({
         elemID,
@@ -581,6 +575,7 @@ describe('State/cache serialization', () => {
         duplicates: [BuiltinTypes.BOOLEAN, BuiltinTypes.NUMBER],
       })
       duplicateVariableNameError = new DuplicateVariableNameError({ elemID })
+      conflictingMetaTypeError = new ConflictingMetaTypeError({ elemID })
       const mergeErrors: MergeError[] = [
         duplicateAnnotationError,
         conflictingFieldTypesError,
@@ -590,6 +585,7 @@ describe('State/cache serialization', () => {
         duplicateInstanceKeyError,
         multiplePrimitiveTypesUnsupportedError,
         duplicateVariableNameError,
+        conflictingMetaTypeError,
       ]
       serialized = await serialize(mergeErrors)
       deserialized = await deserializeMergeErrors(serialized)
@@ -621,6 +617,9 @@ describe('State/cache serialization', () => {
     })
     it('should serialize DuplicateVariableNameError correctly', () => {
       expect(deserialized[7]).toEqual(duplicateVariableNameError)
+    })
+    it('should serialize ConflictingMetaTypeError correctly', () => {
+      expect(deserialized[8]).toEqual(conflictingMetaTypeError)
     })
     it('should throw error if trying to deserialize a non merge error object', async () => {
       await expect(deserializeMergeErrors(safeJsonStringify([{ test }]))).rejects.toThrow()

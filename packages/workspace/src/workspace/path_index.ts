@@ -1,20 +1,12 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
 import _ from 'lodash'
-import { collections, serialize as lowerdashSerialize, values } from '@salto-io/lowerdash'
+import { collections, serialize, values } from '@salto-io/lowerdash'
 import {
   Element,
   ElemID,
@@ -29,7 +21,6 @@ import { logger } from '@salto-io/logging'
 import { RemoteMap, RemoteMapEntry } from './remote_map'
 
 const { awu } = collections.asynciterable
-const { getSerializedStream } = lowerdashSerialize
 const { makeArray } = collections.array
 
 const log = logger(module)
@@ -216,14 +207,18 @@ export const updateTopLevelPathIndex = async (args: PathIndexArgs): Promise<void
 export const loadPathIndex = (parsedEntries: [string, Path[]][]): RemoteMapEntry<Path[], string>[] =>
   parsedEntries.flatMap(e => ({ key: e[0], value: e[1] }))
 
-export const serializedPathIndex = (entries: RemoteMapEntry<Path[], string>[]): AsyncIterable<string> =>
-  getSerializedStream(Array.from(entries.map(e => [e.key, e.value] as [string, Path[]])))
+const serializedPathIndex = (
+  entries: RemoteMapEntry<Path[], string>[],
+  streamSerializer: serialize.StreamSerializer,
+): AsyncIterable<string> => streamSerializer(Array.from(entries.map(e => [e.key, e.value] as [string, Path[]])))
+
 export const serializePathIndexByAccount = (
   entries: RemoteMapEntry<Path[], string>[],
+  streamSerializer: serialize.StreamSerializer = serialize.getSerializedStream,
 ): Record<string, AsyncIterable<string>> =>
   _.mapValues(
     _.groupBy(Array.from(entries), entry => ElemID.fromFullName(entry.key).adapter),
-    e => serializedPathIndex(e),
+    e => serializedPathIndex(e, streamSerializer),
   )
 export const getFromPathIndex = async (elemID: ElemID, index: PathIndex): Promise<Path[]> => {
   const idParts = elemID.getFullNameParts()

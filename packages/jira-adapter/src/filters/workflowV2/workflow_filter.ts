@@ -1,17 +1,9 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
 import _ from 'lodash'
 import { collections, values } from '@salto-io/lowerdash'
@@ -78,6 +70,8 @@ import {
   PayloadWorkflowStatus,
   EMPTY_STRINGS_PATH_NAME_TO_RECURSE,
   TRANSITION_LIST_FIELDS,
+  WorkflowV2Transition,
+  WorkflowVersionType,
 } from './types'
 import { DEFAULT_API_DEFINITIONS } from '../../config/api_config'
 import { JIRA, PROJECT_TYPE, WORKFLOW_CONFIGURATION_TYPE, WORKFLOW_RETRY_PERIODS } from '../../constants'
@@ -92,6 +86,7 @@ import {
   isWorkflowSchemeItem,
   projectHasWorkflowSchemeReference,
 } from '../../change_validators/workflow_scheme_migration'
+import { RESOLUTION_KEY_PATTERN } from '../../references/workflow_properties'
 
 const log = logger(module)
 const { awu } = collections.asynciterable
@@ -99,10 +94,14 @@ const { makeArray } = collections.array
 const { toBasicInstance } = adapterElements
 const { getTransformationConfigByType } = configUtils
 
-const workflowFetchError = (errorMessage?: string): SaltoError => ({
-  message: errorMessage ? `Failed to fetch Workflows: ${errorMessage}.` : 'Failed to fetch Workflows.',
-  severity: 'Error',
-})
+const workflowFetchError = (errorMessage?: string): SaltoError => {
+  const message = errorMessage ? `Failed to fetch Workflows: ${errorMessage}.` : 'Failed to fetch Workflows.'
+  return {
+    message,
+    detailedMessage: message,
+    severity: 'Error',
+  }
+}
 
 type WorkflowDataOrFilterResult = {
   workflowIdToStatuses: Record<string, WorkflowStatus[]>
@@ -140,6 +139,26 @@ const fetchWorkflowData = async (paginator: clientUtils.Paginator): Promise<Work
 }
 
 const convertIdsStringToList = (ids: string): string[] => ids.split(',')
+
+const splitResolutionProperties = (transitions: WorkflowV2Transition[]): void => {
+  transitions.forEach(transition => {
+    if (transition.properties !== undefined) {
+      transition.properties = _.mapValues(transition.properties, (value, key) =>
+        new RegExp(RESOLUTION_KEY_PATTERN).test(key) ? value.split(',') : value,
+      )
+    }
+  })
+}
+
+const joinResolutionProperties = (transitions: WorkflowV2Transition[]): void => {
+  transitions.forEach(transition => {
+    if (transition.properties !== undefined) {
+      transition.properties = _.mapValues(transition.properties, (value, key) =>
+        new RegExp(RESOLUTION_KEY_PATTERN).test(key) ? value.join(',') : value,
+      )
+    }
+  })
+}
 
 const convertTransitionParametersFields = (
   workflowName: string,
@@ -212,6 +231,9 @@ const createWorkflowInstances = async ({
       data: {
         workflowIds,
       },
+      queryParams: {
+        useTransitionLinksFormat: 'true',
+      },
     })
     if (!isWorkflowResponse(response.data)) {
       return {
@@ -223,6 +245,7 @@ const createWorkflowInstances = async ({
       await Promise.all(
         response.data.workflows.map(async workflow => {
           convertTransitionParametersFields(workflow.name, workflow.transitions, convertParametersFieldsToList)
+          splitResolutionProperties(workflow.transitions)
           convertPropertiesToList([...(workflow.statuses ?? []), ...(workflow.transitions ?? [])])
           if (workflow.id === undefined) {
             // should never happen
@@ -230,7 +253,11 @@ const createWorkflowInstances = async ({
             return undefined
           }
           // convert transition list to map
-          const [error] = transformTransitions(workflow, workflowIdToStatuses[workflow.id])
+          const [error] = transformTransitions({
+            value: workflow,
+            statuses: workflowIdToStatuses[workflow.id],
+            workflowVersion: WorkflowVersionType.V2,
+          })
           if (error) {
             errors.push(error)
           }
@@ -605,8 +632,10 @@ const deployWorkflow = async ({
     } catch (error) {
       const workflowName = getChangeData(change).value.workflows[0].name
       const workflowStepsLink = getWorkflowStepsUrl(client.baseUrl, workflowName)
+      const message = `Failed to deploy step names for workflow ${workflowName}; step names will be identical to status names. If required, you can manually edit the step names in Jira: ${workflowStepsLink.href}`
       const deployStepsError: SaltoError = {
-        message: `Failed to deploy step names for workflow ${workflowName}; step names will be identical to status names. If required, you can manually edit the step names in Jira: ${workflowStepsLink.href}`,
+        message,
+        detailedMessage: message,
         severity: 'Warning',
       }
       throw deployStepsError
@@ -654,16 +683,29 @@ const insertConditionGroups: WalkOnFunc = ({ value, path }): WALK_NEXT_STEP => {
   return WALK_NEXT_STEP.SKIP
 }
 
+// Jira has a bug that causes global transition with a destination status to become a looped transition without a status
+// as a workaround we add an empty links array
+// We should remove this once the bug is fixed - https://jira.atlassian.com/browse/JRACLOUD-85033
+// this bug affects all transition types that lack links.
+const insertEmptyLinksToTransition: WalkOnFunc = ({ value, path }): WALK_NEXT_STEP => {
+  const nameParts = path.getFullNameParts()
+  if (_.isPlainObject(value) && nameParts.length > 4 && nameParts[4] === 'transitions' && value?.links === undefined) {
+    value.links = []
+  }
+  if (isInstanceElement(value) || path.name === 'transitions') {
+    return WALK_NEXT_STEP.RECURSE
+  }
+  return WALK_NEXT_STEP.SKIP
+}
+
 const replaceStatusIdWithUuid =
   (statusIdToUuid: Record<string, string>): WalkOnFunc =>
   ({ value, path }): WALK_NEXT_STEP => {
-    const isValueToRecurse =
-      (_.isPlainObject(value) && (value.to || value.from || value.statusMigrations)) || _.isArray(value)
-    if (isInstanceElement(value) || ID_TO_UUID_PATH_NAME_TO_RECURSE.has(path.name) || isValueToRecurse) {
-      return WALK_NEXT_STEP.RECURSE
+    if (value.toStatusReference) {
+      value.toStatusReference = statusIdToUuid[value.toStatusReference]
     }
-    if (!_.isPlainObject(value)) {
-      return WALK_NEXT_STEP.SKIP
+    if (value.fromStatusReference) {
+      value.fromStatusReference = statusIdToUuid[value.fromStatusReference]
     }
     if (value.statusReference) {
       value.statusReference = statusIdToUuid[value.statusReference]
@@ -674,6 +716,11 @@ const replaceStatusIdWithUuid =
     if (value.newStatusReference) {
       value.newStatusReference = statusIdToUuid[value.newStatusReference]
     }
+    const isValueToRecurse = _.isPlainObject(value) && (value.links || value.statusMigrations)
+    if (isInstanceElement(value) || ID_TO_UUID_PATH_NAME_TO_RECURSE.has(path.name) || isValueToRecurse) {
+      return WALK_NEXT_STEP.RECURSE
+    }
+
     return WALK_NEXT_STEP.SKIP
   }
 
@@ -689,8 +736,10 @@ const getWorkflowForDeploy = async (
     convertParametersFieldsToString,
   )
   convertPropertiesToMap([...(resolvedInstance.value.statuses ?? []), ...(resolvedInstance.value.transitions ?? [])])
+  joinResolutionProperties(resolvedInstance.value.transitions)
   walkOnElement({ element: resolvedInstance, func: replaceStatusIdWithUuid(statusIdToUuid) })
   walkOnElement({ element: resolvedInstance, func: insertConditionGroups })
+  walkOnElement({ element: resolvedInstance, func: insertEmptyLinksToTransition })
   return resolvedInstance
 }
 
@@ -717,14 +766,18 @@ const filter: FilterCreator = ({ config, client, paginator, fetchQuery, elements
   return {
     name: 'workflowFilter',
     onFetch: async (elements: Element[]) => {
-      if (!config.fetch.enableNewWorkflowAPI || !fetchQuery.isTypeMatch(WORKFLOW_CONFIGURATION_TYPE)) {
+      if (
+        client.isDataCenter ||
+        !config.fetch.enableNewWorkflowAPI ||
+        !fetchQuery.isTypeMatch(WORKFLOW_CONFIGURATION_TYPE)
+      ) {
         return { errors: [] }
       }
       const workflowConfiguration = findObject(elements, WORKFLOW_CONFIGURATION_TYPE)
       if (workflowConfiguration === undefined) {
         log.error('WorkflowConfiguration type was not found')
         return {
-          errors: [workflowFetchError()],
+          errors: [],
         }
       }
       setTypeDeploymentAnnotations(workflowConfiguration)

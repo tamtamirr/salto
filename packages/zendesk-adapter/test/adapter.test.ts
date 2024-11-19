@@ -1,17 +1,9 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
 import _ from 'lodash'
 import axios, { AxiosRequestConfig } from 'axios'
@@ -53,6 +45,7 @@ import {
 import { createEveryoneUserSegmentInstance } from '../src/filters/everyone_user_segment'
 import ZendeskAdapter from '../src/adapter'
 import { createFilterCreatorParams } from './utils'
+import { shortElemIdHash } from '../src/filters/utils'
 
 type MockReply = {
   url: string
@@ -121,7 +114,7 @@ describe('adapter', () => {
 
   describe('fetch', () => {
     describe('full fetch', () => {
-      it('should generate the right elements on fetch', async () => {
+      it('should generate the right elements on fetch with old infra', async () => {
         mockAxiosAdapter.onGet().reply(callbackResponseFunc)
         const { elements } = await adapter
           .operations({
@@ -138,6 +131,7 @@ describe('adapter', () => {
                   },
                 ],
                 exclude: [],
+                useNewInfra: false,
                 guide: {
                   brands: ['.*'],
                 },
@@ -238,10 +232,10 @@ describe('adapter', () => {
           'zendesk.business_hours_schedule.instance.New_schedule@s',
           'zendesk.business_hours_schedule.instance.Schedule_2@s',
           'zendesk.business_hours_schedule.instance.Schedule_3@s',
+          'zendesk.business_hours_schedule__holiday',
+          'zendesk.business_hours_schedule__holiday.instance.New_schedule_s__Holiday1@umuu',
+          'zendesk.business_hours_schedule__holiday.instance.Schedule_3_s__Holi2@umuu',
           'zendesk.business_hours_schedule__intervals',
-          'zendesk.business_hours_schedule_holiday',
-          'zendesk.business_hours_schedule_holiday.instance.New_schedule_s__Holiday1@umuu',
-          'zendesk.business_hours_schedule_holiday.instance.Schedule_3_s__Holi2@umuu',
           'zendesk.business_hours_schedules',
           'zendesk.categories',
           'zendesk.category',
@@ -340,6 +334,7 @@ describe('adapter', () => {
           'zendesk.guide_settings__help_center__settings',
           'zendesk.guide_settings__help_center__settings__preferences',
           'zendesk.guide_settings__help_center__text_filter',
+          'zendesk.layout',
           'zendesk.locale',
           'zendesk.locale.instance.en_US@b',
           'zendesk.locale.instance.es',
@@ -407,6 +402,9 @@ describe('adapter', () => {
           'zendesk.permission_group',
           'zendesk.permission_group.instance.Admins',
           'zendesk.permission_groups',
+          'zendesk.queue',
+          'zendesk.queue_order',
+          'zendesk.queue_order.instance',
           'zendesk.resource_collection',
           'zendesk.resource_collection.instance.unnamed_0_0',
           'zendesk.resource_collection__resources',
@@ -691,7 +689,7 @@ describe('adapter', () => {
                 guide: {
                   brands: ['.*'],
                 },
-                useNewInfra: true,
+                useGuideNewInfra: true,
                 omitInactive: {
                   default: false,
                   customizations: {},
@@ -789,10 +787,10 @@ describe('adapter', () => {
           'zendesk.business_hours_schedule.instance.New_schedule@s',
           'zendesk.business_hours_schedule.instance.Schedule_2@s',
           'zendesk.business_hours_schedule.instance.Schedule_3@s',
+          'zendesk.business_hours_schedule__holiday',
+          'zendesk.business_hours_schedule__holiday.instance.New_schedule_s__Holiday1@umuu',
+          'zendesk.business_hours_schedule__holiday.instance.Schedule_3_s__Holi2@umuu',
           'zendesk.business_hours_schedule__intervals',
-          'zendesk.business_hours_schedule_holiday',
-          'zendesk.business_hours_schedule_holiday.instance.New_schedule_s__Holiday1@umuu',
-          'zendesk.business_hours_schedule_holiday.instance.Schedule_3_s__Holi2@umuu',
           'zendesk.business_hours_schedules',
           'zendesk.categories',
           'zendesk.category',
@@ -863,13 +861,13 @@ describe('adapter', () => {
           'zendesk.custom_status.instance.open_test_n1@ub',
           'zendesk.custom_statuses',
           'zendesk.dynamic_content_item',
-          'zendesk.dynamic_content_item.instance.Dynamic_content_item_title_543@s',
           'zendesk.dynamic_content_item.instance.dynamic_content_item_544@s',
+          'zendesk.dynamic_content_item.instance.dynamic_content_item_title_543@s',
           'zendesk.dynamic_content_item__variants',
-          'zendesk.dynamic_content_item__variants.instance.Dynamic_content_item_title_543_s__en_US_b@uuuumuuum',
           'zendesk.dynamic_content_item__variants.instance.dynamic_content_item_544_s__en_US_b@uuumuuum',
           'zendesk.dynamic_content_item__variants.instance.dynamic_content_item_544_s__es@uuumuu',
           'zendesk.dynamic_content_item__variants.instance.dynamic_content_item_544_s__he@uuumuu',
+          'zendesk.dynamic_content_item__variants.instance.dynamic_content_item_title_543_s__en_US_b@uuuumuuum',
           'zendesk.features',
           'zendesk.group',
           'zendesk.group.instance.Support',
@@ -891,6 +889,14 @@ describe('adapter', () => {
           'zendesk.guide_settings__help_center__settings',
           'zendesk.guide_settings__help_center__settings__preferences',
           'zendesk.guide_settings__help_center__text_filter',
+          'zendesk.layout',
+          'zendesk.layout.instance.Test_Layout@s',
+          'zendesk.layout__sections',
+          'zendesk.layout__sections__columns',
+          'zendesk.layout__sections__columns__components',
+          'zendesk.layout__sections__columns__components__config',
+          'zendesk.layout__sections__columns__components__config__components',
+          'zendesk.layout__sections__columns__components__config__open',
           'zendesk.locale',
           'zendesk.locale.instance.en_US@b',
           'zendesk.locale.instance.es',
@@ -957,6 +963,12 @@ describe('adapter', () => {
           'zendesk.permission_group',
           'zendesk.permission_group.instance.Admins',
           'zendesk.permission_groups',
+          'zendesk.queue',
+          'zendesk.queue.instance.test_queue@s',
+          'zendesk.queue__definition',
+          'zendesk.queue__definition__all',
+          'zendesk.queue_order',
+          'zendesk.queue_order.instance',
           'zendesk.resource_collection',
           'zendesk.resource_collection.instance.unnamed_0',
           'zendesk.resource_collection__resources',
@@ -1003,6 +1015,7 @@ describe('adapter', () => {
           'zendesk.sharing_agreement',
           'zendesk.sharing_agreements',
           'zendesk.sla_policies',
+          'zendesk.sla_policies_definition',
           'zendesk.sla_policies_definitions',
           'zendesk.sla_policies_definitions__value',
           'zendesk.sla_policy',
@@ -1043,11 +1056,11 @@ describe('adapter', () => {
           'zendesk.ticket_field.instance.credit_card_1_partialcreditcard@ssu',
           'zendesk.ticket_field.instance.zip_code_with_validation_regexp@sssu',
           'zendesk.ticket_field__custom_field_options',
-          'zendesk.ticket_field__custom_field_options.instance.Customer_Tier_multiselect_su__enterprise@uumuu',
-          'zendesk.ticket_field__custom_field_options.instance.Customer_Tier_multiselect_su__free@uumuu',
-          'zendesk.ticket_field__custom_field_options.instance.Customer_Tier_multiselect_su__paying@uumuu',
-          'zendesk.ticket_field__custom_field_options.instance.agent_dropdown_643_for_agent_multiselect_ssssu__v1@uuuuumuu',
-          'zendesk.ticket_field__custom_field_options.instance.agent_dropdown_643_for_agent_multiselect_ssssu__v2_modified@uuuuumuuu',
+          'zendesk.ticket_field__custom_field_options.instance.Customer_Tier_multiselect__enterprise@suuu',
+          'zendesk.ticket_field__custom_field_options.instance.Customer_Tier_multiselect__free@suuu',
+          'zendesk.ticket_field__custom_field_options.instance.Customer_Tier_multiselect__paying@suuu',
+          'zendesk.ticket_field__custom_field_options.instance.agent_dropdown_643_for_agent_multiselect__v1@ssssuuu',
+          'zendesk.ticket_field__custom_field_options.instance.agent_dropdown_643_for_agent_multiselect__v2_modified@ssssuuuu',
           'zendesk.ticket_field__system_field_options',
           'zendesk.ticket_fields',
           'zendesk.ticket_form',
@@ -1395,10 +1408,10 @@ describe('adapter', () => {
           'zendesk.business_hours_schedule.instance.New_schedule@s',
           'zendesk.business_hours_schedule.instance.Schedule_2@s',
           'zendesk.business_hours_schedule.instance.Schedule_3@s',
+          'zendesk.business_hours_schedule__holiday',
+          'zendesk.business_hours_schedule__holiday.instance.New_schedule_s__Holiday1@umuu',
+          'zendesk.business_hours_schedule__holiday.instance.Schedule_3_s__Holi2@umuu',
           'zendesk.business_hours_schedule__intervals',
-          'zendesk.business_hours_schedule_holiday',
-          'zendesk.business_hours_schedule_holiday.instance.New_schedule_s__Holiday1@umuu',
-          'zendesk.business_hours_schedule_holiday.instance.Schedule_3_s__Holi2@umuu',
           'zendesk.business_hours_schedules',
           'zendesk.categories',
           'zendesk.category',
@@ -1469,13 +1482,13 @@ describe('adapter', () => {
           'zendesk.custom_status.instance.open_test_n1@ub',
           'zendesk.custom_statuses',
           'zendesk.dynamic_content_item',
-          'zendesk.dynamic_content_item.instance.Dynamic_content_item_title_543@s',
           'zendesk.dynamic_content_item.instance.dynamic_content_item_544@s',
+          'zendesk.dynamic_content_item.instance.dynamic_content_item_title_543@s',
           'zendesk.dynamic_content_item__variants',
-          'zendesk.dynamic_content_item__variants.instance.Dynamic_content_item_title_543_s__en_US_b@uuuumuuum',
           'zendesk.dynamic_content_item__variants.instance.dynamic_content_item_544_s__en_US_b@uuumuuum',
           'zendesk.dynamic_content_item__variants.instance.dynamic_content_item_544_s__es@uuumuu',
           'zendesk.dynamic_content_item__variants.instance.dynamic_content_item_544_s__he@uuumuu',
+          'zendesk.dynamic_content_item__variants.instance.dynamic_content_item_title_543_s__en_US_b@uuuumuuum',
           'zendesk.features',
           'zendesk.group',
           'zendesk.group.instance.Support',
@@ -1497,6 +1510,14 @@ describe('adapter', () => {
           'zendesk.guide_settings__help_center__settings',
           'zendesk.guide_settings__help_center__settings__preferences',
           'zendesk.guide_settings__help_center__text_filter',
+          'zendesk.layout',
+          'zendesk.layout.instance.Test_Layout@s',
+          'zendesk.layout__sections',
+          'zendesk.layout__sections__columns',
+          'zendesk.layout__sections__columns__components',
+          'zendesk.layout__sections__columns__components__config',
+          'zendesk.layout__sections__columns__components__config__components',
+          'zendesk.layout__sections__columns__components__config__open',
           'zendesk.locale',
           'zendesk.locale.instance.en_US@b',
           'zendesk.locale.instance.es',
@@ -1542,7 +1563,6 @@ describe('adapter', () => {
           'zendesk.organization.instance.myBrand',
           'zendesk.organization.instance.test_org_123@s',
           'zendesk.organization.instance.test_org_124@s',
-          'zendesk.organization__organization_fields',
           'zendesk.organization_field',
           'zendesk.organization_field.instance.dropdown_26',
           'zendesk.organization_field.instance.org_field301',
@@ -1564,8 +1584,14 @@ describe('adapter', () => {
           'zendesk.permission_group',
           'zendesk.permission_group.instance.Admins',
           'zendesk.permission_groups',
+          'zendesk.queue',
+          'zendesk.queue.instance.test_queue@s',
+          'zendesk.queue__definition',
+          'zendesk.queue__definition__all',
+          'zendesk.queue_order',
+          'zendesk.queue_order.instance',
           'zendesk.resource_collection',
-          'zendesk.resource_collection.instance.unnamed_0_0',
+          'zendesk.resource_collection.instance.unnamed_0',
           'zendesk.resource_collection__resources',
           'zendesk.resource_collections',
           'zendesk.routing_attribute',
@@ -1610,6 +1636,7 @@ describe('adapter', () => {
           'zendesk.sharing_agreement',
           'zendesk.sharing_agreements',
           'zendesk.sla_policies',
+          'zendesk.sla_policies_definition',
           'zendesk.sla_policies_definitions',
           'zendesk.sla_policies_definitions__value',
           'zendesk.sla_policy',
@@ -1648,11 +1675,11 @@ describe('adapter', () => {
           'zendesk.ticket_field.instance.credit_card_1_partialcreditcard@ssu',
           'zendesk.ticket_field.instance.zip_code_with_validation_regexp@sssu',
           'zendesk.ticket_field__custom_field_options',
-          'zendesk.ticket_field__custom_field_options.instance.Customer_Tier_multiselect_su__enterprise@uumuu',
-          'zendesk.ticket_field__custom_field_options.instance.Customer_Tier_multiselect_su__free@uumuu',
-          'zendesk.ticket_field__custom_field_options.instance.Customer_Tier_multiselect_su__paying@uumuu',
-          'zendesk.ticket_field__custom_field_options.instance.agent_dropdown_643_for_agent_multiselect_ssssu__v1@uuuuumuu',
-          'zendesk.ticket_field__custom_field_options.instance.agent_dropdown_643_for_agent_multiselect_ssssu__v2_modified@uuuuumuuu',
+          'zendesk.ticket_field__custom_field_options.instance.Customer_Tier_multiselect__enterprise@suuu',
+          'zendesk.ticket_field__custom_field_options.instance.Customer_Tier_multiselect__free@suuu',
+          'zendesk.ticket_field__custom_field_options.instance.Customer_Tier_multiselect__paying@suuu',
+          'zendesk.ticket_field__custom_field_options.instance.agent_dropdown_643_for_agent_multiselect__v1@ssssuuu',
+          'zendesk.ticket_field__custom_field_options.instance.agent_dropdown_643_for_agent_multiselect__v2_modified@ssssuuuu',
           'zendesk.ticket_field__system_field_options',
           'zendesk.ticket_fields',
           'zendesk.ticket_form',
@@ -1682,8 +1709,6 @@ describe('adapter', () => {
           'zendesk.trigger__conditions__all',
           'zendesk.trigger__conditions__any',
           'zendesk.trigger_categories',
-          'zendesk.trigger_categories__links',
-          'zendesk.trigger_categories__meta',
           'zendesk.trigger_category',
           'zendesk.trigger_category.instance.Custom_Events@s',
           'zendesk.trigger_category.instance.Custom_Events___edited@ssbs',
@@ -1782,7 +1807,6 @@ describe('adapter', () => {
           'zendesk.webhook.instance.test',
           'zendesk.webhook__authentication',
           'zendesk.webhooks',
-          'zendesk.webhooks__meta',
           'zendesk.workspace',
           'zendesk.workspace.instance.New_Workspace_123@s',
           'zendesk.workspace__apps',
@@ -1941,10 +1965,10 @@ describe('adapter', () => {
           'zendesk.business_hours_schedule.instance.New_schedule@s',
           'zendesk.business_hours_schedule.instance.Schedule_2@s',
           'zendesk.business_hours_schedule.instance.Schedule_3@s',
+          'zendesk.business_hours_schedule__holiday',
+          'zendesk.business_hours_schedule__holiday.instance.New_schedule_s__Holiday1@umuu',
+          'zendesk.business_hours_schedule__holiday.instance.Schedule_3_s__Holi2@umuu',
           'zendesk.business_hours_schedule__intervals',
-          'zendesk.business_hours_schedule_holiday',
-          'zendesk.business_hours_schedule_holiday.instance.New_schedule_s__Holiday1@umuu',
-          'zendesk.business_hours_schedule_holiday.instance.Schedule_3_s__Holi2@umuu',
           'zendesk.business_hours_schedules',
           'zendesk.categories',
           'zendesk.category',
@@ -2013,13 +2037,13 @@ describe('adapter', () => {
           'zendesk.custom_status.instance.open___zd_status_open__@u_00123_00123vu_00125_00125',
           'zendesk.custom_statuses',
           'zendesk.dynamic_content_item',
-          'zendesk.dynamic_content_item.instance.Dynamic_content_item_title_543@s',
           'zendesk.dynamic_content_item.instance.dynamic_content_item_544@s',
+          'zendesk.dynamic_content_item.instance.dynamic_content_item_title_543@s',
           'zendesk.dynamic_content_item__variants',
-          'zendesk.dynamic_content_item__variants.instance.Dynamic_content_item_title_543_s__en_US_b@uuuumuuum',
           'zendesk.dynamic_content_item__variants.instance.dynamic_content_item_544_s__en_US_b@uuumuuum',
           'zendesk.dynamic_content_item__variants.instance.dynamic_content_item_544_s__es@uuumuu',
           'zendesk.dynamic_content_item__variants.instance.dynamic_content_item_544_s__he@uuumuu',
+          'zendesk.dynamic_content_item__variants.instance.dynamic_content_item_title_543_s__en_US_b@uuuumuuum',
           'zendesk.features',
           'zendesk.group',
           'zendesk.group.instance.Support',
@@ -2041,6 +2065,14 @@ describe('adapter', () => {
           'zendesk.guide_settings__help_center__settings',
           'zendesk.guide_settings__help_center__settings__preferences',
           'zendesk.guide_settings__help_center__text_filter',
+          'zendesk.layout',
+          'zendesk.layout.instance.Test_Layout@s',
+          'zendesk.layout__sections',
+          'zendesk.layout__sections__columns',
+          'zendesk.layout__sections__columns__components',
+          'zendesk.layout__sections__columns__components__config',
+          'zendesk.layout__sections__columns__components__config__components',
+          'zendesk.layout__sections__columns__components__config__open',
           'zendesk.locale',
           'zendesk.locale.instance.en_US@b',
           'zendesk.locale.instance.es',
@@ -2086,7 +2118,6 @@ describe('adapter', () => {
           'zendesk.organization.instance.myBrand',
           'zendesk.organization.instance.test_org_123@s',
           'zendesk.organization.instance.test_org_124@s',
-          'zendesk.organization__organization_fields',
           'zendesk.organization_field',
           'zendesk.organization_field.instance.dropdown_26',
           'zendesk.organization_field.instance.org_field301',
@@ -2108,8 +2139,14 @@ describe('adapter', () => {
           'zendesk.permission_group',
           'zendesk.permission_group.instance.Admins',
           'zendesk.permission_groups',
+          'zendesk.queue',
+          'zendesk.queue.instance.test_queue@s',
+          'zendesk.queue__definition',
+          'zendesk.queue__definition__all',
+          'zendesk.queue_order',
+          'zendesk.queue_order.instance',
           'zendesk.resource_collection',
-          'zendesk.resource_collection.instance.unnamed_0_0',
+          'zendesk.resource_collection.instance.unnamed_0',
           'zendesk.resource_collection__resources',
           'zendesk.resource_collections',
           'zendesk.routing_attribute',
@@ -2154,6 +2191,7 @@ describe('adapter', () => {
           'zendesk.sharing_agreement',
           'zendesk.sharing_agreements',
           'zendesk.sla_policies',
+          'zendesk.sla_policies_definition',
           'zendesk.sla_policies_definitions',
           'zendesk.sla_policies_definitions__value',
           'zendesk.sla_policy',
@@ -2194,13 +2232,13 @@ describe('adapter', () => {
           'zendesk.ticket_field.instance.credit_card_1_partialcreditcard@ssu',
           'zendesk.ticket_field.instance.zip_code_with_validation_regexp@sssu',
           'zendesk.ticket_field__custom_field_options',
-          'zendesk.ticket_field__custom_field_options.instance.Customer_Tier_multiselect_su__enterprise@uumuu',
-          'zendesk.ticket_field__custom_field_options.instance.Customer_Tier_multiselect_su__free@uumuu',
-          'zendesk.ticket_field__custom_field_options.instance.Customer_Tier_multiselect_su__paying@uumuu',
-          'zendesk.ticket_field__custom_field_options.instance.Product_components_multiselect_su__component_a@uumuuu',
-          'zendesk.ticket_field__custom_field_options.instance.Product_components_multiselect_su__component_b@uumuuu',
-          'zendesk.ticket_field__custom_field_options.instance.agent_dropdown_643_for_agent_multiselect_ssssu__v1@uuuuumuu',
-          'zendesk.ticket_field__custom_field_options.instance.agent_dropdown_643_for_agent_multiselect_ssssu__v2_modified@uuuuumuuu',
+          'zendesk.ticket_field__custom_field_options.instance.Customer_Tier_multiselect__enterprise@suuu',
+          'zendesk.ticket_field__custom_field_options.instance.Customer_Tier_multiselect__free@suuu',
+          'zendesk.ticket_field__custom_field_options.instance.Customer_Tier_multiselect__paying@suuu',
+          'zendesk.ticket_field__custom_field_options.instance.Product_components_multiselect__component_a@suuuu',
+          'zendesk.ticket_field__custom_field_options.instance.Product_components_multiselect__component_b@suuuu',
+          'zendesk.ticket_field__custom_field_options.instance.agent_dropdown_643_for_agent_multiselect__v1@ssssuuu',
+          'zendesk.ticket_field__custom_field_options.instance.agent_dropdown_643_for_agent_multiselect__v2_modified@ssssuuuu',
           'zendesk.ticket_field__system_field_options',
           'zendesk.ticket_fields',
           'zendesk.ticket_form',
@@ -2229,8 +2267,6 @@ describe('adapter', () => {
           'zendesk.trigger__conditions__all',
           'zendesk.trigger__conditions__any',
           'zendesk.trigger_categories',
-          'zendesk.trigger_categories__links',
-          'zendesk.trigger_categories__meta',
           'zendesk.trigger_category',
           'zendesk.trigger_category.instance.Custom_Events@s',
           'zendesk.trigger_category.instance.Custom_Events___edited@ssbs',
@@ -2327,7 +2363,6 @@ describe('adapter', () => {
           'zendesk.webhook.instance.test',
           'zendesk.webhook__authentication',
           'zendesk.webhooks',
-          'zendesk.webhooks__meta',
           'zendesk.workspace',
           'zendesk.workspace.instance.New_Workspace_123@s',
           'zendesk.workspace__apps',
@@ -2416,6 +2451,7 @@ describe('adapter', () => {
           'zendesk.custom_role.instance.Advisor',
           'zendesk.organization_field.instance.dropdown_26',
           'zendesk.organization_field_order.instance',
+          'zendesk.queue_order.instance',
           'zendesk.sla_policy_order.instance',
           'zendesk.ticket_field.instance.agent_dropdown_643_for_agent_multiselect@ssssu',
           'zendesk.ticket_field.instance.agent_field_431_text@ssu',
@@ -2458,14 +2494,22 @@ describe('adapter', () => {
         expect(errors).toBeDefined()
         expect(errors?.length).toEqual(3)
         expect(errors?.[0]).toEqual({
-          severity: 'Warning',
+          severity: 'Info',
           message:
-            "Salto could not access the custom_statuses resource. Elements from that type were not fetched. Please make sure that this type is enabled in your service, and that the supplied user credentials have sufficient permissions to access this data. You can also exclude this data from Salto's fetches by changing the environment configuration. Learn more at https://help.salto.io/en/articles/6947061-salto-could-not-access-the-resource",
+            "Salto could not access the custom_status resource. Elements from that type were not fetched. Please make sure that this type is enabled in your service, and that the supplied user credentials have sufficient permissions to access this data. You can also exclude this data from Salto's fetches by changing the environment configuration. Learn more at https://help.salto.io/en/articles/6947061-salto-could-not-access-the-resource",
+          detailedMessage:
+            "Salto could not access the custom_status resource. Elements from that type were not fetched. Please make sure that this type is enabled in your service, and that the supplied user credentials have sufficient permissions to access this data. You can also exclude this data from Salto's fetches by changing the environment configuration. Learn more at https://help.salto.io/en/articles/6947061-salto-could-not-access-the-resource",
         })
         expect(errors?.[1].message.split('.')[0]).toEqual(
           'Omitted 2 instances and all their child instances of ticket_field due to Salto ID collisions',
         )
+        expect(errors?.[1].detailedMessage.split('.')[0]).toEqual(
+          'Omitted 2 instances and all their child instances of ticket_field due to Salto ID collisions',
+        )
         expect(errors?.[2].message.split('.')[0]).toEqual(
+          'Omitted 4 instances and all their child instances of ticket_field__custom_field_options due to Salto ID collisions',
+        )
+        expect(errors?.[2].detailedMessage.split('.')[0]).toEqual(
           'Omitted 4 instances and all their child instances of ticket_field__custom_field_options due to Salto ID collisions',
         )
         const elementsNames = elements.map(e => e.elemID.getFullName())
@@ -2534,7 +2578,7 @@ describe('adapter', () => {
         ])
         expect(themeElements[0].value.root.files['hello_txt@v'].content).toEqual(
           new StaticFile({
-            filepath: 'zendesk/themes/brands/myBrand/Copenhagen/hello.txt',
+            filepath: `zendesk/themes/brands/myBrand/${shortElemIdHash(themeElements[0].elemID)}_Copenhagen/hello.txt`,
             content: Buffer.from('Hello World\n'),
           }),
         )
@@ -2593,11 +2637,19 @@ describe('adapter', () => {
           severity: 'Warning',
           message:
             'Could not find any brands matching the included patterns: [BestBrand]. Please update the configuration under fetch.guide.brands in the configuration file',
+          detailedMessage:
+            'Could not find any brands matching the included patterns: [BestBrand]. Please update the configuration under fetch.guide.brands in the configuration file',
         })
         expect(fetchRes.errors?.[1].message.split('.')[0]).toEqual(
           'Omitted 2 instances and all their child instances of ticket_field due to Salto ID collisions',
         )
+        expect(fetchRes.errors?.[1].detailedMessage.split('.')[0]).toEqual(
+          'Omitted 2 instances and all their child instances of ticket_field due to Salto ID collisions',
+        )
         expect(fetchRes.errors?.[2].message.split('.')[0]).toEqual(
+          'Omitted 4 instances and all their child instances of ticket_field__custom_field_options due to Salto ID collisions',
+        )
+        expect(fetchRes.errors?.[2].detailedMessage.split('.')[0]).toEqual(
           'Omitted 4 instances and all their child instances of ticket_field__custom_field_options due to Salto ID collisions',
         )
         expect(fetchRes.elements.filter(isInstanceElement).find(e => e.elemID.typeName === 'article')).not.toBeDefined()
@@ -2657,6 +2709,7 @@ describe('adapter', () => {
             // The order element are always created on fetch
             'zendesk.automation_order.instance',
             'zendesk.organization_field_order.instance',
+            'zendesk.queue_order.instance',
             'zendesk.sla_policy_order.instance',
             'zendesk.ticket_form_order.instance',
             'zendesk.trigger_order.instance',
@@ -2977,6 +3030,7 @@ describe('adapter', () => {
       expect(deployRes.errors).toEqual([
         {
           message: 'some error',
+          detailedMessage: 'some error',
           severity: 'Error',
           elemID: new InstanceElement('inst2', groupType).elemID,
         },

@@ -1,17 +1,9 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
 import _ from 'lodash'
 import { Element, isInstanceElement } from '@salto-io/adapter-api'
@@ -42,6 +34,8 @@ import {
   WORKSPACE_ORDER_TYPE_NAME,
   THEME_SETTINGS_TYPE_NAME,
   GUIDE_THEME_TYPE_NAME,
+  QUEUE_ORDER_TYPE_NAME,
+  QUEUE_TYPE_NAME,
 } from '../constants'
 import { FETCH_CONFIG, ZendeskConfig } from '../config'
 import {
@@ -75,6 +69,7 @@ const NEIGHBOR_FIELD_TO_TYPE_NAMES: Record<string, string> = {
   add_skills: 'routing_attribute_value',
   set_skills: 'routing_attribute_value',
   remove_skills: 'routing_attribute_value',
+  custom_status_id: CUSTOM_STATUS_TYPE_NAME,
 }
 
 const SPECIAL_CONTEXT_NAMES: Record<string, string> = {
@@ -495,6 +490,11 @@ const firstIterationFieldNameToTypeMappingDefs: ZendeskFieldReferenceDefinition[
     target: { type: 'sla_policy' },
   },
   {
+    src: { field: 'active', parentTypes: [QUEUE_ORDER_TYPE_NAME] },
+    serializationStrategy: 'id',
+    target: { type: QUEUE_TYPE_NAME },
+  },
+  {
     src: { field: 'active', parentTypes: [AUTOMATION_ORDER_TYPE_NAME] },
     serializationStrategy: 'id',
     target: { type: 'automation' },
@@ -601,6 +601,8 @@ const firstIterationFieldNameToTypeMappingDefs: ZendeskFieldReferenceDefinition[
         'automation__actions',
         'ticket_field__relationship_filter__all',
         'ticket_field__relationship_filter__any',
+        'queue__definition__all',
+        'queue__definition__any',
       ],
     },
     serializationStrategy: 'ticketField',
@@ -638,6 +640,8 @@ const firstIterationFieldNameToTypeMappingDefs: ZendeskFieldReferenceDefinition[
         'sla_policy__filter__any',
         'ticket_field__relationship_filter__all',
         'ticket_field__relationship_filter__any',
+        'queue__definition__all',
+        'queue__definition__any',
       ],
     },
     serializationStrategy: 'orgField',
@@ -665,6 +669,8 @@ const firstIterationFieldNameToTypeMappingDefs: ZendeskFieldReferenceDefinition[
         'automation__actions',
         'sla_policy__filter__all',
         'sla_policy__filter__any',
+        'queue__definition__all',
+        'queue__definition__any',
       ],
     },
     serializationStrategy: 'userField',
@@ -894,6 +900,16 @@ const firstIterationFieldNameToTypeMappingDefs: ZendeskFieldReferenceDefinition[
     serializationStrategy: 'id',
     target: { type: 'app_installation' },
   },
+  {
+    src: { field: 'installation_id', parentTypes: ['layout__sections__columns__components__config'] },
+    serializationStrategy: 'id',
+    target: { type: 'app_installation' },
+  },
+  {
+    src: { field: 'layout_uuid', parentTypes: ['workspace'] },
+    serializationStrategy: 'id',
+    target: { type: 'layout' },
+  },
 ]
 
 const commonFieldNameToTypeMappingDefs: ZendeskFieldReferenceDefinition[] = [
@@ -968,6 +984,8 @@ const commonFieldNameToTypeMappingDefs: ZendeskFieldReferenceDefinition[] = [
         'view__conditions__any',
         'workspace__conditions__all',
         'workspace__conditions__any',
+        'queue__definition__all',
+        'queue__definition__any',
       ],
     },
     target: { typeContext: 'allowlistedNeighborField' },
@@ -987,15 +1005,6 @@ const secondIterationFieldNameToTypeMappingDefs: ZendeskFieldReferenceDefinition
   {
     src: {
       field: 'value',
-      parentTypes: ['trigger__conditions__all'],
-    },
-    serializationStrategy: 'ticketFieldOption',
-    target: { typeContext: 'neighborReferenceTicketField' },
-    zendeskMissingRefStrategy: 'typeAndValue',
-  },
-  {
-    src: {
-      field: 'value',
       parentTypes: [
         'automation__actions',
         'automation__conditions__all',
@@ -1006,6 +1015,8 @@ const secondIterationFieldNameToTypeMappingDefs: ZendeskFieldReferenceDefinition
         'macro__actions',
         'view__conditions__all',
         'view__conditions__any',
+        'queue__definition__all',
+        'queue__definition__any',
       ],
     },
     serializationStrategy: 'ticketFieldOption',
@@ -1024,6 +1035,8 @@ const secondIterationFieldNameToTypeMappingDefs: ZendeskFieldReferenceDefinition
         'trigger__conditions__any',
         'ticket_field__relationship_filter__all',
         'ticket_field__relationship_filter__any',
+        'queue__definition__all',
+        'queue__definition__any',
       ],
     },
     serializationStrategy: 'userFieldOption',
@@ -1077,6 +1090,18 @@ const secondIterationFieldNameToTypeMappingDefs: ZendeskFieldReferenceDefinition
   },
   {
     src: { field: 'group_ids', parentTypes: ['user_segment'] },
+    serializationStrategy: 'id',
+    target: { type: 'group' },
+    zendeskMissingRefStrategy: 'typeAndValue',
+  },
+  {
+    src: { field: 'primary_groups_id', parentTypes: ['queue'] },
+    serializationStrategy: 'id',
+    target: { type: 'group' },
+    zendeskMissingRefStrategy: 'typeAndValue',
+  },
+  {
+    src: { field: 'secondary_groups_id', parentTypes: ['queue'] },
     serializationStrategy: 'id',
     target: { type: 'group' },
     zendeskMissingRefStrategy: 'typeAndValue',

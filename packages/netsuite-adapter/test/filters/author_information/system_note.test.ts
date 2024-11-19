@@ -1,17 +1,9 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
 import { CORE_ANNOTATIONS, Element, ElemID, InstanceElement, ObjectType } from '@salto-io/adapter-api'
 import { buildElementsSourceFromElements } from '@salto-io/adapter-utils'
@@ -29,6 +21,7 @@ import { EMPLOYEE_NAME_QUERY } from '../../../src/filters/author_information/con
 import { createEmptyElementsSourceIndexes, getDefaultAdapterConfig } from '../../utils'
 import { toSuiteQLSelectDateString, toSuiteQLWhereDateString } from '../../../src/changes_detector/date_formats'
 import { INTERNAL_IDS_MAP, SUITEQL_TABLE } from '../../../src/data_elements/suiteql_table_elements'
+import { getTypesToInternalId } from '../../../src/data_elements/types'
 
 describe('netsuite system note author information', () => {
   let filterOpts: RemoteFilterOpts
@@ -51,6 +44,7 @@ describe('netsuite system note author information', () => {
 
   const client = new NetsuiteClient(SDFClient, suiteAppClient)
   const [serverTimeType, serverTimeInstance] = createServerTimeElements(new Date('2022-01-01'))
+  const { internalIdToTypes, typeToInternalId } = getTypesToInternalId([])
 
   beforeEach(async () => {
     runSuiteQLMock.mockReset()
@@ -107,6 +101,8 @@ describe('netsuite system note author information', () => {
       elementsSource: buildElementsSourceFromElements([serverTimeType, serverTimeInstance]),
       isPartial: false,
       config: await getDefaultAdapterConfig(),
+      internalIdToTypes,
+      typeToInternalId,
     }
   })
 
@@ -248,6 +244,8 @@ describe('netsuite system note author information', () => {
       elementsSource: buildElementsSourceFromElements([serverTimeType, serverTimeInstance]),
       isPartial: false,
       config: await getDefaultAdapterConfig(),
+      internalIdToTypes,
+      typeToInternalId,
     }
     await filterCreator(opts).onFetch?.(elements)
     expect(missingInstance.annotations[CORE_ANNOTATIONS.CHANGED_BY] === 'another user name').toBeTruthy()
@@ -272,6 +270,8 @@ describe('netsuite system note author information', () => {
       elementsSource: buildElementsSourceFromElements([serverTimeType, serverTimeInstance]),
       isPartial: false,
       config: await getDefaultAdapterConfig(),
+      internalIdToTypes,
+      typeToInternalId,
     }
     await filterCreator(opts).onFetch?.(elements)
     expect(missingInstance.annotations[CORE_ANNOTATIONS.CHANGED_AT]).toEqual('8/19/2022')
@@ -339,6 +339,8 @@ describe('netsuite system note author information', () => {
         elementsSource: buildElementsSourceFromElements([]),
         isPartial: false,
         config: await getDefaultAdapterConfig(),
+        internalIdToTypes,
+        typeToInternalId,
       }
     })
     it('should not change any elements in fetch', async () => {
@@ -363,6 +365,8 @@ describe('netsuite system note author information', () => {
         elementsSource: buildElementsSourceFromElements([]),
         isPartial: false,
         config: await getDefaultAdapterConfig(),
+        internalIdToTypes,
+        typeToInternalId,
       }
     })
     it('should not change any elements in fetch', async () => {
@@ -395,6 +399,8 @@ describe('netsuite system note author information', () => {
             },
           },
         },
+        internalIdToTypes,
+        typeToInternalId,
       }
     })
     it('should not change any elements in fetch', async () => {

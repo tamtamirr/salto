@@ -1,17 +1,9 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
 import {
   PrimitiveType,
@@ -46,6 +38,8 @@ import {
   SeverityLevel,
   TemplateExpression,
   isReferenceExpression,
+  SaltoError,
+  SaltoElementError,
 } from '@salto-io/adapter-api'
 import { logger } from '@salto-io/logging'
 import _ from 'lodash'
@@ -57,12 +51,7 @@ import seedrandom from 'seedrandom'
 import readdirp from 'readdirp'
 import { merger, expressions, elementSource } from '@salto-io/workspace'
 import { parser, parserUtils } from '@salto-io/parser'
-import {
-  createMatchingObjectType,
-  createTemplateExpression,
-  ImportantValues,
-  inspectValue,
-} from '@salto-io/adapter-utils'
+import { createMatchingObjectType, createTemplateExpression, ImportantValues } from '@salto-io/adapter-utils'
 
 const { isDefined } = lowerDashValues
 const { mapValuesAsync } = promises.object
@@ -79,6 +68,8 @@ export type ChangeErrorFromConfigFile = {
   severity: SeverityLevel
   deployActions?: DeployActions
 }
+
+type FetchErrorFromConfigFile = SaltoError & { elemID: string }
 
 const deployActionType = createMatchingObjectType<DeployAction>({
   elemID: new ElemID(DUMMY_ADAPTER, 'deployAction'),
@@ -155,6 +146,46 @@ export const changeErrorType = createMatchingObjectType<ChangeErrorFromConfigFil
   },
 })
 
+export const fetchErrorType = createMatchingObjectType<FetchErrorFromConfigFile>({
+  elemID: new ElemID(DUMMY_ADAPTER, 'fetchError'),
+  fields: {
+    elemID: {
+      refType: BuiltinTypes.STRING,
+      annotations: {
+        _required: true,
+      },
+    },
+    detailedMessage: {
+      refType: BuiltinTypes.STRING,
+      annotations: {
+        _required: true,
+      },
+    },
+    message: {
+      refType: BuiltinTypes.STRING,
+      annotations: {
+        _required: true,
+      },
+    },
+    severity: {
+      refType: BuiltinTypes.STRING,
+      annotations: {
+        _required: true,
+        [CORE_ANNOTATIONS.RESTRICTION]: createRestriction({
+          values: ['Info', 'Warning', 'Error'],
+          enforce_value: true,
+        }),
+      },
+    },
+    type: {
+      refType: BuiltinTypes.STRING,
+      annotations: {
+        _required: false,
+      },
+    },
+  },
+})
+
 export type GeneratorParams = {
   seed: number
   numOfPrimitiveTypes: number
@@ -189,6 +220,7 @@ export type GeneratorParams = {
   listLengthMean: number
   listLengthStd: number
   changeErrors?: ChangeErrorFromConfigFile[]
+  fetchErrors?: FetchErrorFromConfigFile[]
   extraNaclPaths?: string[]
   generateEnvName?: string
   fieldsToOmitOnDeploy?: string[]
@@ -246,6 +278,55 @@ const defaultObj = new ObjectType({
   annotations: { [CORE_ANNOTATIONS.SERVICE_URL]: 'https://www.salto.io/' },
   path: [DUMMY_ADAPTER, 'Default', 'Default'],
 })
+
+export const generateExtraElementsFromPaths = async (naclDirs: string[]): Promise<Element[]> => {
+  const allNaclMocks = (
+    await Promise.all(
+      naclDirs.map(naclDir =>
+        readdirp.promise(naclDir, {
+          fileFilter: [`*.${MOCK_NACL_SUFFIX}`],
+        }),
+      ),
+    )
+  ).flatMap(list => list)
+  log.debug(
+    'the list of files read in generateExtraElementsFromPaths is: %s',
+    allNaclMocks.map(mock => mock.path).join(' , '),
+  )
+  const elements = await awu(
+    allNaclMocks.map(async file => {
+      const content = fs.readFileSync(file.fullPath, 'utf8')
+      const parsedNaclFile = await parser.parse(Buffer.from(content), file.basename, {
+        file: {
+          parse: async funcParams => {
+            const [filepath] = funcParams
+            let fileContent: Buffer
+            try {
+              fileContent = fs.readFileSync(`${file.fullPath.replace(file.basename, '')}${filepath}`)
+            } catch {
+              fileContent = Buffer.from('THIS IS STATIC FILE')
+            }
+            return new StaticFile({
+              content: fileContent,
+              filepath,
+            })
+          },
+          dump: async () => ({ funcName: 'file', parameters: [] }),
+          isSerializedAsFunction: () => true,
+        },
+      })
+      await awu(parsedNaclFile.elements).forEach(elem => {
+        elem.path = [DUMMY_ADAPTER, 'extra', file.basename.replace(new RegExp(`.${MOCK_NACL_SUFFIX}$`), '')]
+      })
+      return parsedNaclFile.elements
+    }),
+  )
+    .flat()
+    .toArray()
+  const mergedElements = await merger.mergeElements(awu(elements))
+  const inMemElemSource = elementSource.createInMemoryElementSource(await awu(mergedElements.merged.values()).toArray())
+  return (await Promise.all(elements.map(async elem => expressions.resolve([elem], inMemElemSource)))).flat()
+}
 
 const permissionsType = new ObjectType({
   elemID: new ElemID(DUMMY_ADAPTER, 'Permissions'),
@@ -751,56 +832,6 @@ export const generateElements = async (
       ]
     }).flat()
   }
-  const generateExtraElements = async (naclDirs: string[]): Promise<Element[]> => {
-    const allNaclMocks = (
-      await Promise.all(
-        naclDirs.map(naclDir =>
-          readdirp.promise(naclDir, {
-            fileFilter: [`*.${MOCK_NACL_SUFFIX}`],
-          }),
-        ),
-      )
-    ).flatMap(list => list)
-    log.debug('the list of files read in generateExtraElements is: %s', allNaclMocks.map(mock => mock.path).join(' , '))
-    const elements = await awu(
-      allNaclMocks.map(async file => {
-        const content = fs.readFileSync(file.fullPath, 'utf8')
-        log.debug('content of file %s is %s', file.path, content)
-        const parsedNaclFile = await parser.parse(Buffer.from(content), file.basename, {
-          file: {
-            parse: async funcParams => {
-              const [filepath] = funcParams
-              let fileContent: Buffer
-              try {
-                fileContent = fs.readFileSync(`${file.fullPath.replace(file.basename, '')}${filepath}`)
-              } catch {
-                fileContent = Buffer.from('THIS IS STATIC FILE')
-              }
-              return new StaticFile({
-                content: fileContent,
-                filepath,
-              })
-            },
-            dump: async () => ({ funcName: 'file', parameters: [] }),
-            isSerializedAsFunction: () => true,
-          },
-        })
-        log.debug(`parsedNaclFile of file ${file.fullPath} is equal ${inspectValue(parsedNaclFile)}`)
-        await awu(parsedNaclFile.elements).forEach(elem => {
-          elem.path = [DUMMY_ADAPTER, 'extra', file.basename.replace(new RegExp(`.${MOCK_NACL_SUFFIX}$`), '')]
-        })
-        return parsedNaclFile.elements
-      }),
-    )
-      .flat()
-      .toArray()
-    const mergedElements = await merger.mergeElements(awu(elements))
-    log.debug(`mergedElements is equal ${inspectValue(mergedElements)}`)
-    const inMemElemSource = elementSource.createInMemoryElementSource(
-      await awu(mergedElements.merged.values()).toArray(),
-    )
-    return (await Promise.all(elements.map(async elem => expressions.resolve([elem], inMemElemSource)))).flat()
-  }
 
   const generateEnvElements = (): Element[] => {
     const envID = params.generateEnvName ?? process.env.SALTO_ENV
@@ -976,8 +1007,8 @@ export const generateElements = async (
   progressReporter.reportProgress({ message: 'Generating profile likes' })
   const profiles = generateProfileLike()
   progressReporter.reportProgress({ message: 'Generating extra elements' })
-  const extraElements = params.extraNaclPaths ? await generateExtraElements(params.extraNaclPaths) : []
-  const defaultExtraElements = await generateExtraElements([path.join(dataPath, 'fixtures')])
+  const extraElements = params.extraNaclPaths ? await generateExtraElementsFromPaths(params.extraNaclPaths) : []
+  const defaultExtraElements = await generateExtraElementsFromPaths([path.join(dataPath, 'fixtures')])
   log.debug('default fixture element are: %s', defaultExtraElements.map(elem => elem.elemID.getFullName()).join(' , '))
   progressReporter.reportProgress({ message: 'Generating conflicted elements' })
   const envObjects = generateEnvElements()
@@ -996,3 +1027,13 @@ export const generateElements = async (
     ...envObjects,
   ].filter(e => !elementsToExclude.has(e.elemID.getFullName()))
 }
+
+export const generateFetchErrorsFromConfig = (
+  fetchErrorsFromConfig?: FetchErrorFromConfigFile[],
+): SaltoElementError[] | undefined =>
+  fetchErrorsFromConfig === undefined
+    ? undefined
+    : fetchErrorsFromConfig.map(error => ({
+        ...error,
+        elemID: ElemID.fromFullName(error.elemID),
+      }))

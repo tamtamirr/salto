@@ -1,17 +1,9 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
 import _ from 'lodash'
 import { collections, types, serialize as lowerdashSerialize } from '@salto-io/lowerdash'
@@ -50,6 +42,7 @@ import {
   ConflictingFieldTypesError,
   ConflictingSettingError,
   DuplicateAnnotationTypeError,
+  ConflictingMetaTypeError,
 } from '../merger/internal/object_types'
 import { DuplicateVariableNameError } from '../merger/internal/variables'
 import { MultiplePrimitiveTypesError } from '../merger/internal/primitives'
@@ -74,7 +67,6 @@ import {
 } from '../validator'
 
 const { awu } = collections.asynciterable
-const { getSerializedStream } = lowerdashSerialize
 
 // There are two issues with naive json stringification:
 //
@@ -116,6 +108,7 @@ const NameToType = {
   ConflictingFieldTypesError: ConflictingFieldTypesError,
   ConflictingSettingError: ConflictingSettingError,
   DuplicateAnnotationTypeError: DuplicateAnnotationTypeError,
+  ConflictingMetaTypeError: ConflictingMetaTypeError,
   DuplicateVariableNameError: DuplicateVariableNameError,
   MultiplePrimitiveTypesError: MultiplePrimitiveTypesError,
   InvalidValueValidationError: InvalidValueValidationError,
@@ -166,11 +159,17 @@ function isSerializedClass(value: any): value is SerializedClass {
   return _.isPlainObject(value) && SALTO_CLASS_FIELD in value && value[SALTO_CLASS_FIELD] in NameToType
 }
 
-export const serializeStream = async <T = Element>(
-  elements: T[],
-  referenceSerializerMode: 'replaceRefWithValue' | 'keepRef' = 'replaceRefWithValue',
-  storeStaticFile?: (file: StaticFile) => Promise<void>,
-): Promise<AsyncIterable<string>> => {
+export const serializeStream = async <T = Element>({
+  elements,
+  referenceSerializerMode = 'replaceRefWithValue',
+  storeStaticFile,
+  streamSerializer = lowerdashSerialize.getSerializedStream,
+}: {
+  elements: T[]
+  referenceSerializerMode?: 'replaceRefWithValue' | 'keepRef'
+  storeStaticFile?: (file: StaticFile) => Promise<void>
+  streamSerializer?: lowerdashSerialize.StreamSerializer
+}): Promise<AsyncIterable<string>> => {
   const promises: Promise<void>[] = []
 
   // eslint-disable-next-line @typescript-eslint/no-shadow
@@ -264,7 +263,7 @@ export const serializeStream = async <T = Element>(
   // avoid creating a single string for all elements, which may exceed the max allowed string length
   // We don't use safeJsonStringify to save some time, because we know  we made sure there aren't
   // circles
-  return getSerializedStream(clonedElements)
+  return streamSerializer(clonedElements)
 }
 
 export const serialize = async <T = Element>(
@@ -272,7 +271,7 @@ export const serialize = async <T = Element>(
   referenceSerializerMode: 'replaceRefWithValue' | 'keepRef' = 'replaceRefWithValue',
   storeStaticFile?: (file: StaticFile) => Promise<void>,
 ): Promise<string> =>
-  (await awu(await serializeStream(elements, referenceSerializerMode, storeStaticFile)).toArray()).join('')
+  (await awu(await serializeStream({ elements, referenceSerializerMode, storeStaticFile })).toArray()).join('')
 
 export type StaticFileReviver = (staticFile: StaticFile) => Promise<StaticFile | InvalidStaticFile>
 
@@ -401,6 +400,10 @@ const generalDeserializeParsed = async <T>(parsed: unknown, staticFileReviver?: 
         new DuplicateAnnotationTypeError({
           elemID: reviveElemID(v.elemID),
           key: v.key,
+        }),
+      ConflictingMetaTypeError: v =>
+        new ConflictingMetaTypeError({
+          elemID: reviveElemID(v.elemID),
         }),
       DuplicateVariableNameError: v => new DuplicateVariableNameError({ elemID: reviveElemID(v.elemID) }),
       MultiplePrimitiveTypesError: v =>

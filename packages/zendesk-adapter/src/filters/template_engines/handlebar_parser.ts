@@ -1,17 +1,9 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
 import { parse } from '@handlebars/parser'
 import {
@@ -24,9 +16,12 @@ import {
 } from '@handlebars/parser/types/ast'
 import { InstanceElement, ReferenceExpression, TemplateExpression } from '@salto-io/adapter-api'
 import { createTemplateExpression } from '@salto-io/adapter-utils'
+import { logger } from '@salto-io/logging'
 import { values } from '@salto-io/lowerdash'
 import { PotentialReference } from './types'
 import { findLineStartIndexes, sourceLocationToIndexRange } from './utils'
+
+const log = logger(module)
 
 // These are the helper functions that may have potential references in their arguments:
 // https://developer.zendesk.com/api-reference/help_center/help-center-templates/helpers/
@@ -67,9 +62,18 @@ const extractPotentialIds = (node: Node): NumberLiteral[] | undefined => {
  * // Returns [{ value: 12345, loc: { start: { line: 1, column: 18 }, end: { line: 1, column: 23 } } }]
  */
 export const parseHandlebarPotentialReferencesFromString = (content: string): NumberLiteral[] => {
-  const ast = parse(content)
-  const potentialIds = ast.body.map(extractPotentialIds).filter(values.isDefined).flat()
-  return potentialIds
+  try {
+    const ast = parse(content)
+    const potentialIds = ast.body.map(extractPotentialIds).filter(values.isDefined).flat()
+    return potentialIds
+  } catch (e) {
+    if (e.hash?.loc) {
+      log.warn(`Failed to parse handlebar template on line ${e.hash.loc.first_line} with message: ${e.message}`)
+      return []
+    }
+    log.warn(`Failed to parse handlebar template: ${e.message}`)
+    return []
+  }
 }
 
 export const parseHandlebarPotentialReferences = (

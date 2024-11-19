@@ -1,17 +1,9 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
 import {
   BuiltinTypes,
@@ -43,15 +35,19 @@ import {
   CUSTOM_ROLE_TYPE_NAME,
   CUSTOM_STATUS_TYPE_NAME,
   GROUP_TYPE_NAME,
+  LAYOUT_TYPE_NAME,
   LOCALE_TYPE_NAME,
   MACRO_TYPE_NAME,
+  ORGANIZATION_FIELD_CUSTOM_FIELD_OPTIONS,
   ORG_FIELD_TYPE_NAME,
   SLA_POLICY_TYPE_NAME,
   SUPPORT_ADDRESS_TYPE_NAME,
+  TICKET_FIELD_CUSTOM_FIELD_OPTION,
   TICKET_FIELD_TYPE_NAME,
   TICKET_FORM_TYPE_NAME,
   TRANSLATION_TYPE_NAMES,
   TRIGGER_TYPE_NAME,
+  USER_FIELD_CUSTOM_FIELD_OPTIONS,
   USER_FIELD_TYPE_NAME,
   VIEW_TYPE_NAME,
   ZENDESK,
@@ -87,10 +83,10 @@ const TYPE_TO_SOURCE_TYPE: Record<string, string> = {
 }
 const AUDIT_TIME_INSTANCE_ID = AUDIT_TIME_TYPE_ID.createNestedID('instance', ElemID.CONFIG_NAME)
 const ELEMENTS_WITH_PARENTS = [
-  'ticket_field__custom_field_options',
-  'user_field__custom_field_options',
-  'organization_field__custom_field_options',
-  'business_hours_schedule_holiday',
+  TICKET_FIELD_CUSTOM_FIELD_OPTION,
+  USER_FIELD_CUSTOM_FIELD_OPTIONS,
+  ORGANIZATION_FIELD_CUSTOM_FIELD_OPTIONS,
+  BUSINESS_HOUR_SCHEDULE_HOLIDAY,
 ]
 const GUIDE_ELEMENTS = new Set([...GUIDE_TYPES_TO_HANDLE_BY_BRAND, ...Object.keys(GUIDE_GLOBAL_TYPES)])
 export const DELETED_USER = 'deleted user'
@@ -292,7 +288,7 @@ const addChangedByUsingUpdatedById = (instances: InstanceElement[], idToName: Re
     .forEach(elem => addChangedBy(elem, 'updated_by_id'))
 
   instances
-    .filter(elem => elem.elemID.typeName === CUSTOM_OBJECT_TYPE_NAME)
+    .filter(elem => [CUSTOM_OBJECT_TYPE_NAME, LAYOUT_TYPE_NAME].includes(elem.elemID.typeName))
     .forEach(elem => addChangedBy(elem, 'updated_by_user_id'))
 }
 

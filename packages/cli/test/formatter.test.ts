@@ -1,17 +1,9 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
 import {
   ObjectType,
@@ -66,10 +58,12 @@ describe('formatter', () => {
       },
     ],
     message: 'This is my error',
+    detailedMessage: 'This is my error detailed message',
     severity: 'Error',
   }
   const workspaceErrorWithoutSourceFragments: wsErrors.WorkspaceError<SaltoError> = {
     message: 'This is my error',
+    detailedMessage: 'This is my error detailed message',
     sourceLocations: [],
     severity: 'Error',
   }
@@ -95,24 +89,28 @@ describe('formatter', () => {
     {
       elemID: new ElemID('salesforce', 'TestType1'),
       message: 'my error message 1',
+      detailedMessage: 'my error detailed message 1',
       severity: 'Error',
       groupId: 'test group',
     },
     {
       elemID: new ElemID('salesforce', 'TestType2'),
       message: 'my error message 2',
+      detailedMessage: 'my error detailed message 2',
       severity: 'Error',
       groupId: 'test group',
     },
     {
       elemID: new ElemID('salesforce', 'TestType3'),
       message: 'my warning message',
+      detailedMessage: 'my warning detailed message',
       severity: 'Warning',
       groupId: 'test group',
     },
     {
       elemID: new ElemID('salesforce', 'TestType4'),
       message: 'my info message',
+      detailedMessage: 'my info detailed message',
       severity: 'Info',
       groupId: 'test group',
     },
@@ -604,10 +602,10 @@ describe('formatter', () => {
       formattedErrors = deployErrorsOutput(workspaceDeployProblems)
     })
     it('should have both error messages', () => {
-      expect(formattedErrors).toContain('my error message 1')
-      expect(formattedErrors).toContain('my error message 2')
-      expect(formattedErrors).toContain('my warning message')
-      expect(formattedErrors).toContain('my info message')
+      expect(formattedErrors).toContain('my error detailed message 1')
+      expect(formattedErrors).toContain('my error detailed message 2')
+      expect(formattedErrors).toContain('my warning detailed message')
+      expect(formattedErrors).toContain('my info detailed message')
     })
     it('should contain element ID for salto element errors', () => {
       expect(formattedErrors).toContain('salesforce.TestType1')

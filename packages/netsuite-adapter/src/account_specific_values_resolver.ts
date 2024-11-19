@@ -1,17 +1,9 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
 
 import _ from 'lodash'
@@ -34,6 +26,7 @@ import { WORKFLOW } from './constants'
 import { isDataObjectType } from './types'
 import { getResolvedAccountSpecificValues as getWorkflowResolvedAccountSpecificValues } from './filters/workflow_account_specific_values'
 import { getResolvingErrors as getDataInstanceResolvingErrors } from './change_validators/data_account_specific_values'
+import { NetsuiteConfig } from './config/types'
 
 const { awu } = collections.asynciterable
 
@@ -53,8 +46,10 @@ const toSuiteQLNameToInternalIdsMap = (
 
 export const getUpdatedSuiteQLNameToInternalIdsMap = async (
   client: NetsuiteClient,
+  config: NetsuiteConfig,
   elementsSource: ReadOnlyElementsSource,
   changes: ReadonlyArray<Change>,
+  internalIdToTypes: Record<string, string[]>,
 ): Promise<Record<string, Record<string, string[]>>> => {
   const instances = changes.filter(isAdditionOrModificationChange).map(getChangeData).filter(isInstanceElement)
   const workflowInstances = instances.filter(instance => instance.elemID.typeName === WORKFLOW)
@@ -74,7 +69,9 @@ export const getUpdatedSuiteQLNameToInternalIdsMap = async (
   const suiteQLNameToInternalIdsMap = toSuiteQLNameToInternalIdsMap(suiteQLTablesMap)
 
   const missingInternalIdsFromWorkflows = workflowInstances.flatMap(
-    instance => getWorkflowResolvedAccountSpecificValues(instance, suiteQLNameToInternalIdsMap).missingInternalIds,
+    instance =>
+      getWorkflowResolvedAccountSpecificValues(instance, suiteQLNameToInternalIdsMap, internalIdToTypes)
+        .missingInternalIds,
   )
   const missingInternalIdsFromDataInstances = dataInstances.flatMap(
     instance =>
@@ -91,6 +88,7 @@ export const getUpdatedSuiteQLNameToInternalIdsMap = async (
 
   await updateSuiteQLTableInstances({
     client,
+    config,
     queryBy: 'name',
     itemsToQuery: missingInternalIds.map(({ tableName, name }) => ({ tableName, item: name })),
     suiteQLTablesMap,

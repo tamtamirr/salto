@@ -1,24 +1,19 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
 import { definitions } from '@salto-io/adapter-components'
-import { ClientOptions, PaginationOptions } from '../types'
+import { Options } from '../types'
 
 export const createClientDefinitions = (
-  clients: Record<ClientOptions, definitions.RESTApiClientDefinition<PaginationOptions>['httpClient']>,
-): definitions.ApiDefinitions<{ clientOptions: ClientOptions; paginationOptions: PaginationOptions }>['clients'] => ({
+  clients: Record<
+    definitions.ResolveClientOptionsType<Options>,
+    definitions.RESTApiClientDefinition<definitions.ResolvePaginationOptionsType<Options>>['httpClient']
+  >,
+): definitions.ApiDefinitions<Options>['clients'] => ({
   default: 'main',
   options: {
     main: {
@@ -59,6 +54,29 @@ export const createClientDefinitions = (
           '/api/v2/custom_objects/{custom_object_key}/fields': { get: { pagination: 'links' } },
           '/api/v2/guide/permission_groups': { get: { pagination: 'basic_cursor_with_args' } },
           '/api/v2/help_center/user_segments': { get: { pagination: 'links' } },
+        },
+      },
+    },
+    guide: {
+      httpClient: clients.guide,
+      endpoints: {
+        default: {
+          get: {
+            pagination: 'basic_cursor',
+            // only readonly endpoint calls are allowed during fetch. we assume by default that GET endpoints are safe
+            readonly: true,
+          },
+          delete: {
+            omitBody: true,
+          },
+        },
+        customizations: {
+          '/hc/api/internal/general_settings': { get: { pagination: 'links' } },
+          '/hc/api/internal/help_center_translations': { get: { pagination: 'links' } },
+          '/api/v2/help_center/categories': { get: { pagination: 'links' } },
+          '/api/v2/help_center/sections': { get: { pagination: 'links' } },
+          '/api/v2/help_center/articles/{article.id}/attachments': { get: { pagination: 'links' } },
+          '/api/v2/help_center/categories/{parent.id}/articles': { get: { pagination: 'links' } },
         },
       },
     },

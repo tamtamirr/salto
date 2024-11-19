@@ -1,17 +1,9 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
 import _ from 'lodash'
 import {
@@ -49,6 +41,7 @@ import {
   VariableExpression,
   PlaceholderObjectType,
   UnresolvedReference,
+  ReadOnlyElementsSource,
 } from '@salto-io/adapter-api'
 import { collections } from '@salto-io/lowerdash'
 import { mockFunction } from '@salto-io/test-utils'
@@ -90,6 +83,8 @@ import {
   getInstancesFromElementSource,
   validatePlainObject,
   validateArray,
+  getParentElemID,
+  getParentAsyncWithElementsSource,
 } from '../src/utils'
 import { buildElementsSourceFromElements } from '../src/element_source'
 
@@ -660,9 +655,9 @@ describe('Test utils.ts', () => {
         case PrimitiveTypes.NUMBER:
           return Number(value)
         case PrimitiveTypes.BOOLEAN:
-          return value.toString().toLowerCase() === 'true'
+          return value?.toString().toLowerCase() === 'true'
         case PrimitiveTypes.STRING:
-          return value.toString().length === 0 ? undefined : value.toString()
+          return value?.toString().length === 0 ? undefined : value?.toString()
         default:
           return value
       }
@@ -1070,6 +1065,7 @@ describe('Test utils.ts', () => {
           const numArrayFieldType = mockType.fields.numArray.getTypeSync()
           expect(isListType(numArrayFieldType)).toBeTruthy()
           const numArrayValues = mockInstance.value.numArray as string[]
+          // eslint-disable-next-line @typescript-eslint/no-misused-promises
           wu(numArrayValues).forEach(async value =>
             expect(transformFunc).toHaveBeenCalledWith({
               value,
@@ -1088,6 +1084,7 @@ describe('Test utils.ts', () => {
           const numMapFieldType = mockType.fields.numMap.getTypeSync()
           expect(isMapType(numMapFieldType)).toBeTruthy()
           const numMapValues = mockInstance.value.numMap as Map<string, number>
+          // eslint-disable-next-line @typescript-eslint/no-misused-promises
           wu(Object.entries(numMapValues)).forEach(async ([key, value]) => {
             const calls = transformFunc.mock.calls.map(c => c[0]).filter(c => c.field && c.field.name === key)
             expect(calls).toHaveLength(1)
@@ -1129,6 +1126,7 @@ describe('Test utils.ts', () => {
             ['obj', 0, 'mapOfStringList', 'l1'],
             ['obj', 1, 'mapOfStringList', 'something'],
           ]
+          // eslint-disable-next-line @typescript-eslint/no-misused-promises
           wu(nestedPrimitivePaths).forEach(async path => {
             const field = await getField(mockType, path, mockInstance.value)
             const calls = transformFunc.mock.calls
@@ -1231,6 +1229,7 @@ describe('Test utils.ts', () => {
               field: new Field(defaultFieldParent, 'numbers', BuiltinTypes.NUMBER),
             }),
           )
+          // eslint-disable-next-line @typescript-eslint/no-misused-promises
           wu(Object.entries(origValue.numMap)).forEach(async ([key, value]) => {
             const field = new Field(
               toObjectType(new MapType(BuiltinTypes.NUMBER), origValue.numMap),
@@ -1299,9 +1298,9 @@ describe('Test utils.ts', () => {
         case PrimitiveTypes.NUMBER:
           return Number(value)
         case PrimitiveTypes.BOOLEAN:
-          return value.toString().toLowerCase() === 'true'
+          return value?.toString().toLowerCase() === 'true'
         case PrimitiveTypes.STRING:
-          return value.toString().length === 0 ? undefined : value.toString()
+          return value?.toString().length === 0 ? undefined : value?.toString()
         default:
           return value
       }
@@ -2785,11 +2784,87 @@ describe('Test utils.ts', () => {
         new ReferenceExpression(parent.elemID, parent),
       ]
       expect(() => getParent(child)).toThrow()
+      expect(() => getParentElemID(child)).toThrow()
     })
 
     it('should throw when having a non instance parent', () => {
       child.annotations[CORE_ANNOTATIONS.PARENT] = [new ReferenceExpression(parent.elemID, 'a')]
       expect(() => getParent(child)).toThrow()
+    })
+  })
+  describe('getParentElemID', () => {
+    let parent: InstanceElement
+    let child: InstanceElement
+
+    beforeEach(() => {
+      const obj = new ObjectType({ elemID: new ElemID('test', 'test') })
+      parent = new InstanceElement('parent', obj, {})
+      child = new InstanceElement('child', obj, {}, [], {
+        [CORE_ANNOTATIONS.PARENT]: [new ReferenceExpression(parent.elemID)],
+      })
+    })
+    it('should return the parent elemID when there is a single reference parent', () => {
+      expect(getParentElemID(child)).toEqual(parent.elemID)
+    })
+    it('should throw when having more than one parent', () => {
+      child.annotations[CORE_ANNOTATIONS.PARENT] = [
+        new ReferenceExpression(parent.elemID, parent),
+        new ReferenceExpression(parent.elemID, parent),
+      ]
+      expect(() => getParentElemID(child)).toThrow(
+        'Expected test.test.instance.child to have exactly one parent, found 2',
+      )
+    })
+    it('should throw when parent does not have an elemID', () => {
+      child.annotations[CORE_ANNOTATIONS.PARENT] = 'a'
+      expect(() => getParentElemID(child)).toThrow(
+        'Expected test.test.instance.child parent to be a reference expression',
+      )
+    })
+    it('should throw when the parent elemID object is not an ElemID', () => {
+      child.annotations[CORE_ANNOTATIONS.PARENT] = { elemID: 'a' }
+      expect(() => getParentElemID(child)).toThrow(
+        'Expected test.test.instance.child parent to be a reference expression',
+      )
+    })
+  })
+  describe('getParentAsyncWithElementsSource', () => {
+    let parent: InstanceElement
+    let child: InstanceElement
+    let elementsSource: ReadOnlyElementsSource
+
+    beforeEach(() => {
+      const obj = new ObjectType({ elemID: new ElemID('test', 'test') })
+      parent = new InstanceElement('parent', obj, {})
+      child = new InstanceElement('child', obj, {}, [], {})
+      elementsSource = buildElementsSourceFromElements([])
+    })
+
+    it('should return the parent when there is a single instance parent with resolved value', async () => {
+      child.annotations[CORE_ANNOTATIONS.PARENT] = [new ReferenceExpression(parent.elemID, parent)]
+      expect(await getParentAsyncWithElementsSource(child, elementsSource)).toBe(parent)
+    })
+
+    it('should throw when having more than one parent', async () => {
+      child.annotations[CORE_ANNOTATIONS.PARENT] = [
+        new ReferenceExpression(parent.elemID, parent),
+        new ReferenceExpression(parent.elemID),
+      ]
+      await expect(() => getParentAsyncWithElementsSource(child, elementsSource)).rejects.toThrow()
+    })
+
+    it('should throw when having a non instance parent', async () => {
+      child.annotations[CORE_ANNOTATIONS.PARENT] = [new ReferenceExpression(parent.elemID, 'a')]
+      await expect(() => getParentAsyncWithElementsSource(child, elementsSource)).rejects.toThrow()
+    })
+    it('should return the parent when there is a single instance parent with unresolved value', async () => {
+      elementsSource = buildElementsSourceFromElements([parent])
+      child.annotations[CORE_ANNOTATIONS.PARENT] = [new ReferenceExpression(parent.elemID)]
+      expect(await getParentAsyncWithElementsSource(child, elementsSource)).toBe(parent)
+    })
+    it('should throw when the parent is unresolved and not in the elementsSource', async () => {
+      child.annotations[CORE_ANNOTATIONS.PARENT] = [new ReferenceExpression(parent.elemID)]
+      await expect(getParentAsyncWithElementsSource(child, elementsSource)).rejects.toThrow()
     })
   })
 

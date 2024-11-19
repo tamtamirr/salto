@@ -1,17 +1,9 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
 import _ from 'lodash'
 import {
@@ -32,6 +24,8 @@ import { ApiDefinitions } from '../../../src/definitions'
 import * as mockedRequester from '../../../src/deployment/deploy/requester'
 import { HTTPReadClientInterface, HTTPWriteClientInterface } from '../../../src/client'
 import { noPagination } from '../../../src/fetch/request/pagination'
+import { ResolveAdditionalActionType } from '../../../src/definitions/system/api'
+import { DeployRequester } from '../../../src/deployment/deploy/requester'
 
 jest.mock('../../../src/deployment/deploy/requester', () => ({
   ...jest.requireActual<{}>('../../../src/deployment/deploy/requester'),
@@ -201,5 +195,79 @@ describe('deployChanges', () => {
       'adapter.typeA.instance.remove3',
     ])
     expect(mockedRequester.getRequester).toHaveBeenCalledTimes(1)
+  })
+  it('should not run dependent action when there are errors', async () => {
+    const mockedRequestAllForChangeAndAction: jest.MockedFunction<
+      DeployRequester<
+        ResolveAdditionalActionType<{ additionalAction: 'activate' | 'deactivate' | 'unused-action' }>
+      >['requestAllForChangeAndAction']
+    > = jest.fn(async ({ change, action }) => {
+      if (getChangeData(change).elemID.typeName === 'typeB' && action === 'add') {
+        throw new Error('failed to deploy typeB')
+      }
+    })
+
+    ;(mockedRequester.getRequester as jest.Mock).mockReturnValueOnce({
+      requestAllForChangeAndAction: mockedRequestAllForChangeAndAction,
+    })
+
+    const res = await deployChanges({
+      definitions,
+      changeGroup: { changes, groupID: 'abc' },
+      elementSource: buildElementsSourceFromElements([]),
+      sharedContext: {},
+      changes,
+      convertError: (_elemID, err) => err,
+      changeResolver: async change => change,
+    })
+    expect(_.sortBy(res.appliedChanges, changeId)).toEqual(
+      _.sortBy(changes.slice(0, 4).concat(changes.slice(5)), changeId),
+    )
+    expect(res.errors).toHaveLength(1)
+    expect(res.errors.map(e => e.message)).toEqual(['Error: failed to deploy typeB'])
+    expect(res.errors.map(e => e.severity)).toEqual(['Error'])
+    expect(res.errors.filter(isSaltoElementError)).toHaveLength(1)
+    expect(
+      res.errors
+        .filter(isSaltoElementError)
+        .map(e => e.elemID.getFullName())
+        .sort(),
+    ).toEqual(['adapter.typeB.instance.add1'])
+    expect(mockedRequestAllForChangeAndAction).toHaveBeenCalledTimes(10)
+    expect(mockedRequestAllForChangeAndAction).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'activate',
+      }),
+    )
+  })
+  it('should run dependent action even when there are errors if failIfChangeHasErrors is false', async () => {
+    const mockedRequestAllForChangeAndAction: jest.MockedFunction<
+      DeployRequester<
+        ResolveAdditionalActionType<{ additionalAction: 'activate' | 'deactivate' | 'unused-action' }>
+      >['requestAllForChangeAndAction']
+    > = jest.fn()
+
+    ;(mockedRequester.getRequester as jest.Mock).mockReturnValueOnce({
+      requestAllForChangeAndAction: mockedRequestAllForChangeAndAction,
+    })
+
+    _.set(definitions, 'deploy.instances.customizations.typeB.failIfChangeHasErrors', false)
+    const res = await deployChanges({
+      definitions,
+      changeGroup: { changes, groupID: 'abc' },
+      elementSource: buildElementsSourceFromElements([]),
+      sharedContext: {},
+      changes,
+      convertError: (_elemID, err) => err,
+      changeResolver: async change => change,
+    })
+    expect(_.sortBy(res.appliedChanges, changeId)).toEqual(_.sortBy(changes, changeId))
+    expect(res.errors).toHaveLength(0)
+    expect(mockedRequestAllForChangeAndAction).toHaveBeenCalledTimes(11)
+    expect(mockedRequestAllForChangeAndAction).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'activate',
+      }),
+    )
   })
 })

@@ -1,17 +1,9 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
 import {
   ElemID,
@@ -28,6 +20,7 @@ import filterCreator from '../../src/filters/field_references'
 import {
   APPLICATION_TYPE_NAME,
   AUTHENTICATOR_TYPE_NAME,
+  AUTHORIZATION_POLICY,
   GROUP_RULE_TYPE_NAME,
   GROUP_TYPE_NAME,
   MFA_POLICY_TYPE_NAME,
@@ -113,6 +106,26 @@ describe('fieldReferencesFilter', () => {
       },
     },
   })
+  const authorizationServerPolicyType = new ObjectType({
+    elemID: new ElemID(OKTA, AUTHORIZATION_POLICY),
+    fields: {
+      conditions: {
+        refType: new ObjectType({
+          elemID: new ElemID(OKTA, 'PolicyRuleConditions'),
+          fields: {
+            clients: {
+              refType: new ObjectType({
+                elemID: new ElemID(OKTA, 'ClientPolicyCondition'),
+                fields: {
+                  include: { refType: new ListType(BuiltinTypes.STRING) },
+                },
+              }),
+            },
+          },
+        }),
+      },
+    },
+  })
   const generateElements = (): Element[] => [
     profileMappingType,
     userTypeType,
@@ -123,11 +136,12 @@ describe('fieldReferencesFilter', () => {
     authenticatorType,
     mfaAuthenticatorsType,
     mfaType,
+    authorizationServerPolicyType,
     new InstanceElement('mapping1', profileMappingType, {
       source: { id: '111', type: 'user' },
       target: { id: '222', type: 'appuser' },
     }),
-    new InstanceElement('app1', appType, { id: '222' }),
+    new InstanceElement('app1', appType, { id: '222', credentials: { oauthClient: { client_id: 'client_id_1' } } }),
     new InstanceElement('userType1', userTypeType, { id: '111' }),
     new InstanceElement('rule', ruleType, {
       id: '111',
@@ -137,6 +151,14 @@ describe('fieldReferencesFilter', () => {
     new InstanceElement('authenticator', authenticatorType, { name: 'OTP', key: 'otp' }),
     new InstanceElement('mfa', mfaType, {
       settings: { authenticators: [{ key: 'otp' }] },
+    }),
+    new InstanceElement('authServerPolicy', authorizationServerPolicyType, {
+      name: 'authPolicy1',
+      conditions: {
+        clients: {
+          include: ['client_id_1'],
+        },
+      },
     }),
   ]
 
@@ -184,6 +206,14 @@ describe('fieldReferencesFilter', () => {
       expect(mfa.value.settings.authenticators[0].key).toBeInstanceOf(ReferenceExpression)
       expect(mfa.value.settings.authenticators[0].key.elemID.getFullName()).toEqual(
         'okta.Authenticator.instance.authenticator',
+      )
+
+      const authorizationServerPolicy = elements.filter(
+        e => isInstanceElement(e) && e.elemID.name === 'authServerPolicy',
+      )[0] as InstanceElement
+      expect(authorizationServerPolicy.value.conditions.clients.include[0]).toBeInstanceOf(ReferenceExpression)
+      expect(authorizationServerPolicy.value.conditions.clients.include[0].elemID.getFullName()).toEqual(
+        'okta.Application.instance.app1.credentials.oauthClient.client_id',
       )
     })
     describe('When User type is enabled', () => {

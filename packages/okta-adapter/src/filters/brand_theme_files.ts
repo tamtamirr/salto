@@ -1,17 +1,9 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
 import _ from 'lodash'
 import {
@@ -28,7 +20,7 @@ import { BRAND_LOGO_TYPE_NAME, BRAND_THEME_TYPE_NAME, FAV_ICON_TYPE_NAME } from 
 import { FilterCreator } from '../filter'
 import { LOGO_TYPES_TO_VALUES, createFileType, deployLogo, getLogo } from '../logo'
 import OktaClient from '../client/client'
-import { deployChanges } from '../deployment'
+import { deployChanges } from '../deprecated_deployment'
 
 const logoTypeNames = [BRAND_LOGO_TYPE_NAME, FAV_ICON_TYPE_NAME]
 
@@ -52,13 +44,17 @@ const getBrandThemeFile = async (
   })
 }
 
-const toSaltoError = (err: Error): SaltoError => ({
-  message: `Failed to fetch brandTheme file. ${err.message}`,
-  severity: 'Warning',
-})
+const toSaltoError = (err: Error): SaltoError => {
+  const message = `Failed to fetch brandTheme file. ${err.message}`
+  return {
+    message,
+    detailedMessage: message,
+    severity: 'Warning',
+  }
+}
 
 /**
- * Fetches and deploys brand theme fiels as static file.
+ * Fetches and deploys brand theme fields as static file.
  */
 const brandThemeFilesFilter: FilterCreator = ({ definitions }) => ({
   name: 'brandThemeFilesFilter',

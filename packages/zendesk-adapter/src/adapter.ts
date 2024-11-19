@@ -1,17 +1,9 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
 import _, { isString } from 'lodash'
 import {
@@ -71,6 +63,7 @@ import {
   CUSTOM_OBJECT_FIELD_ORDER_TYPE_NAME,
   DEFAULT_CUSTOM_STATUSES_TYPE_NAME,
   GUIDE_THEME_TYPE_NAME,
+  LAYOUT_TYPE_NAME,
   LOCALE_TYPE_NAME,
   THEME_SETTINGS_TYPE_NAME,
   ZENDESK,
@@ -94,6 +87,7 @@ import slaPolicyOrderFilter from './filters/reorder/sla_policy'
 import automationOrderFilter from './filters/reorder/automation'
 import triggerOrderFilter from './filters/reorder/trigger'
 import viewOrderFilter from './filters/reorder/view'
+import queueOrderFilter from './filters/reorder/queue'
 import businessHoursScheduleFilter from './filters/business_hours_schedule'
 import omitCollisionFilter from './filters/omit_collision'
 import accountSettingsFilter from './filters/account_settings'
@@ -126,6 +120,7 @@ import articleFilter from './filters/article/article'
 import articleBodyFilter from './filters/article/article_body'
 import { dependencyChanger } from './dependency_changers'
 import deployBrandedGuideTypesFilter from './filters/deploy_branded_guide_types'
+import deployTriggerSkills from './filters/deploy_trigger_skills'
 import { Credentials } from './auth'
 import guideSectionCategoryFilter from './filters/guide_section_and_category'
 import guideTranslationFilter from './filters/guide_translation'
@@ -170,6 +165,7 @@ import { createClientDefinitions, createFetchDefinitions } from './definitions'
 import { PAGINATION } from './definitions/requests/pagination'
 import { ZendeskFetchConfig } from './user_config'
 import { filterOutInactiveInstancesForType, filterOutInactiveItemForType } from './inactive'
+import ZendeskGuideClient from './client/guide_client'
 
 const { makeArray } = collections.array
 const log = logger(module)
@@ -202,6 +198,7 @@ export const DEFAULT_FILTERS = [
   automationOrderFilter,
   triggerOrderFilter,
   viewOrderFilter,
+  queueOrderFilter,
   businessHoursScheduleFilter,
   accountSettingsFilter,
   dynamicContentFilter,
@@ -272,6 +269,7 @@ export const DEFAULT_FILTERS = [
   handleIdenticalAttachmentConflicts,
   omitCollisionFilter, // needs to be after referencedIdFieldsFilter (which is part of the common filters)
   deployBrandedGuideTypesFilter,
+  deployTriggerSkills,
   guideThemeFilter, // fetches a lot of data, so should be after omitCollisionFilter to remove theme collisions
   guideThemeSettingFilter, // needs to be after guideThemeFilter as it depends on successful theme fetches
   addAliasFilter, // should run after fieldReferencesFilter and guideThemeSettingFilter
@@ -365,77 +363,96 @@ const getBrandsFromElementsSourceNoCache = async (elementsSource: ReadOnlyElemen
 const getGuideElements = async ({
   brandsList,
   brandToPaginator,
+  brandFetchDefinitions,
   apiDefinitions,
   fetchQuery,
   getElemIdFunc,
+  useGuideNewInfra,
 }: {
   brandsList: InstanceElement[]
   brandToPaginator: Record<string, clientUtils.Paginator>
+  brandFetchDefinitions: definitions.RequiredDefinitions<ZendeskFetchOptions>
   apiDefinitions: configUtils.AdapterDuckTypeApiConfig
   fetchQuery: elementUtils.query.ElementQuery
   getElemIdFunc?: ElemIdGetter
+  useGuideNewInfra: boolean | undefined
 }): Promise<fetchUtils.FetchElements<Element[]>> => {
   const transformationDefaultConfig = apiDefinitions.typeDefaults.transformation
   const transformationConfigByType = configUtils.getTransformationConfigByType(apiDefinitions.types)
-
   // Omit standaloneFields from config to avoid creating types from references
   const typesConfigWithNoStandaloneFields = _.mapValues(apiDefinitions.types, config =>
     _.omit(config, ['transformation.standaloneFields']),
   )
-  const fetchResultWithDuplicateTypes = await Promise.all(
-    brandsList.map(async brandInstance => {
-      const brandsPaginator = brandToPaginator[brandInstance.elemID.name]
-      log.debug(`Fetching elements for brand ${brandInstance.elemID.name}`)
-      return getAllElements({
-        adapterName: ZENDESK,
-        types: typesConfigWithNoStandaloneFields,
-        shouldAddRemainingTypes: false,
-        supportedTypes: GUIDE_BRAND_SPECIFIC_TYPES,
-        fetchQuery,
-        paginator: brandsPaginator,
-        nestedFieldFinder: findDataField,
-        computeGetArgs,
-        typeDefaults: apiDefinitions.typeDefaults,
-        getElemIdFunc,
-        getEntriesResponseValuesFunc: zendeskGuideEntriesFunc(brandInstance),
-      })
-    }),
-  )
+  if (useGuideNewInfra !== true) {
+    const fetchResultWithDuplicateTypes = await Promise.all(
+      brandsList.map(async brandInstance => {
+        const brandsPaginator = brandToPaginator[brandInstance.elemID.name]
+        log.debug(`Fetching elements for brand ${brandInstance.elemID.name}`)
+        return getAllElements({
+          adapterName: ZENDESK,
+          types: typesConfigWithNoStandaloneFields,
+          shouldAddRemainingTypes: false,
+          supportedTypes: GUIDE_BRAND_SPECIFIC_TYPES,
+          fetchQuery,
+          paginator: brandsPaginator,
+          nestedFieldFinder: findDataField,
+          computeGetArgs,
+          typeDefaults: apiDefinitions.typeDefaults,
+          getElemIdFunc,
+          getEntriesResponseValuesFunc: zendeskGuideEntriesFunc(brandInstance),
+        })
+      }),
+    )
 
-  const typeNameToGuideInstances = _.groupBy(
-    fetchResultWithDuplicateTypes.flatMap(result => result.elements).filter(isInstanceElement),
-    instance => instance.elemID.typeName,
-  )
-  // Create new types based on the created instances from all brands,
-  // then create new instances with the corresponding type as refType
-  const zendeskGuideElements = Object.entries(typeNameToGuideInstances).flatMap(([typeName, instances]) => {
-    const guideElements = elementUtils.ducktype.getNewElementsFromInstances({
+    const typeNameToGuideInstances = _.groupBy(
+      fetchResultWithDuplicateTypes.flatMap(result => result.elements).filter(isInstanceElement),
+      instance => instance.elemID.typeName,
+    )
+
+    // Create new types based on the created instances from all brands,
+    // then create new instances with the corresponding type as refType
+    const zendeskGuideElements = Object.entries(typeNameToGuideInstances).flatMap(([typeName, instances]) => {
+      const guideElements = elementUtils.ducktype.getNewElementsFromInstances({
+        adapterName: ZENDESK,
+        typeName,
+        instances,
+        transformationConfigByType,
+        transformationDefaultConfig,
+      })
+      return _.concat(guideElements.instances as Element[], guideElements.nestedTypes, guideElements.type)
+    })
+
+    // Create instances from standalone fields that were not created in previous steps
+    await elementUtils.ducktype.extractStandaloneFields({
       adapterName: ZENDESK,
-      typeName,
-      instances,
+      elements: zendeskGuideElements,
       transformationConfigByType,
       transformationDefaultConfig,
+      getElemIdFunc,
     })
-    return _.concat(guideElements.instances as Element[], guideElements.nestedTypes, guideElements.type)
-  })
 
-  // Create instances from standalone fields that were not created in previous steps
-  await elementUtils.ducktype.extractStandaloneFields({
+    const allConfigChangeSuggestions = fetchResultWithDuplicateTypes.flatMap(
+      fetchResult => fetchResult.configChanges ?? [],
+    )
+
+    const guideErrors = fetchResultWithDuplicateTypes.flatMap(fetchResult => fetchResult.errors ?? [])
+    return {
+      elements: zendeskGuideElements,
+      configChanges: fetchUtils.getUniqueConfigSuggestions(allConfigChangeSuggestions),
+      errors: guideErrors,
+    }
+  }
+  // to monitor new infra usage, will be removed later
+  log.debug('using new infra for guide')
+  const guideFetchResult = await fetchUtils.getElements({
     adapterName: ZENDESK,
-    elements: zendeskGuideElements,
-    transformationConfigByType,
-    transformationDefaultConfig,
+    fetchQuery,
     getElemIdFunc,
+    definitions: brandFetchDefinitions,
   })
-
-  const allConfigChangeSuggestions = fetchResultWithDuplicateTypes.flatMap(
-    fetchResult => fetchResult.configChanges ?? [],
-  )
-  const guideErrors = fetchResultWithDuplicateTypes.flatMap(fetchResult => fetchResult.errors ?? [])
+  guideFetchResult.elements = guideFetchResult.elements.filter(e => !e.elemID.typeName.startsWith('brand'))
   return {
-    elements: zendeskGuideElements,
-    configChanges: fetchUtils.getUniqueConfigSuggestions(allConfigChangeSuggestions),
-    errors: guideErrors,
+    ...guideFetchResult,
   }
 }
 
@@ -448,10 +465,12 @@ export interface ZendeskAdapterParams {
   // callback function to get an existing elemId or create a new one by the ServiceIds values
   getElemIdFunc?: ElemIdGetter
   configInstance?: InstanceElement
+  accountName?: string
 }
 
 export default class ZendeskAdapter implements AdapterOperations {
   private client: ZendeskClient
+  private guideClient: ZendeskGuideClient | undefined
   private paginator: clientUtils.Paginator
   private userConfig: ZendeskConfig
   private getElemIdFunc?: ElemIdGetter
@@ -464,6 +483,7 @@ export default class ZendeskAdapter implements AdapterOperations {
   private getClientBySubdomain: (subdomain: string, deployRateLimit?: boolean) => ZendeskClient
   private brandsList: Promise<InstanceElement[]> | undefined
   private adapterDefinitions: definitions.RequiredDefinitions<ZendeskFetchOptions>
+  private accountName?: string
   private createFiltersRunner: ({
     filterRunnerClient,
     paginator,
@@ -482,6 +502,7 @@ export default class ZendeskAdapter implements AdapterOperations {
     config,
     configInstance,
     elementsSource,
+    accountName,
   }: ZendeskAdapterParams) {
     const wrapper = getElemIdFunc ? getElemIdFuncWrapper(getElemIdFunc) : undefined
     this.userConfig = config
@@ -491,10 +512,12 @@ export default class ZendeskAdapter implements AdapterOperations {
     this.client = client
     this.elementsSource = elementsSource
     this.brandsList = undefined
+    this.guideClient = undefined
     this.paginator = createPaginator({
       client: this.client,
       paginationFuncCreator: paginate,
     })
+    this.accountName = accountName
 
     this.createClientBySubdomain = (subdomain: string, deployRateLimit = false): ZendeskClient => {
       const clientConfig = { ...this.userConfig[CLIENT_CONFIG] }
@@ -509,14 +532,22 @@ export default class ZendeskAdapter implements AdapterOperations {
       })
     }
 
-    this.adapterDefinitions = {
-      clients: createClientDefinitions({ main: this.client }),
-      pagination: PAGINATION,
-      fetch: definitions.mergeWithUserElemIDDefinitions({
-        userElemID: this.userConfig.fetch.elemID as ZendeskFetchConfig['elemID'],
-        fetchConfig: createFetchDefinitions(this.userConfig, this.getNonSupportedTypesToOmit()),
-      }),
-    }
+    const typesToOmit = this.getNonSupportedTypesToOmit()
+
+    this.adapterDefinitions = definitions.mergeDefinitionsWithOverrides(
+      {
+        // we can't add guide client at this point
+        clients: createClientDefinitions({ main: this.client, guide: this.client }),
+        pagination: PAGINATION,
+        fetch: definitions.mergeWithUserElemIDDefinitions({
+          userElemID: _.omit(this.userConfig.fetch.elemID, typesToOmit) as ZendeskFetchConfig['elemID'],
+          fetchConfig: createFetchDefinitions(this.userConfig, {
+            typesToOmit,
+          }),
+        }),
+      },
+      this.accountName,
+    )
     const clientsBySubdomain: Record<string, ZendeskClient> = {}
     this.getClientBySubdomain = (subdomain: string, deployRateLimit = false): ZendeskClient => {
       if (clientsBySubdomain[subdomain] === undefined) {
@@ -564,7 +595,7 @@ export default class ZendeskAdapter implements AdapterOperations {
     const isGuideEnabledInConfig = isGuideEnabled(this.userConfig[FETCH_CONFIG])
     const isGuideThemesEnabledInConfig = isGuideThemesEnabled(this.userConfig[FETCH_CONFIG])
     const keysToOmit = isGuideEnabledInConfig
-      ? Object.keys(GUIDE_BRAND_SPECIFIC_TYPES)
+      ? GUIDE_TYPES_TO_HANDLE_BY_BRAND.map(type => type) // we don't want to remove permission_group and user_segment and theme
       : Object.keys(GUIDE_SUPPORTED_TYPES)
     if (!isGuideThemesEnabledInConfig) {
       keysToOmit.push(GUIDE_THEME_TYPE_NAME)
@@ -586,7 +617,7 @@ export default class ZendeskAdapter implements AdapterOperations {
 
     // Temporarily get fetch method from the config. This is used for testing purposes
     // and should be removed once we are confident the new infra behaves nicely - SALTO-5761
-    const { useNewInfra } = this.userConfig[FETCH_CONFIG]
+    const { useNewInfra, useGuideNewInfra } = this.userConfig[FETCH_CONFIG]
     let defaultSubdomainResult
     if (useNewInfra !== true) {
       // Zendesk Support and (if enabled) global Zendesk Guide types
@@ -594,8 +625,8 @@ export default class ZendeskAdapter implements AdapterOperations {
         adapterName: ZENDESK,
         types: this.userConfig.apiDefinitions.types,
         shouldAddRemainingTypes: !isGuideInFetch,
-        // tags are "fetched" in a filter
-        supportedTypes: _.omit(supportedTypes, 'tag'),
+        // tags are "fetched" in a filter, layout is not supported on old infra
+        supportedTypes: _.omit(supportedTypes, 'tag', LAYOUT_TYPE_NAME),
         fetchQuery: this.fetchQuery,
         paginator: this.paginator,
         nestedFieldFinder: findDataField,
@@ -645,6 +676,7 @@ export default class ZendeskAdapter implements AdapterOperations {
       combinedRes.errors = combinedRes.errors.concat([
         {
           message,
+          detailedMessage: message,
           severity: 'Warning',
         },
       ])
@@ -658,13 +690,40 @@ export default class ZendeskAdapter implements AdapterOperations {
           }),
         ]),
       )
+      const brandClients = Object.fromEntries(
+        brandsList.map(brandInstance => [
+          brandInstance.value.id,
+          this.createClientBySubdomain(brandInstance.value.subdomain),
+        ]),
+      )
+      const typesToPick = GUIDE_TYPES_TO_HANDLE_BY_BRAND.concat([
+        'guide_settings__help_center',
+        'guide_settings__help_center__settings',
+        'guide_settings__help_center__text_filter',
+        'brand',
+      ])
+      this.guideClient = new ZendeskGuideClient(brandClients)
+      const client = createClientDefinitions({ main: this.client, guide: this.guideClient })
+      const guideFetchDef = definitions.mergeWithUserElemIDDefinitions({
+        userElemID: _.pick(this.userConfig.fetch.elemID, typesToPick) as ZendeskFetchConfig['elemID'],
+        fetchConfig: createFetchDefinitions(this.userConfig, {
+          typesToPick,
+        }),
+      })
+      const guideDefinitions = {
+        clients: client,
+        pagination: PAGINATION,
+        fetch: guideFetchDef,
+      }
 
       const zendeskGuideElements = await getGuideElements({
         brandsList,
         brandToPaginator,
+        brandFetchDefinitions: guideDefinitions,
         apiDefinitions: this.userConfig[API_DEFINITIONS_CONFIG],
         fetchQuery: this.fetchQuery,
         getElemIdFunc: this.getElemIdFunc,
+        useGuideNewInfra,
       })
 
       combinedRes.configChanges = combinedRes.configChanges.concat(zendeskGuideElements.configChanges ?? [])
@@ -694,9 +753,11 @@ export default class ZendeskAdapter implements AdapterOperations {
       ).data
       if (isCurrentUserResponse(res)) {
         if (res.user.locale !== 'en-US') {
+          const message =
+            "You are fetching zendesk with a user whose locale is set to a language different than US English. This may affect Salto's behavior in some cases. Therefore, it is highly recommended to set the user's language to \"English (United States)\" or to create another user with English as its Zendesk language and change Salto‘s credentials to use it. For help on how to change a Zendesk user's language, go to https://support.zendesk.com/hc/en-us/articles/4408835022490-Viewing-and-editing-your-user-profile-in-Zendesk-Support"
           return {
-            message:
-              "You are fetching zendesk with a user whose locale is set to a language different than US English. This may affect Salto's behavior in some cases. Therefore, it is highly recommended to set the user's language to \"English (United States)\" or to create another user with English as its Zendesk language and change Salto‘s credentials to use it. For help on how to change a Zendesk user's language, go to https://support.zendesk.com/hc/en-us/articles/4408835022490-Viewing-and-editing-your-user-profile-in-Zendesk-Support",
+            message,
+            detailedMessage: message,
             severity: 'Warning',
           }
         }

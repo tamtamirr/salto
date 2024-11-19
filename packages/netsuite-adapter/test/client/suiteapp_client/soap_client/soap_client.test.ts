@@ -1,17 +1,9 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
 import _ from 'lodash'
 import { ElemID, InstanceElement, ListType, ObjectType, ReferenceExpression } from '@salto-io/adapter-api'
@@ -91,6 +83,7 @@ describe('soap_client', () => {
         suiteAppTokenId: 'tokenId',
         suiteAppTokenSecret: 'tokenSecret',
       },
+      {},
       fn => fn(),
       (_t: string, _c: number) => false,
       defaultSoapTimeOut,
@@ -272,10 +265,8 @@ describe('soap_client', () => {
           },
         ]),
       ).toEqual([
-        6233,
-        new Error(
-          'SOAP api call to update file cabinet instance somePath2 failed. error code: MEDIA_NOT_FOUND, error message: Media item not found 62330',
-        ),
+        { isSuccess: true, internalId: '6233' },
+        { isSuccess: false, errorMessage: 'Media item not found 62330' },
       ])
     })
 
@@ -428,10 +419,8 @@ describe('soap_client', () => {
           },
         ]),
       ).toEqual([
-        6334,
-        new Error(
-          'SOAP api call to add file cabinet instance addedFile2 failed. error code: INVALID_KEY_OR_REF, error message: Invalid folder reference key -600',
-        ),
+        { isSuccess: true, internalId: '6334' },
+        { isSuccess: false, errorMessage: 'Invalid folder reference key -600' },
       ])
     })
 
@@ -568,10 +557,8 @@ describe('soap_client', () => {
           },
         ] as ExistingFileCabinetInstanceDetails[]),
       ).toEqual([
-        7148,
-        new Error(
-          'SOAP api call to delete file cabinet instance somePath2 failed. error code: MEDIA_NOT_FOUND, error message: Media item not found 99999',
-        ),
+        { isSuccess: true, internalId: '7148' },
+        { isSuccess: false, errorMessage: 'Media item not found 99999' },
       ])
     })
 
@@ -639,7 +626,22 @@ describe('soap_client', () => {
     })
   })
 
-  describe('getAllRecords', () => {
+  describe.each(['default', '2023_1', '2024_1'] as const)('getAllRecords with version %s', inputWsdlVersion => {
+    const wsdlVersion = inputWsdlVersion === 'default' ? undefined : inputWsdlVersion
+    beforeEach(() => {
+      client = new SoapClient(
+        {
+          accountId: 'ACCOUNT_ID',
+          suiteAppTokenId: 'tokenId',
+          suiteAppTokenSecret: 'tokenSecret',
+        },
+        { wsdlVersion },
+        fn => fn(),
+        (_t: string, _c: number) => false,
+        defaultSoapTimeOut,
+      )
+    })
+
     it('Should return record using search', async () => {
       searchAsyncMock.mockResolvedValue([
         {
@@ -709,6 +711,7 @@ describe('soap_client', () => {
           suiteAppTokenId: 'tokenId',
           suiteAppTokenSecret: 'tokenSecret',
         },
+        {},
         fn => fn(),
         (_type: string, count: number) => count > 1,
         defaultSoapTimeOut,
@@ -793,8 +796,8 @@ describe('soap_client', () => {
           },
           'q1:basic': {
             attributes: {
-              'xmlns:platformCommon': 'urn:common_2020_2.platform.webservices.netsuite.com',
-              'xmlns:platformCore': 'urn:core_2020_2.platform.webservices.netsuite.com',
+              'xmlns:platformCommon': `urn:common_${wsdlVersion ?? soapClientUtils.DEFAULT_WSDL_VERSION}.platform.webservices.netsuite.com`,
+              'xmlns:platformCore': `urn:core_${wsdlVersion ?? soapClientUtils.DEFAULT_WSDL_VERSION}.platform.webservices.netsuite.com`,
             },
             'platformCommon:type': {
               attributes: {
@@ -1114,6 +1117,7 @@ describe('soap_client', () => {
           suiteAppTokenId: 'tokenId',
           suiteAppTokenSecret: 'tokenSecret',
         },
+        {},
         fn => fn(),
         (_type: string, count: number) => count > 1,
         defaultSoapTimeOut,
@@ -1173,10 +1177,8 @@ describe('soap_client', () => {
 
       const instance2 = new InstanceElement('instance2', subsidiaryType, { name: 'name' })
       expect(await client.updateInstances([instance1, instance2], async () => true)).toEqual([
-        1,
-        new Error(
-          `SOAP api call updateList for instance ${instance2.elemID.getFullName()} failed. error code: SOME_ERROR, error message: Some Error Message`,
-        ),
+        { isSuccess: true, internalId: '1' },
+        { isSuccess: false, errorMessage: 'Some Error Message' },
       ])
     })
 
@@ -1270,11 +1272,9 @@ describe('soap_client', () => {
       const customRecord = new InstanceElement('custrecord_record1', customRecordType, { name: 'record1' })
 
       expect(await client.addInstances([instance1, instance2, customRecord], async () => true)).toEqual([
-        1,
-        new Error(
-          `SOAP api call addList for instance ${instance2.elemID.getFullName()} failed. error code: SOME_ERROR, error message: Some Error Message`,
-        ),
-        3,
+        { isSuccess: true, internalId: '1' },
+        { isSuccess: false, errorMessage: 'Some Error Message' },
+        { isSuccess: true, internalId: '3' },
       ])
     })
 
@@ -1386,11 +1386,9 @@ describe('soap_client', () => {
       })
 
       expect(await client.deleteInstances([instance1, instance2, customRecord])).toEqual([
-        1,
-        new Error(
-          `SOAP api call deleteList for instance ${instance2.elemID.getFullName()} failed. error code: SOME_ERROR, error message: Some Error Message`,
-        ),
-        3,
+        { isSuccess: true, internalId: '1' },
+        { isSuccess: false, errorMessage: 'Some Error Message' },
+        { isSuccess: true, internalId: '3' },
       ])
     })
 
@@ -1433,7 +1431,23 @@ describe('soap_client', () => {
     })
   })
 
-  describe('getSelectValue', () => {
+  describe.each(['default', '2023_1', '2024_1'] as const)('getSelectValuewith version %s', inputWsdlVersion => {
+    const wsdlVersion = inputWsdlVersion === 'default' ? undefined : inputWsdlVersion
+
+    beforeEach(() => {
+      client = new SoapClient(
+        {
+          accountId: 'ACCOUNT_ID',
+          suiteAppTokenId: 'tokenId',
+          suiteAppTokenSecret: 'tokenSecret',
+        },
+        { wsdlVersion },
+        fn => fn(),
+        (_t: string, _c: number) => false,
+        defaultSoapTimeOut,
+      )
+    })
+
     it('should make one request and return result', async () => {
       getSelectValueAsyncMock.mockResolvedValue([
         {
@@ -1479,11 +1493,15 @@ describe('soap_client', () => {
         pageIndex: 1,
         fieldDescription: {
           recordType: {
-            attributes: { xmlns: 'urn:core_2020_2.platform.webservices.netsuite.com' },
+            attributes: {
+              xmlns: `urn:core_${wsdlVersion ?? soapClientUtils.DEFAULT_WSDL_VERSION}.platform.webservices.netsuite.com`,
+            },
             $value: 'account',
           },
           field: {
-            attributes: { xmlns: 'urn:core_2020_2.platform.webservices.netsuite.com' },
+            attributes: {
+              xmlns: `urn:core_${wsdlVersion ?? soapClientUtils.DEFAULT_WSDL_VERSION}.platform.webservices.netsuite.com`,
+            },
             $value: 'unitstype',
           },
         },
@@ -1629,15 +1647,21 @@ describe('soap_client', () => {
         pageIndex: 1,
         fieldDescription: {
           recordType: {
-            attributes: { xmlns: 'urn:core_2020_2.platform.webservices.netsuite.com' },
+            attributes: {
+              xmlns: `urn:core_${wsdlVersion ?? soapClientUtils.DEFAULT_WSDL_VERSION}.platform.webservices.netsuite.com`,
+            },
             $value: 'account',
           },
           field: {
-            attributes: { xmlns: 'urn:core_2020_2.platform.webservices.netsuite.com' },
+            attributes: {
+              xmlns: `urn:core_${wsdlVersion ?? soapClientUtils.DEFAULT_WSDL_VERSION}.platform.webservices.netsuite.com`,
+            },
             $value: 'unit',
           },
           filterByValueList: {
-            attributes: { xmlns: 'urn:core_2020_2.platform.webservices.netsuite.com' },
+            attributes: {
+              xmlns: `urn:core_${wsdlVersion ?? soapClientUtils.DEFAULT_WSDL_VERSION}.platform.webservices.netsuite.com`,
+            },
             filterBy: [
               {
                 field: 'unitstype',
@@ -1806,7 +1830,9 @@ describe('soap_client', () => {
         .mockResolvedValueOnce([writeResponseListError1])
         .mockResolvedValueOnce([writeResponseListSuccess])
 
-      expect(await client.updateInstances([instance], elementsSource.has)).toEqual([1])
+      expect(await client.updateInstances([instance], elementsSource.has)).toEqual([
+        { isSuccess: true, internalId: '1' },
+      ])
       expect(updateListAsyncMock).toHaveBeenCalledTimes(2)
       expect(updateListAsyncMock).toHaveBeenNthCalledWith(2, instanceWithoutOneField)
     })
@@ -1816,7 +1842,7 @@ describe('soap_client', () => {
         .mockResolvedValueOnce([writeResponseListError1])
         .mockResolvedValueOnce([writeResponseListSuccess])
 
-      expect(await client.addInstances([instance], elementsSource.has)).toEqual([1])
+      expect(await client.addInstances([instance], elementsSource.has)).toEqual([{ isSuccess: true, internalId: '1' }])
       expect(addListAsyncMock).toHaveBeenCalledTimes(2)
       expect(addListAsyncMock).toHaveBeenNthCalledWith(2, instanceWithoutOneField)
     })
@@ -1827,7 +1853,9 @@ describe('soap_client', () => {
         .mockResolvedValueOnce([writeResponseListError2])
         .mockResolvedValueOnce([writeResponseListSuccess])
 
-      expect(await client.updateInstances([instance], elementsSource.has)).toEqual([1])
+      expect(await client.updateInstances([instance], elementsSource.has)).toEqual([
+        { isSuccess: true, internalId: '1' },
+      ])
       expect(updateListAsyncMock).toHaveBeenCalledTimes(3)
       expect(updateListAsyncMock).toHaveBeenNthCalledWith(2, instanceWithoutOneField)
       expect(updateListAsyncMock).toHaveBeenNthCalledWith(3, instanceWithoutBothFields)
@@ -1838,10 +1866,7 @@ describe('soap_client', () => {
       jest.spyOn(filterUneditableLockedFieldModule, 'removeUneditableLockedField').mockResolvedValue(true)
 
       expect(await client.updateInstances([instance], elementsSource.has)).toEqual([
-        new Error(
-          `SOAP api call updateList for instance ${instance.elemID.getFullName()} failed.` +
-            ` error code: ${INSUFFICIENT_PERMISSION_ERROR}, error message: ${errorMessage1}`,
-        ),
+        { isSuccess: false, errorMessage: errorMessage1 },
       ])
       expect(updateListAsyncMock).toHaveBeenCalledTimes(6)
     })
@@ -1861,6 +1886,7 @@ describe('soap_client', () => {
           suiteAppTokenId: 'tokenId',
           suiteAppTokenSecret: 'tokenSecret',
         },
+        {},
         fn => fn(),
         (_type: string, count: number) => count > 1,
         timeout,

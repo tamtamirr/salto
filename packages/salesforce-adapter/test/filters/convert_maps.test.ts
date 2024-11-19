@@ -1,17 +1,9 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
 import {
   Element,
@@ -23,16 +15,21 @@ import {
   Change,
   toChange,
   isObjectType,
+  PrimitiveType,
+  TypeReference,
+  ReferenceExpression,
+  getChangeData,
 } from '@salto-io/adapter-api'
+import { resolveChangeElement } from '@salto-io/adapter-components'
 import filterCreator from '../../src/filters/convert_maps'
-import {
-  generateProfileType,
-  generatePermissionSetType,
-  defaultFilterContext,
-} from '../utils'
-import { createInstanceElement } from '../../src/transformers/transformer'
+import { generateProfileType, generatePermissionSetType, defaultFilterContext, createCustomObjectType } from '../utils'
+import { createInstanceElement, Types } from '../../src/transformers/transformer'
 import { mockTypes } from '../mock_elements'
 import { FilterWith } from './mocks'
+import { buildFetchProfile } from '../../src/fetch_profile/fetch_profile'
+import { FIELD_ANNOTATIONS } from '../../src/constants'
+import { getLookUpName } from '../../src/transformers/reference_mapping'
+import { salesforceAdapterResolveValues } from '../../src/adapter'
 
 type layoutAssignmentType = { layout: string; recordType?: string }
 
@@ -50,13 +47,13 @@ const generateProfileInstance = ({
   applications: string[]
 }): InstanceElement =>
   new InstanceElement(instanceName, profileObj, {
-    applicationVisibilities: applications.map((application) => ({
+    applicationVisibilities: applications.map(application => ({
       application,
       default: true,
       visible: false,
     })),
     layoutAssignments,
-    fieldPermissions: fields.map((field) => ({
+    fieldPermissions: fields.map(field => ({
       field,
       editable: true,
       readable: true,
@@ -75,12 +72,12 @@ const generatePermissionSetInstance = ({
   applications: string[]
 }): InstanceElement =>
   new InstanceElement(instanceName, permissionSetObj, {
-    applicationVisibilities: applications.map((application) => ({
+    applicationVisibilities: applications.map(application => ({
       application,
       default: true,
       visible: false,
     })),
-    fieldPermissions: fields.map((field) => ({
+    fieldPermissions: fields.map(field => ({
       field,
       editable: true,
       readable: true,
@@ -107,18 +104,15 @@ describe('Convert maps filter', () => {
               { layout: 'Account-Account Layout' },
               // dots etc are escaped in the layout's name
               {
-                layout:
-                  'Account-random characters %3B%2E%2B%3F%22aaa%27_%2B- bbb',
+                layout: 'Account-random characters %3B%2E%2B%3F%22aaa%27_%2B- bbb',
                 recordType: 'something',
               },
               {
-                layout:
-                  'Account-random characters %3B%2E%2B%3F%22aaa%27_%2B- bbb',
+                layout: 'Account-random characters %3B%2E%2B%3F%22aaa%27_%2B- bbb',
                 recordType: 'repetition',
               },
               {
-                layout:
-                  'Account-random characters %3B%2E%2B%3F%22aaa%27_%2B- bbb',
+                layout: 'Account-random characters %3B%2E%2B%3F%22aaa%27_%2B- bbb',
                 recordType: 'repetition',
               },
             ],
@@ -139,15 +133,13 @@ describe('Convert maps filter', () => {
 
         it('should convert object field types to maps', async () => {
           expect(profileObj).toEqual(generateProfileType(true))
-          const fieldType =
-            await profileObj.fields.applicationVisibilities.getType()
+          const fieldType = await profileObj.fields.applicationVisibilities.getType()
           expect(isMapType(fieldType)).toBeTruthy()
           expect(isListType((fieldType as MapType).getInnerType())).toBeFalsy()
         })
         it('should mark the fields that are used for keys as _required=true', async () => {
           expect(profileObj).toEqual(generateProfileType(true))
-          const fieldType =
-            await profileObj.fields.applicationVisibilities.getType()
+          const fieldType = await profileObj.fields.applicationVisibilities.getType()
           expect(isMapType(fieldType)).toBeTruthy()
           expect(isListType((fieldType as MapType).getInnerType())).toBeFalsy()
         })
@@ -174,27 +166,21 @@ describe('Convert maps filter', () => {
               },
             },
             layoutAssignments: {
-              'Account_Account_Layout@bs': [
-                { layout: 'Account-Account Layout' },
+              'Account_Account_Layout@bs': [{ layout: 'Account-Account Layout' }],
+              'Account_random_characters__3B_2E_2B_3F_22aaa_27__2B__bbb@bssppppppupbs': [
+                {
+                  layout: 'Account-random characters %3B%2E%2B%3F%22aaa%27_%2B- bbb',
+                  recordType: 'something',
+                },
+                {
+                  layout: 'Account-random characters %3B%2E%2B%3F%22aaa%27_%2B- bbb',
+                  recordType: 'repetition',
+                },
+                {
+                  layout: 'Account-random characters %3B%2E%2B%3F%22aaa%27_%2B- bbb',
+                  recordType: 'repetition',
+                },
               ],
-              'Account_random_characters__3B_2E_2B_3F_22aaa_27__2B__bbb@bssppppppupbs':
-                [
-                  {
-                    layout:
-                      'Account-random characters %3B%2E%2B%3F%22aaa%27_%2B- bbb',
-                    recordType: 'something',
-                  },
-                  {
-                    layout:
-                      'Account-random characters %3B%2E%2B%3F%22aaa%27_%2B- bbb',
-                    recordType: 'repetition',
-                  },
-                  {
-                    layout:
-                      'Account-random characters %3B%2E%2B%3F%22aaa%27_%2B- bbb',
-                    recordType: 'repetition',
-                  },
-                ],
             },
           })
         })
@@ -202,9 +188,7 @@ describe('Convert maps filter', () => {
           const afterProfileObj = generateProfileType()
           const afterInstances = generateInstances(afterProfileObj)
           await filter.onFetch([afterProfileObj, ...afterInstances])
-          const changes = instances.map((inst, idx) =>
-            toChange({ before: inst, after: afterInstances[idx] }),
-          )
+          const changes = instances.map((inst, idx) => toChange({ before: inst, after: afterInstances[idx] }))
           await filter.preDeploy(changes)
           expect(afterProfileObj).toEqual(generateProfileType(false, true))
           expect(profileObj).toEqual(generateProfileType(true))
@@ -226,18 +210,15 @@ describe('Convert maps filter', () => {
                 { layout: 'Account-Account Layout' },
                 // dots etc are escaped in the layout's name
                 {
-                  layout:
-                    'Account-random characters %3B%2E%2B%3F%22aaa%27_%2B- bbb',
+                  layout: 'Account-random characters %3B%2E%2B%3F%22aaa%27_%2B- bbb',
                   recordType: 'something',
                 },
                 {
-                  layout:
-                    'Account-random characters %3B%2E%2B%3F%22aaa%27_%2B- bbb',
+                  layout: 'Account-random characters %3B%2E%2B%3F%22aaa%27_%2B- bbb',
                   recordType: 'repetition',
                 },
                 {
-                  layout:
-                    'Account-random characters %3B%2E%2B%3F%22aaa%27_%2B- bbb',
+                  layout: 'Account-random characters %3B%2E%2B%3F%22aaa%27_%2B- bbb',
                   recordType: 'repetition',
                 },
               ],
@@ -246,11 +227,7 @@ describe('Convert maps filter', () => {
               profileObj,
               instanceName: 'unexpected values',
               applications: ['sameApp', 'sameApp'],
-              fields: [
-                'Account.AccountNumber',
-                'Contact.HasOptedOutOfEmail',
-                'Account.AccountNumber',
-              ],
+              fields: ['Account.AccountNumber', 'Contact.HasOptedOutOfEmail', 'Account.AccountNumber'],
               layoutAssignments: [
                 { layout: 'Account-Account Layout' },
                 { layout: 'too.many.separators', recordType: 'something' },
@@ -262,35 +239,16 @@ describe('Convert maps filter', () => {
         })
 
         it('should convert all fields with duplicates into (maps of) lists', async () => {
-          const fieldType =
-            await profileObj.fields.applicationVisibilities.getType()
+          const fieldType = await profileObj.fields.applicationVisibilities.getType()
           expect(isMapType(fieldType)).toBeTruthy()
+          expect(isListType(await (fieldType as MapType).getInnerType())).toBeTruthy()
+          expect(Array.isArray((instances[1] as InstanceElement).value.applicationVisibilities.sameApp)).toBeTruthy()
+          expect(Array.isArray((instances[0] as InstanceElement).value.applicationVisibilities.app1)).toBeTruthy()
           expect(
-            isListType(await (fieldType as MapType).getInnerType()),
+            Array.isArray((instances[1] as InstanceElement).value.fieldPermissions.Account.AccountNumber),
           ).toBeTruthy()
           expect(
-            Array.isArray(
-              (instances[1] as InstanceElement).value.applicationVisibilities
-                .sameApp,
-            ),
-          ).toBeTruthy()
-          expect(
-            Array.isArray(
-              (instances[0] as InstanceElement).value.applicationVisibilities
-                .app1,
-            ),
-          ).toBeTruthy()
-          expect(
-            Array.isArray(
-              (instances[1] as InstanceElement).value.fieldPermissions.Account
-                .AccountNumber,
-            ),
-          ).toBeTruthy()
-          expect(
-            Array.isArray(
-              (instances[0] as InstanceElement).value.fieldPermissions.Contact
-                .HasOptedOutOfEmail,
-            ),
+            Array.isArray((instances[0] as InstanceElement).value.fieldPermissions.Contact.HasOptedOutOfEmail),
           ).toBeTruthy()
         })
 
@@ -302,6 +260,96 @@ describe('Convert maps filter', () => {
               { layout: 'too.many.separators', recordType: 'something' },
               { layout: 'too.many.wrongIndexing', recordType: 'something' },
             ],
+          })
+        })
+      })
+
+      describe('with invalid values', () => {
+        const generateInstances = (objType: ObjectType): InstanceElement[] => [
+          generateProfileInstance({
+            profileObj: objType,
+            instanceName: 'aaa',
+            applications: ['app1', 'app2'],
+            fields: ['Account.AccountNumber', 'Contact.HasOptedOutOfEmail'],
+            layoutAssignments: [
+              { layout: 'Account-Account Layout' },
+              // dots etc are escaped in the layout's name
+              {
+                layout: 'Account-random characters %3B%2E%2B%3F%22aaa%27_%2B- bbb',
+                recordType: 'something',
+              },
+              {
+                layout: 'Account-random characters %3B%2E%2B%3F%22aaa%27_%2B- bbb',
+                recordType: 'repetition',
+              },
+              {
+                layout: 12 as unknown as string,
+                recordType: 'repetition',
+              },
+              {
+                layout: undefined as unknown as string,
+                recordType: 'repetition',
+              },
+              {
+                layout: 'Account-random characters %3B%2E%2B%3F%22aaa%27_%2B- bbb',
+                recordType: 'repetition',
+              },
+            ],
+          }),
+          generateProfileInstance({
+            profileObj: objType,
+            instanceName: 'bbb',
+            applications: ['someApp'],
+            fields: ['Account.AccountNumber'],
+            layoutAssignments: [{ layout: 'Account-Account Layout' }],
+          }),
+        ]
+
+        beforeAll(async () => {
+          profileObj = generateProfileType()
+          instances = generateInstances(profileObj)
+          await filter.onFetch([profileObj, ...instances])
+        })
+
+        it('should convert instance values to maps while dropping invalid keys', () => {
+          expect((instances[0] as InstanceElement).value).toEqual({
+            applicationVisibilities: {
+              app1: { application: 'app1', default: true, visible: false },
+              app2: { application: 'app2', default: true, visible: false },
+            },
+            fieldPermissions: {
+              Account: {
+                AccountNumber: {
+                  field: 'Account.AccountNumber',
+                  editable: true,
+                  readable: true,
+                },
+              },
+              Contact: {
+                HasOptedOutOfEmail: {
+                  field: 'Contact.HasOptedOutOfEmail',
+                  editable: true,
+                  readable: true,
+                },
+              },
+            },
+            layoutAssignments: {
+              'Account_Account_Layout@bs': [{ layout: 'Account-Account Layout' }],
+              'Account_random_characters__3B_2E_2B_3F_22aaa_27__2B__bbb@bssppppppupbs': [
+                {
+                  layout: 'Account-random characters %3B%2E%2B%3F%22aaa%27_%2B- bbb',
+                  recordType: 'something',
+                },
+                {
+                  layout: 'Account-random characters %3B%2E%2B%3F%22aaa%27_%2B- bbb',
+                  recordType: 'repetition',
+                },
+                {
+                  layout: 'Account-random characters %3B%2E%2B%3F%22aaa%27_%2B- bbb',
+                  recordType: 'repetition',
+                },
+              ],
+            },
           })
         })
       })
@@ -341,24 +389,20 @@ describe('Convert maps filter', () => {
           },
           layoutAssignments: {
             'Account_Account_Layout@bs': [{ layout: 'Account-Account Layout' }],
-            'Account_random_characters__3B_2E_2B_3F_22aaa_27__2B__bbb@bssppppppupbs':
-              [
-                {
-                  layout:
-                    'Account-random characters %3B%2E%2B%3F%22aaa%27_%2B- bbb',
-                  recordType: 'something',
-                },
-                {
-                  layout:
-                    'Account-random characters %3B%2E%2B%3F%22aaa%27_%2B- bbb',
-                  recordType: 'repetition',
-                },
-                {
-                  layout:
-                    'Account-random characters %3B%2E%2B%3F%22aaa%27_%2B- bbb',
-                  recordType: 'repetition',
-                },
-              ],
+            'Account_random_characters__3B_2E_2B_3F_22aaa_27__2B__bbb@bssppppppupbs': [
+              {
+                layout: 'Account-random characters %3B%2E%2B%3F%22aaa%27_%2B- bbb',
+                recordType: 'something',
+              },
+              {
+                layout: 'Account-random characters %3B%2E%2B%3F%22aaa%27_%2B- bbb',
+                recordType: 'repetition',
+              },
+              {
+                layout: 'Account-random characters %3B%2E%2B%3F%22aaa%27_%2B- bbb',
+                recordType: 'repetition',
+              },
+            ],
           },
         }),
         new InstanceElement('profile2', objType, {
@@ -393,9 +437,7 @@ describe('Convert maps filter', () => {
         beforeInstances = generateInstances(beforeProfileObj)
         afterProfileObj = generateProfileType(true)
         afterInstances = generateInstances(afterProfileObj)
-        changes = beforeInstances.map((inst, idx) =>
-          toChange({ before: inst, after: afterInstances[idx] }),
-        )
+        changes = beforeInstances.map((inst, idx) => toChange({ before: inst, after: afterInstances[idx] }))
         await filter.preDeploy(changes)
       })
       it('should convert the object back to list on preDeploy', () => {
@@ -403,24 +445,12 @@ describe('Convert maps filter', () => {
       })
 
       it('should convert the instances back to lists on preDeploy', () => {
-        expect(
-          Array.isArray(afterInstances[0].value.applicationVisibilities),
-        ).toBeTruthy()
-        expect(
-          Array.isArray(afterInstances[0].value.fieldPermissions),
-        ).toBeTruthy()
-        expect(
-          Array.isArray(afterInstances[0].value.layoutAssignments),
-        ).toBeTruthy()
-        expect(
-          Array.isArray(beforeInstances[0].value.applicationVisibilities),
-        ).toBeTruthy()
-        expect(
-          Array.isArray(beforeInstances[0].value.fieldPermissions),
-        ).toBeTruthy()
-        expect(
-          Array.isArray(beforeInstances[0].value.layoutAssignments),
-        ).toBeTruthy()
+        expect(Array.isArray(afterInstances[0].value.applicationVisibilities)).toBeTruthy()
+        expect(Array.isArray(afterInstances[0].value.fieldPermissions)).toBeTruthy()
+        expect(Array.isArray(afterInstances[0].value.layoutAssignments)).toBeTruthy()
+        expect(Array.isArray(beforeInstances[0].value.applicationVisibilities)).toBeTruthy()
+        expect(Array.isArray(beforeInstances[0].value.fieldPermissions)).toBeTruthy()
+        expect(Array.isArray(beforeInstances[0].value.layoutAssignments)).toBeTruthy()
       })
 
       it('should return object and instances to their original form', async () => {
@@ -441,9 +471,7 @@ describe('Convert maps filter', () => {
       let instances: InstanceElement[]
 
       describe('with regular instances', () => {
-        const generatePermissionSetInstances = (
-          objType: ObjectType,
-        ): InstanceElement[] => [
+        const generatePermissionSetInstances = (objType: ObjectType): InstanceElement[] => [
           generatePermissionSetInstance({
             permissionSetObj: objType,
             instanceName: 'aaa',
@@ -465,15 +493,13 @@ describe('Convert maps filter', () => {
 
         it('should convert object field types to maps', async () => {
           expect(permissionSetObj).toEqual(generatePermissionSetType(true))
-          const fieldType =
-            await permissionSetObj.fields.applicationVisibilities.getType()
+          const fieldType = await permissionSetObj.fields.applicationVisibilities.getType()
           expect(isMapType(fieldType)).toBeTruthy()
           expect(isListType((fieldType as MapType).getInnerType())).toBeFalsy()
         })
         it('should mark the fields that are used for keys as _required=true', async () => {
           expect(permissionSetObj).toEqual(generatePermissionSetType(true))
-          const fieldType =
-            await permissionSetObj.fields.applicationVisibilities.getType()
+          const fieldType = await permissionSetObj.fields.applicationVisibilities.getType()
           expect(isMapType(fieldType)).toBeTruthy()
           expect(isListType((fieldType as MapType).getInnerType())).toBeFalsy()
         })
@@ -503,24 +529,14 @@ describe('Convert maps filter', () => {
         })
         it('should contain the original elements after fetch + preDeploy', async () => {
           const afterPermissionSetObj = generatePermissionSetType()
-          const afterInstances = generatePermissionSetInstances(
-            afterPermissionSetObj,
-          )
+          const afterInstances = generatePermissionSetInstances(afterPermissionSetObj)
           await filter.onFetch([afterPermissionSetObj, ...afterInstances])
-          const changes = instances.map((inst, idx) =>
-            toChange({ before: inst, after: afterInstances[idx] }),
-          )
+          const changes = instances.map((inst, idx) => toChange({ before: inst, after: afterInstances[idx] }))
           await filter.preDeploy(changes)
-          expect(afterPermissionSetObj).toEqual(
-            generatePermissionSetType(false, true),
-          )
+          expect(afterPermissionSetObj).toEqual(generatePermissionSetType(false, true))
           expect(permissionSetObj).toEqual(generatePermissionSetType(true))
-          expect(afterInstances).toEqual(
-            generatePermissionSetInstances(afterPermissionSetObj),
-          )
-          expect(instances).toEqual(
-            generatePermissionSetInstances(permissionSetObj),
-          )
+          expect(afterInstances).toEqual(generatePermissionSetInstances(afterPermissionSetObj))
+          expect(instances).toEqual(generatePermissionSetInstances(permissionSetObj))
         })
       })
     })
@@ -535,9 +551,7 @@ describe('Convert maps filter', () => {
       let afterInstances: InstanceElement[]
       let changes: Change[]
 
-      const generatePermissionSetInstances = (
-        objType: ObjectType,
-      ): InstanceElement[] => [
+      const generatePermissionSetInstances = (objType: ObjectType): InstanceElement[] => [
         new InstanceElement('profile1', objType, {
           applicationVisibilities: {
             app1: { application: 'app1', default: true, visible: false },
@@ -589,52 +603,38 @@ describe('Convert maps filter', () => {
         beforeInstances = generatePermissionSetInstances(beforePermissionSetObj)
         afterPermissionSetObj = generatePermissionSetType(true)
         afterInstances = generatePermissionSetInstances(afterPermissionSetObj)
-        changes = beforeInstances.map((inst, idx) =>
-          toChange({ before: inst, after: afterInstances[idx] }),
-        )
+        changes = beforeInstances.map((inst, idx) => toChange({ before: inst, after: afterInstances[idx] }))
         await filter.preDeploy(changes)
       })
       it('should convert the object back to list on preDeploy', () => {
-        expect(afterPermissionSetObj).toEqual(
-          generatePermissionSetType(false, true),
-        )
+        expect(afterPermissionSetObj).toEqual(generatePermissionSetType(false, true))
       })
 
       it('should convert the instances back to lists on preDeploy', () => {
-        expect(
-          Array.isArray(afterInstances[0].value.applicationVisibilities),
-        ).toBeTruthy()
-        expect(
-          Array.isArray(afterInstances[0].value.fieldPermissions),
-        ).toBeTruthy()
-        expect(
-          Array.isArray(beforeInstances[0].value.applicationVisibilities),
-        ).toBeTruthy()
-        expect(
-          Array.isArray(beforeInstances[0].value.fieldPermissions),
-        ).toBeTruthy()
+        expect(Array.isArray(afterInstances[0].value.applicationVisibilities)).toBeTruthy()
+        expect(Array.isArray(afterInstances[0].value.fieldPermissions)).toBeTruthy()
+        expect(Array.isArray(beforeInstances[0].value.applicationVisibilities)).toBeTruthy()
+        expect(Array.isArray(beforeInstances[0].value.fieldPermissions)).toBeTruthy()
       })
 
       it('should return object and instances to their original form', async () => {
         await filter.onDeploy(changes)
         expect(beforePermissionSetObj).toEqual(generatePermissionSetType(true))
         expect(afterPermissionSetObj).toEqual(generatePermissionSetType(true))
-        expect(beforeInstances).toEqual(
-          generatePermissionSetInstances(beforePermissionSetObj),
-        )
-        expect(afterInstances).toEqual(
-          generatePermissionSetInstances(afterPermissionSetObj),
-        )
+        expect(beforeInstances).toEqual(generatePermissionSetInstances(beforePermissionSetObj))
+        expect(afterInstances).toEqual(generatePermissionSetInstances(afterPermissionSetObj))
       })
     })
   })
 
   describe('Convert inner field to map', () => {
+    let lwcBefore: InstanceElement
+    let lwcAfter: InstanceElement
     let elements: Element[]
     type FilterType = FilterWith<'onFetch' | 'preDeploy'>
     let filter: FilterType
     beforeAll(async () => {
-      const lwc = createInstanceElement(
+      lwcBefore = createInstanceElement(
         {
           fullName: 'lwc',
           lwcResources: {
@@ -647,32 +647,37 @@ describe('Convert maps filter', () => {
         mockTypes.LightningComponentBundle,
       )
       const lwcType = mockTypes.LightningComponentBundle
-      elements = [lwc, lwcType]
+      elements = [lwcBefore.clone(), lwcType.clone()]
 
       filter = filterCreator({
         config: { ...defaultFilterContext },
       }) as FilterType
       await filter.onFetch(elements)
+      lwcAfter = elements[0] as InstanceElement
     })
     describe('on fetch', () => {
       it('should convert lwc resource inner field to map ', async () => {
-        const lwc = elements[0] as InstanceElement
-        const fieldType = await lwc.getType()
+        const fieldType = await lwcAfter.getType()
         const lwcResourcesType = await fieldType.fields.lwcResources.getType()
         if (isObjectType(lwcResourcesType)) {
-          const lwcResourceType =
-            await lwcResourcesType.fields.lwcResource.getType()
+          const lwcResourceType = await lwcResourcesType.fields.lwcResource.getType()
           expect(isMapType(lwcResourceType)).toBeTruthy()
         }
       })
       it('should use the custom mapper to create the key', async () => {
-        const lwc = elements[0] as InstanceElement
-        expect(Object.keys(lwc.value.lwcResources.lwcResource)[0]).toEqual(
-          'lwc_js@v',
-        )
-        expect(Object.keys(lwc.value.lwcResources.lwcResource)[1]).toEqual(
-          '__mocks___lwc_js@uuuudv',
-        )
+        expect(Object.keys(lwcAfter.value.lwcResources.lwcResource)[0]).toEqual('lwc_js@v')
+        expect(Object.keys(lwcAfter.value.lwcResources.lwcResource)[1]).toEqual('__mocks___lwc_js@uuuudv')
+      })
+    })
+    describe('pre deploy', () => {
+      let lwcDeploy: InstanceElement
+
+      beforeEach(async () => {
+        lwcDeploy = lwcAfter.clone()
+        await filter.preDeploy([toChange({ after: lwcDeploy })])
+      })
+      it('should return inner field back to list', async () => {
+        expect(lwcDeploy).toEqual(lwcBefore)
       })
     })
   })
@@ -693,9 +698,182 @@ describe('Convert maps filter', () => {
     describe('on fetch', () => {
       it('should convert field type to map ', async () => {
         const emailTemplateType = elements[0] as ObjectType
-        const attachmentsType =
-          await emailTemplateType.fields.attachments.getType()
+        const attachmentsType = await emailTemplateType.fields.attachments.getType()
         expect(isMapType(attachmentsType)).toBeTruthy()
+      })
+    })
+  })
+
+  describe('Maintain order', () => {
+    const gvsType = mockTypes.GlobalValueSet
+    const gvs = new InstanceElement('MyGVS', gvsType, {
+      customValue: [
+        { fullName: 'val1', default: true, label: 'value1' },
+        { fullName: 'val2', default: false, label: 'value2' },
+      ],
+    })
+    let elements: Element[]
+    type FilterType = FilterWith<'onFetch'>
+    let filter: FilterType
+    beforeAll(async () => {
+      elements = [gvs, gvsType]
+      filter = filterCreator({
+        config: {
+          ...defaultFilterContext,
+          fetchProfile: buildFetchProfile({ fetchParams: { optionalFeatures: { picklistsAsMaps: true } } }),
+        },
+      }) as FilterType
+      await filter.onFetch(elements)
+    })
+
+    it('should convert field type to ordered map', async () => {
+      const fieldType = await gvsType.fields.customValue.getType()
+      expect(fieldType.elemID.typeName).toEqual('OrderedMap<CustomValue>')
+    })
+
+    it('should convert instance value to map ', () => {
+      expect(gvs.value.customValue.values).toBeDefined()
+      expect(gvs.value.customValue.values).toEqual({
+        val1: { fullName: 'val1', default: true, label: 'value1' },
+        val2: { fullName: 'val2', default: false, label: 'value2' },
+      })
+    })
+  })
+
+  describe('Convert CustomObject field annotations by type', () => {
+    let picklistType: PrimitiveType
+    let multiselectPicklistType: PrimitiveType
+    let myCustomObj: ObjectType
+    let elements: Element[]
+    type FilterType = FilterWith<'onFetch' | 'preDeploy' | 'onDeploy'>
+    let filter: FilterType
+    let mappedReference: ReferenceExpression
+    beforeEach(async () => {
+      // Clone the types to avoid changing the original types and affecting other tests.
+      picklistType = Types.primitiveDataTypes.Picklist.clone()
+      multiselectPicklistType = Types.primitiveDataTypes.MultiselectPicklist.clone()
+      const referencedInstance = createInstanceElement({ fullName: 'val1' }, mockTypes.ApexClass)
+      mappedReference = new ReferenceExpression(referencedInstance.elemID, referencedInstance)
+      myCustomObj = createCustomObjectType('MyCustomObj', {
+        fields: {
+          myPicklist: {
+            refType: picklistType,
+            annotations: {
+              [FIELD_ANNOTATIONS.VALUE_SET]: [
+                { fullName: mappedReference, default: true, label: 'value1' },
+                { fullName: 'val2', default: false, label: 'value2' },
+              ],
+            },
+          },
+          myMultiselectPicklist: {
+            refType: multiselectPicklistType,
+            annotations: {
+              [FIELD_ANNOTATIONS.VALUE_SET]: [
+                { fullName: 'val1', default: true, label: 'value1' },
+                { fullName: 'val2', default: false, label: 'value2' },
+              ],
+            },
+          },
+        },
+      })
+
+      elements = [myCustomObj, picklistType, multiselectPicklistType]
+      filter = filterCreator({
+        config: {
+          ...defaultFilterContext,
+          fetchProfile: buildFetchProfile({ fetchParams: { optionalFeatures: { picklistsAsMaps: true } } }),
+        },
+      }) as FilterType
+    })
+
+    describe('onFetch', () => {
+      beforeEach(async () => {
+        await filter.onFetch(elements)
+      })
+
+      it('should convert Picklist valueSet type to ordered map', async () => {
+        expect(myCustomObj.fields.myPicklist.getTypeSync()).toEqual(picklistType)
+        const valueSetType = picklistType.annotationRefTypes.valueSet as TypeReference<ObjectType>
+        expect(valueSetType.elemID.typeName).toEqual('OrderedMap<valueSet>')
+        expect(valueSetType.type?.fields.values.refType.elemID.typeName).toEqual('Map<salesforce.valueSet>')
+        expect(valueSetType.type?.fields.order.refType.elemID.typeName).toEqual('List<string>')
+        expect(picklistType.annotationRefTypes.valueSet?.elemID.name).toEqual('OrderedMap<valueSet>')
+      })
+
+      it('should convert MultiselectPicklist valueSet type to ordered map', async () => {
+        expect(myCustomObj.fields.myMultiselectPicklist.getTypeSync()).toEqual(multiselectPicklistType)
+        const valueSetType = multiselectPicklistType.annotationRefTypes.valueSet as TypeReference<ObjectType>
+        expect(valueSetType.elemID.typeName).toEqual('OrderedMap<valueSet>')
+        expect(valueSetType.type?.fields.values.refType.elemID.typeName).toEqual('Map<salesforce.valueSet>')
+        expect(valueSetType.type?.fields.order.refType.elemID.typeName).toEqual('List<string>')
+        expect(multiselectPicklistType.annotationRefTypes.valueSet?.elemID.name).toEqual('OrderedMap<valueSet>')
+      })
+
+      it('should convert annotation value to map (Picklist)', () => {
+        expect(myCustomObj.fields.myPicklist.annotations.valueSet.values).toBeDefined()
+        expect(myCustomObj.fields.myPicklist.annotations.valueSet.values).toEqual({
+          val1: { fullName: mappedReference, default: true, label: 'value1' },
+          val2: { fullName: 'val2', default: false, label: 'value2' },
+        })
+      })
+
+      it('should convert annotation value to map (MultiselectPicklist)', () => {
+        expect(myCustomObj.fields.myMultiselectPicklist.annotations.valueSet.values).toBeDefined()
+        expect(myCustomObj.fields.myMultiselectPicklist.annotations.valueSet.values).toEqual({
+          val1: { fullName: 'val1', default: true, label: 'value1' },
+          val2: { fullName: 'val2', default: false, label: 'value2' },
+        })
+      })
+    })
+
+    describe('preDeploy + onDeploy', () => {
+      let changes: Change[]
+      beforeEach(async () => {
+        // This fetch will convert the Picklist valueSet type to OrderedMap
+        await filter.onFetch([myCustomObj, picklistType, multiselectPicklistType])
+        const resolvedChange = await resolveChangeElement(
+          toChange({ after: myCustomObj }),
+          getLookUpName(buildFetchProfile({ fetchParams: {} })),
+          salesforceAdapterResolveValues,
+        )
+        changes = [resolvedChange]
+        myCustomObj = getChangeData(resolvedChange)
+        await filter.preDeploy(changes)
+      })
+
+      it('should convert the object back to list on preDeploy (Picklist)', () => {
+        expect(myCustomObj.fields.myPicklist.annotations.valueSet).toBeDefined()
+        // The valueSet should be converted back to a list. Since we're not running reference resolution, we need to
+        // peel back the reference layer first.
+        expect(myCustomObj.fields.myPicklist.annotations.valueSet).toEqual([
+          { fullName: 'val1', default: true, label: 'value1' },
+          { fullName: 'val2', default: false, label: 'value2' },
+        ])
+      })
+
+      it('should convert the object back to list on preDeploy (MultiselectPicklist)', () => {
+        expect(myCustomObj.fields.myMultiselectPicklist.annotations.valueSet).toBeDefined()
+        // The valueSet should be converted back to a list. Since we're not running reference resolution, we need to
+        // peel back the reference layer first.
+        expect(myCustomObj.fields.myMultiselectPicklist.annotations.valueSet).toEqual([
+          { fullName: 'val1', default: true, label: 'value1' },
+          { fullName: 'val2', default: false, label: 'value2' },
+        ])
+      })
+
+      it('should convert the object back to map on onDeploy (Picklist)', async () => {
+        // Simulate reference resolution.
+        myCustomObj.fields.myPicklist.annotations.valueSet = [
+          { fullName: 'val1', default: true, label: 'value1' },
+          { fullName: 'val2', default: false, label: 'value2' },
+        ]
+
+        await filter.onDeploy(changes)
+        expect(myCustomObj.fields.myPicklist.annotations.valueSet.values).toBeDefined()
+        expect(myCustomObj.fields.myPicklist.annotations.valueSet.values).toEqual({
+          val1: { fullName: 'val1', default: true, label: 'value1' },
+          val2: { fullName: 'val2', default: false, label: 'value2' },
+        })
       })
     })
   })

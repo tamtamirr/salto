@@ -1,17 +1,9 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
 import { EventEmitter } from 'pietile-eventemitter'
 import { InstanceElement } from '@salto-io/adapter-api'
@@ -26,7 +18,6 @@ import {
 import { createElementSelector, Workspace } from '@salto-io/workspace'
 import { mockFunction } from '@salto-io/test-utils'
 import { CliExitCode, CliTelemetry, CliError } from '../../src/types'
-import * as fetchCmd from '../../src/commands/fetch'
 import { action, fetchCommand, FetchCommandArgs } from '../../src/commands/fetch'
 import * as callbacks from '../../src/callbacks'
 import * as mocks from '../mocks'
@@ -76,7 +67,9 @@ describe('fetch command', () => {
     describe('with errored workspace', () => {
       beforeEach(async () => {
         const workspace = mocks.mockWorkspace({})
-        workspace.errors.mockResolvedValue(mocks.mockErrors([{ severity: 'Error', message: 'some error' }]))
+        workspace.errors.mockResolvedValue(
+          mocks.mockErrors([{ severity: 'Error', message: 'some error', detailedMessage: 'some detailed error' }]),
+        )
         result = await action({
           ...cliCommandArgs,
           input: {
@@ -580,7 +573,11 @@ describe('fetch command', () => {
               const workspace = mocks.mockWorkspace({})
               workspace.updateNaclFiles.mockImplementation(async () => {
                 // Make the workspace errored after updateNaclFiles is called
-                workspace.errors.mockResolvedValue(mocks.mockErrors([{ severity: 'Error', message: 'BLA Error' }]))
+                workspace.errors.mockResolvedValue(
+                  mocks.mockErrors([
+                    { severity: 'Error', message: 'BLA Error', detailedMessage: 'detailed BLA Error' },
+                  ]),
+                )
                 return { naclFilesChangesCount: 0, stateOnlyChangesCount: 0 }
               })
 
@@ -608,7 +605,11 @@ describe('fetch command', () => {
               const workspace = mocks.mockWorkspace({})
               workspace.updateNaclFiles.mockImplementation(async () => {
                 // Make the workspace errored after updateNaclFiles is called
-                workspace.errors.mockResolvedValue(mocks.mockErrors([{ severity: 'Warning', message: 'BLA Error' }]))
+                workspace.errors.mockResolvedValue(
+                  mocks.mockErrors([
+                    { severity: 'Warning', message: 'BLA Error', detailedMessage: 'detailed BLA Error' },
+                  ]),
+                )
                 return { naclFilesChangesCount: 0, stateOnlyChangesCount: 0 }
               })
 
@@ -644,6 +645,7 @@ describe('fetch command', () => {
                 elemID: mocks.elements()[0].elemID,
                 error: 'test',
                 message: 'test merge error',
+                detailedMessage: 'detailed test merge error',
                 severity: 'Warning',
               },
             },
@@ -677,189 +679,6 @@ describe('fetch command', () => {
           expect(output.stderr.content).toContain('test merge error')
         })
       })
-    })
-  })
-  describe('multienv - new account in env, with existing common elements', () => {
-    let workspace: mocks.MockWorkspace
-    beforeEach(() => {
-      workspace = mocks.mockWorkspace({})
-      workspace.hasElementsInAccounts.mockResolvedValue(true)
-      workspace.getStateRecency.mockResolvedValue({
-        serviceName: 'salesforce',
-        accountName: 'salesforce',
-        status: 'Nonexistent',
-        date: undefined,
-      })
-      jest.spyOn(fetchCmd, 'fetchCommand').mockImplementationOnce(() => Promise.resolve(CliExitCode.Success))
-    })
-    afterEach(() => {
-      jest.clearAllMocks()
-    })
-    afterAll(() => {
-      jest.restoreAllMocks()
-    })
-
-    it('should prompt to change mode, and continue as-is on "no"', async () => {
-      jest.spyOn(callbacks, 'getChangeToAlignAction').mockImplementationOnce(() => Promise.resolve('no'))
-      await action({
-        ...cliCommandArgs,
-        input: {
-          force: false,
-          mode: 'default',
-          accounts,
-          stateOnly: false,
-          fromState: false,
-          regenerateSaltoIds: false,
-        },
-        workspace,
-      })
-
-      expect(callbacks.getChangeToAlignAction).toHaveBeenCalledTimes(1)
-      expect(fetchCmd.fetchCommand).toHaveBeenCalledTimes(1)
-      expect((fetchCmd.fetchCommand as jest.Mock).mock.calls[0][0].mode).toEqual('default')
-    })
-    it('should prompt to change mode, and change to "align" on "yes"', async () => {
-      jest.spyOn(callbacks, 'getChangeToAlignAction').mockImplementationOnce(() => Promise.resolve('yes'))
-
-      await action({
-        ...cliCommandArgs,
-        input: {
-          force: false,
-          mode: 'override',
-          accounts,
-          stateOnly: false,
-          fromState: true,
-          regenerateSaltoIds: false,
-        },
-        workspace,
-      })
-
-      expect(callbacks.getChangeToAlignAction).toHaveBeenCalledTimes(1)
-      expect(fetchCmd.fetchCommand).toHaveBeenCalledTimes(1)
-      expect((fetchCmd.fetchCommand as jest.Mock).mock.calls[0][0].mode).toEqual('align')
-    })
-    it('should prompt to change mode, and cancel on "cancel operation"', async () => {
-      jest.spyOn(callbacks, 'getChangeToAlignAction').mockImplementationOnce(() => Promise.resolve('cancel operation'))
-      await action({
-        ...cliCommandArgs,
-        input: {
-          force: false,
-          mode: 'default',
-          accounts,
-          stateOnly: false,
-          fromState: true,
-          regenerateSaltoIds: false,
-        },
-        workspace,
-      })
-
-      expect(callbacks.getChangeToAlignAction).toHaveBeenCalledTimes(1)
-      expect(fetchCmd.fetchCommand).not.toHaveBeenCalled()
-    })
-    it('should not prompt if running with force=true', async () => {
-      jest.spyOn(callbacks, 'getChangeToAlignAction').mockImplementationOnce(() => Promise.resolve('no'))
-      await action({
-        ...cliCommandArgs,
-        input: {
-          force: true,
-          mode: 'override',
-          accounts,
-          stateOnly: false,
-          fromState: false,
-          regenerateSaltoIds: false,
-        },
-        workspace,
-      })
-
-      expect(callbacks.getChangeToAlignAction).not.toHaveBeenCalled()
-      expect(fetchCmd.fetchCommand).toHaveBeenCalledTimes(1)
-      expect((fetchCmd.fetchCommand as jest.Mock).mock.calls[0][0].mode).toEqual('override')
-    })
-    it('should not prompt if already ran account', async () => {
-      jest.spyOn(callbacks, 'getChangeToAlignAction').mockImplementationOnce(() => Promise.resolve('no'))
-      workspace.getStateRecency.mockResolvedValue({
-        serviceName: 'salesforce',
-        accountName: 'salesforce',
-        status: 'Valid',
-        date: new Date(),
-      })
-      await action({
-        ...cliCommandArgs,
-        input: {
-          force: false,
-          mode: 'default',
-          accounts,
-          stateOnly: false,
-          fromState: false,
-          regenerateSaltoIds: false,
-        },
-        workspace,
-      })
-
-      expect(callbacks.getChangeToAlignAction).not.toHaveBeenCalled()
-      expect(fetchCmd.fetchCommand).toHaveBeenCalledTimes(1)
-      expect((fetchCmd.fetchCommand as jest.Mock).mock.calls[0][0].mode).toEqual('default')
-    })
-    it('should not prompt if mode is align', async () => {
-      jest.spyOn(callbacks, 'getChangeToAlignAction').mockImplementationOnce(() => Promise.resolve('no'))
-      await action({
-        ...cliCommandArgs,
-        input: {
-          force: false,
-          mode: 'align',
-          accounts,
-          stateOnly: false,
-          fromState: false,
-          regenerateSaltoIds: false,
-        },
-        workspace,
-      })
-      expect(callbacks.getChangeToAlignAction).not.toHaveBeenCalled()
-      expect(fetchCmd.fetchCommand).toHaveBeenCalledTimes(1)
-      expect((fetchCmd.fetchCommand as jest.Mock).mock.calls[0][0].mode).toEqual('align')
-    })
-    it('should not prompt if nothing is under common', async () => {
-      jest.spyOn(callbacks, 'getChangeToAlignAction').mockImplementation(() => Promise.resolve('no'))
-      workspace.hasElementsInAccounts.mockResolvedValue(false)
-      await action({
-        ...cliCommandArgs,
-        input: {
-          force: false,
-          mode: 'default',
-          accounts,
-          stateOnly: false,
-          fromState: false,
-          regenerateSaltoIds: false,
-        },
-        workspace,
-      })
-      expect(callbacks.getChangeToAlignAction).not.toHaveBeenCalled()
-      expect(fetchCmd.fetchCommand).toHaveBeenCalledTimes(1)
-      expect((fetchCmd.fetchCommand as jest.Mock).mock.calls[0][0].mode).toEqual('default')
-    })
-
-    it('should not prompt if only one of the accounts is new', async () => {
-      jest.spyOn(callbacks, 'getChangeToAlignAction').mockImplementationOnce(() => Promise.resolve('no'))
-      workspace.getStateRecency.mockImplementation(async accountName => ({
-        serviceName: accountName,
-        accountName,
-        status: accountName === 'salesforce' ? 'Nonexistent' : 'Valid',
-        date: accountName === 'salesforce' ? undefined : new Date(),
-      }))
-      await action({
-        ...cliCommandArgs,
-        input: {
-          force: false,
-          mode: 'override',
-          stateOnly: false,
-          fromState: false,
-          regenerateSaltoIds: false,
-        },
-        workspace,
-      })
-      expect(callbacks.getChangeToAlignAction).not.toHaveBeenCalled()
-      expect(fetchCmd.fetchCommand).toHaveBeenCalledTimes(1)
-      expect((fetchCmd.fetchCommand as jest.Mock).mock.calls[0][0].mode).toEqual('override')
     })
   })
 

@@ -1,17 +1,9 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
 
 import {
@@ -47,7 +39,7 @@ const isAutomationProjects = createSchemeGuard<AutomationProjects>(
   'Received an invalid automation projects value',
 )
 
-const getProjectReferences = async (instance: InstanceElement): Promise<ReferenceInfo[]> => {
+const getProjectReferences = (instance: InstanceElement): ReferenceInfo[] => {
   const automationProjects = instance.value.projects
   if (automationProjects === undefined || !isAutomationProjects(automationProjects)) {
     log.warn(
@@ -56,8 +48,8 @@ const getProjectReferences = async (instance: InstanceElement): Promise<Referenc
     return []
   }
 
-  return awu(automationProjects)
-    .map(async (proj, index) =>
+  return automationProjects
+    .map((proj, index) =>
       isReferenceExpression(proj.projectId)
         ? {
             source: instance.elemID.createNestedID(index.toString(), 'projectId'),
@@ -67,7 +59,6 @@ const getProjectReferences = async (instance: InstanceElement): Promise<Referenc
         : undefined,
     )
     .filter(values.isDefined)
-    .toArray()
 }
 
 /**
@@ -103,6 +94,7 @@ const removeMissingAutomationProjects: WeakReferencesHandler['removeWeakReferenc
           .filter(
             async proj =>
               proj.projectId === undefined ||
+              // consider changing, if it is not a reference expression it is not a weak reference
               (isReferenceExpression(proj.projectId) &&
                 // eslint-disable-next-line no-return-await
                 (await elementsSource.has(proj.projectId.elemID))),

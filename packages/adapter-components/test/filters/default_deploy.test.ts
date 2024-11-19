@@ -1,17 +1,9 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
 import {
   ObjectType,
@@ -128,8 +120,12 @@ describe('default deploy filter', () => {
         .mockResolvedValueOnce(Promise.resolve())
         .mockImplementationOnce(() => Promise.reject(Error('something bad happened')))
       const changes = [
-        toChange({ after: new InstanceElement('name', new ObjectType({ elemID: new ElemID('myAdapter', 'myType') })) }),
-        toChange({ after: new InstanceElement('name', new ObjectType({ elemID: new ElemID('myAdapter', 'myType') })) }),
+        toChange({
+          after: new InstanceElement('success', new ObjectType({ elemID: new ElemID('myAdapter', 'myType') })),
+        }),
+        toChange({
+          after: new InstanceElement('failure', new ObjectType({ elemID: new ElemID('myAdapter', 'myType') })),
+        }),
       ]
       const res = await filter.deploy(changes, { changes, groupID: 'a' })
       expect(res.deployResult.appliedChanges).toHaveLength(1)
@@ -137,8 +133,9 @@ describe('default deploy filter', () => {
       expect(res.leftoverChanges).toHaveLength(0)
       expect(res.deployResult.errors).toEqual([
         {
-          elemID: new ElemID('myAdapter', 'myType', 'instance', 'name'),
+          elemID: new ElemID('myAdapter', 'myType', 'instance', 'failure'),
           message: 'Error: something bad happened',
+          detailedMessage: 'Error: something bad happened',
           severity: 'Error',
         },
       ])

@@ -1,24 +1,23 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
 import _ from 'lodash'
-import axios, { AxiosError, AxiosBasicCredentials, AxiosRequestConfig, AxiosRequestHeaders } from 'axios'
+import axios, {
+  AxiosError,
+  AxiosBasicCredentials,
+  AxiosRequestConfig,
+  AxiosRequestHeaders,
+  AxiosResponseHeaders,
+} from 'axios'
 import axiosRetry, { IAxiosRetryConfig } from 'axios-retry'
 import { AccountInfo, CredentialError } from '@salto-io/adapter-api'
 import { logger } from '@salto-io/logging'
 import { ClientRetryConfig, ClientTimeoutConfig } from '../definitions/user/client_config'
+import { AdapterFetchError } from '../config_deprecated'
 import { DEFAULT_RETRY_OPTS, DEFAULT_TIMEOUT_OPTS } from './constants'
 
 const log = logger(module)
@@ -33,7 +32,8 @@ export type Response<T> = {
   data: T
   status: number
   statusText?: string
-  headers?: Record<string, string>
+  headers?: Partial<AxiosResponseHeaders>
+  requestPath?: string
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -62,7 +62,7 @@ export interface Connection<TCredentials> {
 
 export type ConnectionCreator<TCredentials> = (retryOptions: RetryOptions, timeout?: number) => Connection<TCredentials>
 
-const getRetryDelayFromHeaders = (headers: Record<string, string>): number | undefined => {
+const getRetryDelayFromHeaders = (headers: Partial<AxiosResponseHeaders>): number | undefined => {
   // Although the standard is 'Retry-After' is seems that some servers
   // returns 'retry-after' so just in case we lowercase the headers
   const lowercaseHeaders = _.mapKeys(headers, (_val, key) => key.toLowerCase())
@@ -121,7 +121,7 @@ export const createRetryOptions = (
 
     log.warn(
       'Failed to run client call to %s for reason: %s (%s). Retrying in %ds (attempt %d).',
-      err.config.url,
+      err.config?.url,
       err.code,
       err.message,
       retryDelay / 1000,
@@ -176,7 +176,7 @@ export const validateCredentials = async <TCredentials>(
 
 export type AuthParams = {
   auth?: AxiosBasicCredentials
-  headers?: AxiosRequestHeaders
+  headers?: Partial<AxiosRequestHeaders>
 }
 
 type AxiosConnectionParams<TCredentials> = {
@@ -201,15 +201,21 @@ export const axiosConnection = <TCredentials>({
   timeout = 0,
 }: AxiosConnectionParams<TCredentials>): Connection<TCredentials> => {
   const login = async (credentials: TCredentials): Promise<AuthenticatedAPIConnection> => {
-    const httpClient = axios.create({
-      baseURL: await baseURLFunc(credentials),
-      ...(await authParamsFunc(credentials)),
-      maxBodyLength: Infinity,
-      timeout,
-    })
-    axiosRetry(httpClient, retryOptions)
-
     try {
+      const httpClient = axios.create({
+        baseURL: await baseURLFunc(credentials),
+        ...(await authParamsFunc(credentials)),
+        maxBodyLength: Infinity,
+      })
+      httpClient.interceptors.request.use(
+        config => {
+          config.timeout = timeout
+          return config
+        },
+        null,
+        { runWhen: config => ['get', 'head', 'options'].includes(config.method ?? '') },
+      )
+      axiosRetry(httpClient, retryOptions)
       const accountInfo = await credValidateFunc({ credentials, connection: httpClient })
       return Object.assign(httpClient, { accountInfo })
     } catch (e) {
@@ -217,7 +223,11 @@ export const axiosConnection = <TCredentials>({
       if (e.response?.status === 401 || e instanceof UnauthorizedError) {
         throw new UnauthorizedError('Unauthorized - update credentials and try again')
       }
-      throw new Error(`Login failed with error: ${e}`)
+      // TODO SALTO-6869 remove the special handling of AdapterFetchError
+      if (e instanceof AdapterFetchError) {
+        throw e
+      }
+      throw new Error(`Login failed with error: ${e.message ?? e}`)
     }
   }
 

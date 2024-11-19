@@ -1,17 +1,9 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
 import _ from 'lodash'
 import { EOL } from 'os'
@@ -40,6 +32,7 @@ import {
   ChangeDataType,
   isStaticFile,
   isSaltoElementError,
+  SaltoElementError,
 } from '@salto-io/adapter-api'
 import {
   Plan,
@@ -51,7 +44,7 @@ import {
   DeployError,
   GroupProperties,
 } from '@salto-io/core'
-import { errors, SourceLocation, WorkspaceComponents, StateRecency } from '@salto-io/workspace'
+import { errors, SourceLocation, WorkspaceComponents } from '@salto-io/workspace'
 import { safeJsonStringify } from '@salto-io/adapter-utils'
 import { collections, values } from '@salto-io/lowerdash'
 import Prompts from './prompts'
@@ -377,7 +370,7 @@ export const cancelDeployOutput = (checkOnly: boolean): string =>
 
 export const deployErrorsOutput = (allErrors: DeployError[]): string => {
   const getErrorMessage = (err: DeployError): string =>
-    formatListRecord(`${isSaltoElementError(err) ? `${err.elemID.getFullName()}: ` : ''}${err.message}`, 1)
+    formatListRecord(`${isSaltoElementError(err) ? `${err.elemID.getFullName()}: ` : ''}${err.detailedMessage}`, 1)
   const errorOutputLines = [emptyLine()]
   if (allErrors.length > 0) {
     const warnings = allErrors.filter(warning => warning.severity === 'Warning')
@@ -498,6 +491,17 @@ export const formatMergeErrors = (mergeErrors: FetchResult['mergeErrors']): stri
 
 export const formatFetchWarnings = (warnings: string[]): string =>
   [emptyLine(), `${Prompts.FETCH_WARNINGS}\n${warnings.join('\n\n')}`].join('\n')
+
+export const formatSyncToWorkspaceErrors = (syncErrors: ReadonlyArray<SaltoError | SaltoElementError>): string =>
+  [emptyLine(), Prompts.SYNC_TO_WORKSPACE_ERRORS]
+    .concat(
+      syncErrors.flatMap(err => [
+        `${err.severity} ${err.message}${isSaltoElementError(err) ? ` (${err.elemID.getFullName()})` : ''}`,
+        err.detailedMessage,
+        emptyLine(),
+      ]),
+    )
+    .join('\n')
 
 export const formatWorkspaceLoadFailed = (numErrors: number): string =>
   formatSimpleError(`${Prompts.WORKSPACE_LOAD_FAILED(numErrors)}`)
@@ -689,15 +693,6 @@ export const formatEnvDiff = async (
     changes.length > 0 ? await formatDetailedChanges([changes.map(change => change.change)], detailed) : 'No changes'
   return [emptyLine(), header(Prompts.DIFF_CALC_DIFF_RESULT_HEADER(toEnv, fromEnv)), changesStr, emptyLine()].join('\n')
 }
-
-export const formatStateRecencies = (stateRecencies: StateRecency[]): string =>
-  stateRecencies
-    .map(recency =>
-      recency.status === 'Nonexistent'
-        ? Prompts.NONEXISTENT_STATE(recency.accountName ?? recency.serviceName)
-        : Prompts.STATE_RECENCY(recency.accountName ?? recency.serviceName, recency.date as Date),
-    )
-    .join(EOL)
 
 export const formatAdapterProgress = (adapterName: string, progressMessage: string): string =>
   subHeader(indent(Prompts.FETCH_PROGRESSING_MESSAGES(adapterName, progressMessage), 4))

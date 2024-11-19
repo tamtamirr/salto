@@ -1,26 +1,17 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
 import { ChangeValidator } from '@salto-io/adapter-api'
-import { buildLazyShallowTypeResolverElementsSource } from '@salto-io/adapter-utils'
+import { buildLazyShallowTypeResolverElementsSource, GetLookupNameFunc } from '@salto-io/adapter-utils'
 import _ from 'lodash'
 import { deployment } from '@salto-io/adapter-components'
 import packageValidator from './change_validators/package'
 import picklistStandardFieldValidator from './change_validators/picklist_standard_field'
 import customObjectInstancesValidator from './change_validators/custom_object_instances'
-import unknownFieldValidator from './change_validators/unknown_field'
 import customFieldTypeValidator from './change_validators/custom_field_type'
 import standardFieldLabelValidator from './change_validators/standard_field_label'
 import mapKeysValidator from './change_validators/map_keys'
@@ -53,17 +44,23 @@ import metadataTypes from './change_validators/metadata_types'
 import elementApiVersionValidator from './change_validators/element_api_version'
 import cpqBillingStartDate from './change_validators/cpq_billing_start_date'
 import cpqBillingTriggers from './change_validators/cpq_billing_triggers'
+import managedApexComponent from './change_validators/managed_apex_component'
+import orderedMaps from './change_validators/ordered_maps'
 import SalesforceClient from './client/client'
-import { ChangeValidatorName, DEPLOY_CONFIG, SalesforceConfig } from './types'
+import { ChangeValidatorName, DEPLOY_CONFIG, FetchProfile, SalesforceConfig } from './types'
+import { buildFetchProfile } from './fetch_profile/fetch_profile'
+import { getLookUpName } from './transformers/reference_mapping'
+import layoutDuplicateFields from './change_validators/layout_duplicate_fields'
 
-const { createChangeValidator, getDefaultChangeValidators } =
-  deployment.changeValidators
+const { createChangeValidator, getDefaultChangeValidators } = deployment.changeValidators
 
-type ChangeValidatorCreator = (
-  config: SalesforceConfig,
-  isSandbox: boolean,
-  client: SalesforceClient,
-) => ChangeValidator
+type ChangeValidatorCreator = (params: {
+  config: SalesforceConfig
+  isSandbox: boolean
+  client: SalesforceClient
+  fetchProfile: FetchProfile
+  getLookupNameFunc: GetLookupNameFunc
+}) => ChangeValidator
 
 export const defaultChangeValidatorsDeployConfig: Record<string, boolean> = {
   omitData: false,
@@ -72,29 +69,24 @@ export const defaultChangeValidatorsValidateConfig: Record<string, boolean> = {
   dataChange: false,
 }
 
-export const changeValidators: Record<
-  ChangeValidatorName,
-  ChangeValidatorCreator
-> = {
+export const changeValidators: Record<ChangeValidatorName, ChangeValidatorCreator> = {
   managedPackage: () => packageValidator,
   picklistStandardField: () => picklistStandardFieldValidator,
-  customObjectInstances: () => customObjectInstancesValidator,
-  unknownField: () => unknownFieldValidator,
+  customObjectInstances: ({ getLookupNameFunc }) => customObjectInstancesValidator(getLookupNameFunc),
   customFieldType: () => customFieldTypeValidator,
   standardFieldLabel: () => standardFieldLabelValidator,
-  mapKeys: () => mapKeysValidator,
+  mapKeys: ({ getLookupNameFunc, fetchProfile }) => mapKeysValidator(getLookupNameFunc, fetchProfile),
   multipleDefaults: () => multipleDefaultsValidator,
   picklistPromote: () => picklistPromoteValidator,
   cpqValidator: () => cpqValidator,
   recordTypeDeletion: () => recordTypeDeletionValidator,
-  flowsValidator: (config, isSandbox, client) =>
-    flowsValidator(config, isSandbox, client),
+  flowsValidator: ({ fetchProfile, isSandbox, client }) => flowsValidator(fetchProfile, isSandbox, client),
   fullNameChangedValidator: () => fullNameChangedValidator,
   invalidListViewFilterScope: () => invalidListViewFilterScope,
   caseAssignmentRulesValidator: () => caseAssignmentRulesValidator,
   omitData: () => omitDataValidator,
   dataChange: () => dataChangeValidator,
-  unknownUser: (_config, _isSandbox, client) => unknownUser(client),
+  unknownUser: ({ client }) => unknownUser(client),
   animationRuleRecordType: () => animationRuleRecordType,
   duplicateRulesSortOrder: () => duplicateRulesSortOrder,
   currencyIsoCodes: () => currencyIsoCodes,
@@ -103,18 +95,20 @@ export const changeValidators: Record<
   unknownPicklistValues: () => unknownPicklistValues,
   installedPackages: () => installedPackages,
   dataCategoryGroup: () => dataCategoryGroupValidator,
-  standardFieldOrObjectAdditionsOrDeletions: () =>
-    standardFieldOrObjectAdditionsOrDeletions,
+  standardFieldOrObjectAdditionsOrDeletions: () => standardFieldOrObjectAdditionsOrDeletions,
   deletedNonQueryableFields: () => deletedNonQueryableFields,
   instanceWithUnknownType: () => instanceWithUnknownType,
   artificialTypes: () => artificialTypes,
   metadataTypes: () => metadataTypes,
   taskOrEventFieldsModifications: () => taskOrEventFieldsModifications,
-  newFieldsAndObjectsFLS: (config) => newFieldsAndObjectsFLS(config),
+  newFieldsAndObjectsFLS: ({ config }) => newFieldsAndObjectsFLS(config),
   elementApiVersion: () => elementApiVersionValidator,
   cpqBillingStartDate: () => cpqBillingStartDate,
   cpqBillingTriggers: () => cpqBillingTriggers,
-  ..._.mapValues(getDefaultChangeValidators(), (validator) => () => validator),
+  managedApexComponent: () => managedApexComponent,
+  orderedMaps: ({ fetchProfile }) => orderedMaps(fetchProfile),
+  layoutDuplicateFields: () => layoutDuplicateFields,
+  ..._.mapValues(getDefaultChangeValidators(), validator => () => validator),
 }
 
 const createSalesforceChangeValidator = ({
@@ -133,9 +127,11 @@ const createSalesforceChangeValidator = ({
     ? defaultChangeValidatorsValidateConfig
     : defaultChangeValidatorsDeployConfig
 
+  const fetchProfile = buildFetchProfile({ fetchParams: config.fetch ?? {} })
+  const getLookupNameFunc: GetLookupNameFunc = getLookUpName(fetchProfile)
   const changeValidator = createChangeValidator({
-    validators: _.mapValues(changeValidators, (validator) =>
-      validator(config, isSandbox, client),
+    validators: _.mapValues(changeValidators, validator =>
+      validator({ config, isSandbox, client, fetchProfile, getLookupNameFunc }),
     ),
     validatorsActivationConfig: {
       ...defaultValidatorsActivationConfig,
@@ -148,10 +144,7 @@ const createSalesforceChangeValidator = ({
   return async (changes, elementSource) =>
     elementSource === undefined
       ? changeValidator(changes, elementSource)
-      : changeValidator(
-          changes,
-          buildLazyShallowTypeResolverElementsSource(elementSource),
-        )
+      : changeValidator(changes, buildLazyShallowTypeResolverElementsSource(elementSource))
 }
 
 export default createSalesforceChangeValidator

@@ -1,17 +1,9 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
 import _ from 'lodash'
 import { logger } from '@salto-io/logging'
@@ -28,6 +20,7 @@ import { computeArgCombinations } from '../resource/request_parameters'
 import {
   APIDefinitionsOptions,
   HTTPEndpointDetails,
+  PaginationDefinitions,
   ResolveClientOptionsType,
   ResolvePaginationOptionsType,
 } from '../../definitions/system'
@@ -126,11 +119,16 @@ export const getRequester = <Options extends APIDefinitionsOptions>({
     // * add promises for in-flight requests, to avoid making the same request multiple times in parallel
     const { merged: mergedRequestDef, clientName } = getMergedRequestDefinition(requestDef)
 
-    const paginationOption = mergedRequestDef.endpoint.pagination
-    const paginationDef =
-      paginationOption !== undefined
-        ? pagination[paginationOption]
-        : { funcCreator: noPagination, clientArgs: undefined }
+    const paginationOption = mergedRequestDef.endpoint.pagination ?? 'none'
+    const nonePaginationDef: PaginationDefinitions<ResolveClientOptionsType<Options>> = {
+      funcCreator: noPagination,
+      clientArgs: undefined,
+    }
+    const paginationWithNone = {
+      ...pagination,
+      none: nonePaginationDef,
+    } as Record<ResolvePaginationOptionsType<Options>, PaginationDefinitions<ResolveClientOptionsType<Options>>>
+    const paginationDef = paginationWithNone[paginationOption]
 
     const { clientArgs } = paginationDef
     // order of precedence in case of overlaps: pagination defaults < endpoint < resource-specific request
@@ -145,9 +143,8 @@ export const getRequester = <Options extends APIDefinitionsOptions>({
         typeName,
       )
 
-    const callArgs = mergedEndpointDef.omitBody
-      ? _.pick(mergedEndpointDef, ['queryArgs', 'headers'])
-      : _.pick(mergedEndpointDef, ['queryArgs', 'headers', 'body'])
+    const allCallArgs = _.pick(mergedEndpointDef, ['queryArgs', 'headers', 'data', 'params', 'queryParamsSerializer'])
+    const callArgs = mergedEndpointDef.omitBody ? _.omit(allCallArgs, 'data') : allCallArgs
 
     log.trace(
       'traversing pages for adapter %s client %s endpoint %s.%s',
@@ -205,7 +202,11 @@ export const getRequester = <Options extends APIDefinitionsOptions>({
             mergedDef.context?.custom !== undefined
               ? mergedDef.context.custom(mergedDef.context)
               : (v: ContextParams) => v
-          const contexts = computeArgCombinations(contextPossibleArgs, relevantArgRoots).map(contextFunc)
+          const contexts = computeArgCombinations(
+            contextPossibleArgs,
+            relevantArgRoots?.length === 0 ? undefined : relevantArgRoots,
+          ).map(contextFunc)
+
           return request({
             contexts,
             requestDef,

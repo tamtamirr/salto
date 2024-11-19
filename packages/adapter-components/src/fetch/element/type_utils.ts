@@ -1,22 +1,15 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
 import _ from 'lodash'
 import {
   BuiltinTypes,
   CORE_ANNOTATIONS,
+  BUILTIN_TYPE_NAMES,
   Field,
   FieldDefinition,
   GENERIC_ID_PREFIX,
@@ -36,12 +29,14 @@ import {
   isEqualElements,
   isPrimitiveType,
   isTypeReference,
+  isElement,
 } from '@salto-io/adapter-api'
-import { TransformFuncSync, getSubtypes, transformValuesSync } from '@salto-io/adapter-utils'
+import { TransformFuncSync, getSubtypes, inspectValue, transformValuesSync } from '@salto-io/adapter-utils'
 import { logger } from '@salto-io/logging'
 import { values as lowerdashValues } from '@salto-io/lowerdash'
 import { ElementAndResourceDefFinder } from '../../definitions/system/fetch/types'
 import { FetchApiDefinitionsOptions } from '../../definitions/system/fetch'
+import { generateType } from './type_element'
 
 const { isDefined } = lowerdashValues
 const log = logger(module)
@@ -52,6 +47,9 @@ export const NESTING_SEPARATOR = '__'
 
 export const toNestedTypeName = (parentName: string, nestedTypeName: string): string =>
   `${parentName}${NESTING_SEPARATOR}${nestedTypeName}`
+
+export const recursiveNestedTypeName = (typeName: string, ...fields: string[]): string =>
+  fields.reduce(toNestedTypeName, typeName)
 
 /**
  * calculate mapping from original type name to new type name. there are two ways to rename a type:
@@ -224,6 +222,37 @@ export const markServiceIdField = (
   }
 }
 
+// Verify that field is not undefined if it is a serviceId or field we want to hide.
+// This is to prevent writing to nacl (copyFromResponse on deployment) fields that supposed to be hidden.
+const overrideServiceIdOrHiddenFieldIfNotDefined = ({
+  definedTypes,
+  type,
+  fieldName,
+  isServiceIdField,
+  isHiddenField,
+}: {
+  definedTypes: Record<string, ObjectType>
+  type: ObjectType
+  fieldName: string
+  isServiceIdField?: boolean
+  isHiddenField?: boolean
+}): void => {
+  if (type.fields[fieldName] === undefined) {
+    if (isServiceIdField) {
+      overrideFieldType({
+        type,
+        definedTypes,
+        fieldName,
+        fieldTypeName: BUILTIN_TYPE_NAMES.STRING, // fallback to string serviceId
+      })
+      return
+    }
+    if (isHiddenField) {
+      overrideFieldType({ type, definedTypes, fieldName, fieldTypeName: BUILTIN_TYPE_NAMES.UNKNOWN })
+    }
+  }
+}
+
 /**
  * Adjust field types based on the defined customization.
  */
@@ -246,17 +275,23 @@ export const overrideFieldTypes = <Options extends FetchApiDefinitionsOptions>({
       const { element: elementDef, resource: resourceDef } = defQuery.query(typeName) ?? {}
 
       Object.entries(elementDef?.fieldCustomizations ?? {}).forEach(([fieldName, customization]) => {
-        const { fieldType, restrictions } = customization
+        const { fieldType, restrictions, hide } = customization
         if (fieldType !== undefined) {
           overrideFieldType({ type, definedTypes, fieldName, fieldTypeName: fieldType })
         }
-        const field = type.fields[fieldName]
-        if (field === undefined) {
+        overrideServiceIdOrHiddenFieldIfNotDefined({
+          definedTypes,
+          type,
+          fieldName,
+          isServiceIdField: resourceDef?.serviceIDFields?.includes(fieldName),
+          isHiddenField: hide,
+        })
+        if (type.fields[fieldName] === undefined) {
           return
         }
         if (restrictions) {
           log.trace('applying restrictions to field %s.%s', type.elemID.name, fieldName)
-          field.annotate({ [CORE_ANNOTATIONS.RESTRICTION]: createRestriction(restrictions) })
+          type.fields[fieldName].annotate({ [CORE_ANNOTATIONS.RESTRICTION]: createRestriction(restrictions) })
         }
       })
       // mark service ids after applying field customizations, in order to set the right type
@@ -346,3 +381,38 @@ export const removeNullValues = ({
     allowEmptyArrays,
     allowEmptyObjects,
   }) ?? {}
+
+/**
+ * Add empty object types for all types that can have instances in the workspace,
+ *  even if no instances will be created for them in the current fetch.
+ * This is needed because if instances are added / cloned from another environment,
+ *  they need to have a type in order to be deployed.
+ */
+export const createRemainingTypes = <Options extends FetchApiDefinitionsOptions>({
+  adapterName,
+  definedTypes,
+  defQuery,
+}: {
+  adapterName: string
+  definedTypes: Record<string, ObjectType>
+  defQuery: ElementAndResourceDefFinder<Options>
+}): Record<string, ObjectType> => {
+  const topLevelTypeNames = Object.keys(_.pickBy(defQuery.getAll(), def => def.element?.topLevel?.isTopLevel))
+  const missingTypes = topLevelTypeNames.filter(typeName => !isElement(definedTypes[typeName]))
+  if (missingTypes.length > 0) {
+    log.debug('creating empty types for the %d types: %s', missingTypes.length, inspectValue(missingTypes))
+  }
+  return _.keyBy(
+    missingTypes.map(
+      typeName =>
+        generateType({
+          adapterName,
+          defQuery,
+          typeName,
+          definedTypes,
+          entries: [],
+        }).type,
+    ),
+    type => type.elemID.name,
+  )
+}

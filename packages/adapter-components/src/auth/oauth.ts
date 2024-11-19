@@ -1,24 +1,17 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
 import _ from 'lodash'
 import qs from 'qs'
 import axios, { AxiosRequestHeaders } from 'axios'
 import axiosRetry from 'axios-retry'
+import { safeJsonStringify } from '@salto-io/adapter-utils'
 import { logger } from '@salto-io/logging'
-import { RetryOptions } from '../client/http_connection'
+import { RetryOptions, UnauthorizedError } from '../client/http_connection'
 
 const log = logger(module)
 
@@ -49,7 +42,7 @@ export const oauthClientCredentialsBearerToken = async ({
   retryOptions: RetryOptions
   additionalHeaders?: Record<string, string>
   additionalData?: Record<string, string>
-}): Promise<{ headers?: AxiosRequestHeaders }> => {
+}): Promise<{ headers?: Partial<AxiosRequestHeaders> }> => {
   const httpClient = axios.create({
     baseURL,
     headers: {
@@ -97,7 +90,7 @@ export const oauthAccessTokenRefresh = async ({
   clientSecret: string
   refreshToken: string
   retryOptions: RetryOptions
-}): Promise<{ headers?: AxiosRequestHeaders }> => {
+}): Promise<{ headers?: Partial<AxiosRequestHeaders> }> => {
   const httpClient = axios.create({
     baseURL,
     headers: {
@@ -107,21 +100,30 @@ export const oauthAccessTokenRefresh = async ({
   })
   axiosRetry(httpClient, retryOptions)
 
-  const res = await httpClient.post(
-    endpoint,
-    qs.stringify({
-      refresh_token: refreshToken,
-      grant_type: 'refresh_token',
-    }),
-  )
-  const { token_type: tokenType, access_token: accessToken, expires_in: expiresIn } = res.data
-  log.debug('refreshed access token: type %s, expires in %s', tokenType, expiresIn)
-  if (_.lowerCase(tokenType) !== BEARER_TOKEN_TYPE) {
-    throw new Error(`Unsupported token type ${tokenType}`)
-  }
-  return {
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-    },
+  try {
+    const res = await httpClient.post(
+      endpoint,
+      qs.stringify({
+        refresh_token: refreshToken,
+        grant_type: 'refresh_token',
+      }),
+    )
+    const { token_type: tokenType, access_token: accessToken, expires_in: expiresIn } = res.data
+    log.debug('refreshed access token: type %s, expires in %s', tokenType, expiresIn)
+    if (_.lowerCase(tokenType) !== BEARER_TOKEN_TYPE) {
+      throw new Error(`Unsupported token type ${tokenType}`)
+    }
+    return {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    }
+  } catch (error) {
+    log.error(
+      'Failed to get access token, error: %s, stack: %s',
+      safeJsonStringify({ message: error?.message, status: error?.response?.status }),
+      error.stack,
+    )
+    throw new UnauthorizedError(error?.message)
   }
 }

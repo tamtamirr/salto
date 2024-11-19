@@ -1,17 +1,9 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
 import {
   CORE_ANNOTATIONS,
@@ -117,6 +109,10 @@ describe('fields references', () => {
         },
         netsuite_reference_2: {
           id: '[scriptid=netsuite_reference_2]',
+          index: 4,
+        },
+        netsuite_reference_with_appid: {
+          id: '[appid=some_appid, scriptid=some_appid_object]',
           index: 4,
         },
       },
@@ -258,8 +254,15 @@ describe('fields references', () => {
       delete form2.value.parentField.netsuite_reference_1
       delete form2.value.parentField.netsuite_reference_2
 
+      const scriptidListElements = createObjectIdListElements([
+        {
+          type: 'someType',
+          instanceId: 'some_scriptid',
+        },
+      ])
+
       const clonedForm2 = form2.clone()
-      const elementsSource = buildElementsSourceFromElements([instance1, generatedDependency2])
+      const elementsSource = buildElementsSourceFromElements([instance1, generatedDependency2, ...scriptidListElements])
       const fixes = await fieldsHandler.removeWeakReferences({ elementsSource })([form2])
       expect(clonedForm2).toEqual(form2)
 
@@ -290,6 +293,10 @@ describe('fields references', () => {
           id: '[type=transactionbodycustomfield, scriptid=generated_dependency_2]',
           index: 1,
         },
+        netsuite_reference_with_appid: {
+          id: '[appid=some_appid, scriptid=some_appid_object]',
+          index: 2,
+        },
       })
 
       expect(fixedForm.annotations[CORE_ANNOTATIONS.GENERATED_DEPENDENCIES].length).toEqual(1)
@@ -298,8 +305,20 @@ describe('fields references', () => {
       )
     })
     it('should remove unresolved netsuite references if not in the scriptid list', async () => {
+      const scriptidListElements = createObjectIdListElements([
+        {
+          type: 'someType',
+          instanceId: 'some_scriptid',
+        },
+      ])
+
       const clonedForm2 = form2.clone()
-      const elementsSource = buildElementsSourceFromElements([instance1, generatedDependency1, generatedDependency2])
+      const elementsSource = buildElementsSourceFromElements([
+        instance1,
+        generatedDependency1,
+        generatedDependency2,
+        ...scriptidListElements,
+      ])
       const fixes = await fieldsHandler.removeWeakReferences({ elementsSource })([form2])
       expect(clonedForm2).toEqual(form2)
 
@@ -334,6 +353,10 @@ describe('fields references', () => {
           id: '[type=transactionbodycustomfield, scriptid=generated_dependency_2]',
           index: 2,
         },
+        netsuite_reference_with_appid: {
+          id: '[appid=some_appid, scriptid=some_appid_object]',
+          index: 3,
+        },
       })
       expect(fixedForm.annotations[CORE_ANNOTATIONS.GENERATED_DEPENDENCIES].length).toEqual(2)
       expect(fixedForm.annotations[CORE_ANNOTATIONS.GENERATED_DEPENDENCIES][0]).toEqual(
@@ -344,8 +367,201 @@ describe('fields references', () => {
       )
     })
 
+    it('should not remove netsuite reference from a suiteapp that is not in the scriptid list', async () => {
+      const scriptidListElements = createObjectIdListElements([
+        {
+          type: 'someType',
+          instanceId: 'netsuite_reference_1',
+        },
+        {
+          type: 'someType',
+          instanceId: 'netsuite_reference_2',
+        },
+      ])
+
+      const clonedForm2 = form2.clone()
+
+      const elementsSource = buildElementsSourceFromElements([
+        instance1,
+        generatedDependency1,
+        generatedDependency2,
+        ...scriptidListElements,
+      ])
+      const fixes = await fieldsHandler.removeWeakReferences({ elementsSource })([form2])
+      expect(clonedForm2).toEqual(form2)
+
+      expect(fixes.errors).toEqual([])
+      expect(fixes.fixedElements).toEqual([])
+    })
+
+    it('should not remove netsuite reference from a suiteapp that is in the scriptid list and have that object', async () => {
+      const scriptidListElements = createObjectIdListElements([
+        {
+          type: 'someType',
+          instanceId: 'netsuite_reference_1',
+        },
+        {
+          type: 'someType',
+          instanceId: 'netsuite_reference_2',
+        },
+        {
+          type: 'someType',
+          instanceId: 'some_appid_object',
+          suiteAppId: 'some_appid',
+        },
+      ])
+
+      const clonedForm2 = form2.clone()
+
+      const elementsSource = buildElementsSourceFromElements([
+        instance1,
+        generatedDependency1,
+        generatedDependency2,
+        ...scriptidListElements,
+      ])
+      const fixes = await fieldsHandler.removeWeakReferences({ elementsSource })([form2])
+      expect(clonedForm2).toEqual(form2)
+
+      expect(fixes.errors).toEqual([])
+      expect(fixes.fixedElements).toEqual([])
+    })
+
+    it('should remove netsuite reference from a suiteapp that is in the scriptid list and do not have that object', async () => {
+      const scriptidListElements = createObjectIdListElements([
+        {
+          type: 'someType',
+          instanceId: 'netsuite_reference_1',
+        },
+        {
+          type: 'someType',
+          instanceId: 'netsuite_reference_2',
+        },
+        {
+          type: 'someType',
+          instanceId: 'some_appid_other_object',
+          suiteAppId: 'some_appid',
+        },
+      ])
+
+      const clonedForm2 = form2.clone()
+      const elementsSource = buildElementsSourceFromElements([
+        instance1,
+        generatedDependency1,
+        generatedDependency2,
+        ...scriptidListElements,
+      ])
+      const fixes = await fieldsHandler.removeWeakReferences({ elementsSource })([form2])
+      expect(clonedForm2).toEqual(form2)
+
+      expect(fixes.errors.length).toEqual(1)
+
+      expect(fixes.errors).toEqual([
+        {
+          elemID: form2.elemID,
+          severity: 'Info',
+          message: 'Deploying without all referenced fields',
+          detailedMessage:
+            'This form references fields that do not exist in the target environment. As a result, this form will be deployed without these fields: parentField.netsuite_reference_with_appid',
+        },
+      ])
+
+      expect(fixes.fixedElements).toHaveLength(1)
+      const fixedElement = fixes.fixedElements[0]
+      expect(isInstanceElement(fixedElement) && fixedElement.elemID.typeName === TRANSACTION_FORM).toBeTruthy()
+      const fixedForm = fixedElement as InstanceElement
+
+      expect(fixedForm.value.field1).toEqual(form2.value.field1)
+      expect(fixedForm.value.parentField).toEqual({
+        string_field: {
+          id: 'some string id',
+          index: 0,
+        },
+        generated_dependency_1: {
+          id: '[type=transactionbodycustomfield, scriptid=generated_dependency_1]',
+          index: 1,
+        },
+        generated_dependency_2: {
+          id: '[type=transactionbodycustomfield, scriptid=generated_dependency_2]',
+          index: 2,
+        },
+        netsuite_reference_1: {
+          id: '[scriptid=netsuite_reference_1]',
+          index: 3,
+        },
+        netsuite_reference_2: {
+          id: '[scriptid=netsuite_reference_2]',
+          index: 4,
+        },
+      })
+    })
+
+    it('should remove netsuite references that are in the scriptid list but have wrong appid', async () => {
+      const scriptidListElements = createObjectIdListElements([
+        {
+          type: 'someType',
+          instanceId: 'netsuite_reference_1',
+        },
+        {
+          type: 'someType',
+          instanceId: 'some_appid_object',
+        },
+        {
+          type: 'someType',
+          instanceId: 'netsuite_reference_2',
+          suiteAppId: 'some_appid',
+        },
+      ])
+
+      const clonedForm2 = form2.clone()
+      const elementsSource = buildElementsSourceFromElements([
+        instance1,
+        generatedDependency1,
+        generatedDependency2,
+        ...scriptidListElements,
+      ])
+      const fixes = await fieldsHandler.removeWeakReferences({ elementsSource })([form2])
+      expect(clonedForm2).toEqual(form2)
+
+      expect(fixes.errors.length).toEqual(1)
+
+      expect(fixes.errors).toEqual([
+        {
+          elemID: form2.elemID,
+          severity: 'Info',
+          message: 'Deploying without all referenced fields',
+          detailedMessage:
+            'This form references fields that do not exist in the target environment. As a result, this form will be deployed without these fields: parentField.netsuite_reference_2, parentField.netsuite_reference_with_appid',
+        },
+      ])
+
+      expect(fixes.fixedElements).toHaveLength(1)
+      const fixedElement = fixes.fixedElements[0]
+      expect(isInstanceElement(fixedElement) && fixedElement.elemID.typeName === TRANSACTION_FORM).toBeTruthy()
+      const fixedForm = fixedElement as InstanceElement
+
+      expect(fixedForm.value.field1).toEqual(form2.value.field1)
+      expect(fixedForm.value.parentField).toEqual({
+        string_field: {
+          id: 'some string id',
+          index: 0,
+        },
+        generated_dependency_1: {
+          id: '[type=transactionbodycustomfield, scriptid=generated_dependency_1]',
+          index: 1,
+        },
+        generated_dependency_2: {
+          id: '[type=transactionbodycustomfield, scriptid=generated_dependency_2]',
+          index: 2,
+        },
+        netsuite_reference_1: {
+          id: '[scriptid=netsuite_reference_1]',
+          index: 3,
+        },
+      })
+    })
+
     it('should keep unresolved references if in the scriptid list', async () => {
-      const scriptidListInstances = createObjectIdListElements([
+      const scriptidListElements = createObjectIdListElements([
         {
           type: 'someType',
           instanceId: 'generated_dependency_1',
@@ -356,11 +572,7 @@ describe('fields references', () => {
         },
       ])
       const clonedForm2 = form2.clone()
-      const elementsSource = buildElementsSourceFromElements([
-        instance1,
-        generatedDependency1,
-        ...scriptidListInstances,
-      ])
+      const elementsSource = buildElementsSourceFromElements([instance1, generatedDependency1, ...scriptidListElements])
       const fixes = await fieldsHandler.removeWeakReferences({ elementsSource })([form2])
       expect(clonedForm2).toEqual(form2)
 
@@ -394,6 +606,10 @@ describe('fields references', () => {
         netsuite_reference_1: {
           id: '[scriptid=netsuite_reference_1]',
           index: 2,
+        },
+        netsuite_reference_with_appid: {
+          id: '[appid=some_appid, scriptid=some_appid_object]',
+          index: 3,
         },
       })
       expect(fixedForm.annotations[CORE_ANNOTATIONS.GENERATED_DEPENDENCIES].length).toEqual(1)

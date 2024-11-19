@@ -1,29 +1,13 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
 import _ from 'lodash'
 import {
-  Element,
   InstanceElement,
-  isInstanceElement,
-  CORE_ANNOTATIONS,
-  ReferenceExpression,
-  ObjectType,
-  ElemID,
-  BuiltinTypes,
-  ListType,
   isAdditionOrModificationChange,
   isInstanceChange,
   getChangeData,
@@ -32,19 +16,15 @@ import {
   isAdditionChange,
   SaltoElementError,
 } from '@salto-io/adapter-api'
-import { elements as elementUtils, client as clientUtils } from '@salto-io/adapter-components'
-import { pathNaclCase, safeJsonStringify, applyFunctionToChangeData, getParents } from '@salto-io/adapter-utils'
-import { collections, values } from '@salto-io/lowerdash'
+import { client as clientUtils } from '@salto-io/adapter-components'
+import { safeJsonStringify, applyFunctionToChangeData, getParents } from '@salto-io/adapter-utils'
+import { values } from '@salto-io/lowerdash'
 import { logger } from '@salto-io/logging'
 import { FilterCreator } from '../filter'
-import { GROUP_TYPE_NAME, GROUP_MEMBERSHIP_TYPE_NAME, OKTA } from '../constants'
-import { areUsers, shouldConvertUserIds, User } from '../user_utils'
+import { GROUP_MEMBERSHIP_TYPE_NAME } from '../constants'
 import { FETCH_CONFIG } from '../config'
 
 const log = logger(module)
-const { RECORDS_PATH, TYPES_PATH } = elementUtils
-const { toArrayAsync } = collections.asynciterable
-const { makeArray } = collections.array
 const { isDefined } = values
 
 type GroupMembershipInstance = InstanceElement & {
@@ -56,54 +36,6 @@ type GroupMembershipInstance = InstanceElement & {
 type GroupMembershipDeployResult = {
   appliedChange?: AdditionChange<InstanceElement> | ModificationChange<InstanceElement>
   error?: SaltoElementError
-}
-
-const createGroupMembershipType = (): ObjectType =>
-  new ObjectType({
-    elemID: new ElemID(OKTA, GROUP_MEMBERSHIP_TYPE_NAME),
-    fields: {
-      members: { refType: new ListType(BuiltinTypes.STRING) },
-    },
-    path: [OKTA, TYPES_PATH, GROUP_MEMBERSHIP_TYPE_NAME],
-  })
-
-const getGroupMembersData = async (paginator: clientUtils.Paginator, group: InstanceElement): Promise<User[]> => {
-  const paginationArgs = {
-    url: `/api/v1/groups/${group.value.id}/users`,
-    paginationField: 'after',
-  }
-  const members = (
-    await toArrayAsync(paginator(paginationArgs, page => makeArray(page) as clientUtils.ResponseValue[]))
-  ).flat()
-  if (!areUsers(members)) {
-    log.error(`Received invalid response while trying to get members for group: ${group.elemID.getFullName()}`)
-    return []
-  }
-  return members
-}
-
-const createGroupMembershipInstance = async ({
-  group,
-  groupMembersType,
-  paginator,
-  userIdentifier,
-}: {
-  group: InstanceElement
-  groupMembersType: ObjectType
-  paginator: clientUtils.Paginator
-  userIdentifier: 'id' | 'email'
-}): Promise<InstanceElement | undefined> => {
-  const groupName = group.elemID.name
-  const groupMembersData = await getGroupMembersData(paginator, group)
-  return groupMembersData.length > 0
-    ? new InstanceElement(
-        groupName,
-        groupMembersType,
-        { members: groupMembersData.map(member => (userIdentifier === 'id' ? member.id : member.profile.login)) },
-        [OKTA, RECORDS_PATH, GROUP_MEMBERSHIP_TYPE_NAME, pathNaclCase(groupName)],
-        { [CORE_ANNOTATIONS.PARENT]: [new ReferenceExpression(group.elemID, group)] },
-      )
-    : undefined
 }
 
 export const isValidGroupMembershipInstance = (instance: InstanceElement): instance is GroupMembershipInstance =>
@@ -164,17 +96,27 @@ const deployGroupMembershipChange = async (
       getChangeData(change).elemID.getFullName(),
       safeJsonStringify(getChangeData(change)),
     )
-    return { error: { elemID: getChangeData(change).elemID, severity: 'Error', message: 'Failed to get group ID' } }
+    const message = 'Failed to get group ID'
+    return {
+      error: {
+        elemID: getChangeData(change).elemID,
+        severity: 'Error',
+        message,
+        detailedMessage: message,
+      },
+    }
   }
 
   if (isAdditionChange(change)) {
     const instance = getChangeData(change)
     if (!isValidGroupMembershipInstance(instance)) {
+      const message = 'Invalid group membership instance'
       return {
         error: {
           elemID: getChangeData(change).elemID,
           severity: 'Error',
-          message: 'Invalid group membership instance',
+          message,
+          detailedMessage: message,
         },
       }
     }
@@ -191,8 +133,14 @@ const deployGroupMembershipChange = async (
 
   const [before, after] = [change.data.before, change.data.after]
   if (!isValidGroupMembershipInstance(before) || !isValidGroupMembershipInstance(after)) {
+    const message = 'Invalid group membership instance'
     return {
-      error: { elemID: getChangeData(change).elemID, severity: 'Error', message: 'Invalid group membership instance' },
+      error: {
+        elemID: getChangeData(change).elemID,
+        severity: 'Error',
+        message,
+        detailedMessage: message,
+      },
     }
   }
   const [membersBefore, membersAfter] = [before.value.members, after.value.members]
@@ -204,45 +152,34 @@ const deployGroupMembershipChange = async (
     additions.map(member => deployGroupAssignment({ groupId: parentGroupId, userId: member, action: 'add', client })),
   )
   const failedAdditions = additionsResult.filter(({ result }) => result === 'failure').map(({ userId }) => userId)
-  log.error('failed to add the following group assignments: %s', failedAdditions.join(', '))
+  if (failedAdditions.length > 0) {
+    log.error(
+      'failed to add the following group assignments for group %s: %s',
+      getChangeData(change).elemID.getFullName(),
+      failedAdditions.join(', '),
+    )
+  }
 
   const removalResult = await Promise.all(
     removals.map(member => deployGroupAssignment({ groupId: parentGroupId, userId: member, action: 'remove', client })),
   )
   const failedRemovals = removalResult.filter(({ result }) => result === 'failure').map(({ userId }) => userId)
-  log.error('failed to remove the following group assignments: %s', failedRemovals.join(', '))
+  if (failedRemovals.length > 0) {
+    log.error(
+      'failed to remove the following group assignments for group %s: %s',
+      getChangeData(change).elemID.getFullName(),
+      failedRemovals.join(', '),
+    )
+  }
 
   return { appliedChange: await updateChangeWithFailedAssignments(change, failedAdditions, failedRemovals) }
 }
 
 /**
- * Create a single group-memberships instance per group.
+ * Deploy GroupMembership by adding or removing users from groups
  */
-const groupMembersFilter: FilterCreator = ({ definitions, config, paginator, fetchQuery }) => ({
+const groupMembersFilter: FilterCreator = ({ definitions, config }) => ({
   name: 'groupMembersFilter',
-  onFetch: async (elements: Element[]): Promise<void> => {
-    if (!config[FETCH_CONFIG].includeGroupMemberships) {
-      log.debug('Fetch of group members is disabled')
-      return
-    }
-    const groupInstances = elements
-      .filter(isInstanceElement)
-      .filter(instance => instance.elemID.typeName === GROUP_TYPE_NAME)
-
-    const groupMembersType = createGroupMembershipType()
-    elements.push(groupMembersType)
-
-    const userIdentifier = shouldConvertUserIds(fetchQuery, config) ? 'email' : 'id'
-    const groupMembershipInstances = (
-      await Promise.all(
-        groupInstances.map(async group =>
-          createGroupMembershipInstance({ group, groupMembersType, paginator, userIdentifier }),
-        ),
-      )
-    ).filter(isInstanceElement)
-
-    groupMembershipInstances.forEach(instance => elements.push(instance))
-  },
   deploy: async changes => {
     const client = definitions.clients.options.main.httpClient
     const [relevantChanges, leftoverChanges] = _.partition(
@@ -256,6 +193,8 @@ const groupMembersFilter: FilterCreator = ({ definitions, config, paginator, fet
     const { includeGroupMemberships } = config[FETCH_CONFIG]
     if (!includeGroupMemberships && relevantChanges.length > 0) {
       log.error('group memberships flag is disabled')
+      const message =
+        'Group membership is disabled. To apply this change, change fetch.includeGroupMemberships flag to “true” in your Okta environment configuration.'
       return {
         leftoverChanges,
         deployResult: {
@@ -263,8 +202,8 @@ const groupMembersFilter: FilterCreator = ({ definitions, config, paginator, fet
           errors: relevantChanges.map(change => ({
             elemID: getChangeData(change).elemID,
             severity: 'Error',
-            message:
-              'Group membership is disabled. To apply this change, change fetch.includeGroupMemberships flag to “true” in your Okta environment configuration.',
+            message,
+            detailedMessage: message,
           })),
         },
       }

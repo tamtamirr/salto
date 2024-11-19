@@ -1,17 +1,9 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
 import {
   Element,
@@ -25,13 +17,13 @@ import { getParents } from '@salto-io/adapter-utils'
 import { logger } from '@salto-io/logging'
 import { collections, multiIndex } from '@salto-io/lowerdash'
 import { apiName, metadataType } from '../transformers/transformer'
-import { LocalFilterCreator } from '../filter'
+import { FilterCreator } from '../filter'
 import {
   generateReferenceResolverFinder,
   ReferenceContextStrategyName,
   FieldReferenceDefinition,
-  fieldNameToTypeMappingDefs,
   getLookUpName,
+  getDefsFromFetchProfile,
 } from '../transformers/reference_mapping'
 import {
   WORKFLOW_ACTION_ALERT_METADATA_TYPE,
@@ -47,22 +39,17 @@ import {
   FLOW_METADATA_TYPE,
   PROFILE_METADATA_TYPE,
   PERMISSION_SET_METADATA_TYPE,
+  MUTING_PERMISSION_SET_METADATA_TYPE,
 } from '../constants'
-import {
-  buildElementsSourceForFetch,
-  extractFlatCustomObjectFields,
-  hasApiName,
-  isInstanceOfTypeSync,
-} from './utils'
+import { buildElementsSourceForFetch, extractFlatCustomObjectFields, hasApiName, isInstanceOfTypeSync } from './utils'
+import { FetchProfile } from '../types'
 
 const { awu } = collections.asynciterable
 const log = logger(module)
 const { flatMapAsync } = collections.asynciterable
 const { neighborContextGetter, replaceReferenceValues } = referenceUtils
 
-const workflowActionMapper: referenceUtils.ContextValueMapperFunc = (
-  val: string,
-) => {
+const workflowActionMapper: referenceUtils.ContextValueMapperFunc = (val: string) => {
   const typeMapping: Record<string, string> = {
     Alert: WORKFLOW_ACTION_ALERT_METADATA_TYPE,
     FieldUpdate: WORKFLOW_FIELD_UPDATE_METADATA_TYPE,
@@ -73,9 +60,7 @@ const workflowActionMapper: referenceUtils.ContextValueMapperFunc = (
   return typeMapping[val]
 }
 
-const flowActionCallMapper: referenceUtils.ContextValueMapperFunc = (
-  val: string,
-) => {
+const flowActionCallMapper: referenceUtils.ContextValueMapperFunc = (val: string) => {
   const typeMapping: Record<string, string> = {
     apex: 'ApexClass',
     emailAlert: WORKFLOW_ACTION_ALERT_METADATA_TYPE,
@@ -94,82 +79,80 @@ const shareToMapper: referenceUtils.ContextValueMapperFunc = (val: string) => {
   return typeMapping[val]
 }
 
-const neighborContextFunc = (args: {
-  contextFieldName: string
-  levelsUp?: number | 'top'
-  contextValueMapper?: referenceUtils.ContextValueMapperFunc
-}): referenceUtils.ContextFunc =>
-  neighborContextGetter({ ...args, getLookUpName })
-
-const contextStrategyLookup: Record<
-  ReferenceContextStrategyName,
-  referenceUtils.ContextFunc
-> = {
-  instanceParent: async ({ instance, elemByElemID }) => {
-    const parentRef = getParents(instance)[0]
-    const parent = isReferenceExpression(parentRef)
-      ? elemByElemID.get(parentRef.elemID.getFullName())
-      : undefined
-    return parent !== undefined ? apiName(parent) : undefined
-  },
-  neighborTypeLookup: neighborContextFunc({ contextFieldName: 'type' }),
-  neighborTypeWorkflow: neighborContextFunc({
-    contextFieldName: 'type',
-    contextValueMapper: workflowActionMapper,
-  }),
-  neighborActionTypeFlowLookup: neighborContextFunc({
-    contextFieldName: 'actionType',
-    contextValueMapper: flowActionCallMapper,
-  }),
-  neighborActionTypeLookup: neighborContextFunc({
-    contextFieldName: 'actionType',
-  }),
-  neighborCPQLookup: neighborContextFunc({
-    contextFieldName: CPQ_LOOKUP_OBJECT_NAME,
-  }),
-  neighborCPQRuleLookup: neighborContextFunc({
-    contextFieldName: CPQ_RULE_LOOKUP_OBJECT_FIELD,
-  }),
-  neighborLookupValueTypeLookup: neighborContextFunc({
-    contextFieldName: 'lookupValueType',
-  }),
-  neighborObjectLookup: neighborContextFunc({ contextFieldName: 'object' }),
-  neighborSobjectLookup: neighborContextFunc({
-    contextFieldName: 'sobjectType',
-  }),
-  parentObjectLookup: neighborContextFunc({
-    contextFieldName: 'object',
-    levelsUp: 1,
-  }),
-  parentInputObjectLookup: neighborContextFunc({
-    contextFieldName: 'inputObject',
-    levelsUp: 1,
-  }),
-  parentOutputObjectLookup: neighborContextFunc({
-    contextFieldName: 'outputObject',
-    levelsUp: 1,
-  }),
-  neighborPicklistObjectLookup: neighborContextFunc({
-    contextFieldName: 'picklistObject',
-  }),
-  neighborSharedToTypeLookup: neighborContextFunc({
-    contextFieldName: 'sharedToType',
-    contextValueMapper: shareToMapper,
-  }),
-  neighborTableLookup: neighborContextFunc({ contextFieldName: 'table' }),
-  neighborCaseOwnerTypeLookup: neighborContextFunc({
-    contextFieldName: 'caseOwnerType',
-  }),
-  neighborAssignedToTypeLookup: neighborContextFunc({
-    contextFieldName: 'assignedToType',
-  }),
-  neighborRelatedEntityTypeLookup: neighborContextFunc({
-    contextFieldName: 'relatedEntityType',
-  }),
-  parentSObjectTypeLookupTopLevel: neighborContextFunc({
-    contextFieldName: 'SObjectType',
-    levelsUp: 'top',
-  }),
+export const createContextStrategyLookups = (
+  fetchProfile: FetchProfile,
+): Record<ReferenceContextStrategyName, referenceUtils.ContextFunc> => {
+  const getLookupNameFunc = getLookUpName(fetchProfile)
+  const neighborContextFunc = (args: {
+    contextFieldName: string
+    levelsUp?: number | 'top'
+    contextValueMapper?: referenceUtils.ContextValueMapperFunc
+  }): referenceUtils.ContextFunc => neighborContextGetter({ ...args, getLookUpName: getLookupNameFunc })
+  return {
+    instanceParent: async ({ instance, elemByElemID }) => {
+      const parentRef = getParents(instance)[0]
+      const parent = isReferenceExpression(parentRef) ? elemByElemID.get(parentRef.elemID.getFullName()) : undefined
+      return parent !== undefined ? apiName(parent) : undefined
+    },
+    neighborTypeLookup: neighborContextFunc({ contextFieldName: 'type' }),
+    neighborTypeWorkflow: neighborContextFunc({
+      contextFieldName: 'type',
+      contextValueMapper: workflowActionMapper,
+    }),
+    neighborActionTypeFlowLookup: neighborContextFunc({
+      contextFieldName: 'actionType',
+      contextValueMapper: flowActionCallMapper,
+    }),
+    neighborActionTypeLookup: neighborContextFunc({
+      contextFieldName: 'actionType',
+    }),
+    neighborCPQLookup: neighborContextFunc({
+      contextFieldName: CPQ_LOOKUP_OBJECT_NAME,
+    }),
+    neighborCPQRuleLookup: neighborContextFunc({
+      contextFieldName: CPQ_RULE_LOOKUP_OBJECT_FIELD,
+    }),
+    neighborLookupValueTypeLookup: neighborContextFunc({
+      contextFieldName: 'lookupValueType',
+    }),
+    neighborObjectLookup: neighborContextFunc({ contextFieldName: 'object' }),
+    neighborSobjectLookup: neighborContextFunc({
+      contextFieldName: 'sobjectType',
+    }),
+    parentObjectLookup: neighborContextFunc({
+      contextFieldName: 'object',
+      levelsUp: 1,
+    }),
+    parentInputObjectLookup: neighborContextFunc({
+      contextFieldName: 'inputObject',
+      levelsUp: 1,
+    }),
+    parentOutputObjectLookup: neighborContextFunc({
+      contextFieldName: 'outputObject',
+      levelsUp: 1,
+    }),
+    neighborPicklistObjectLookup: neighborContextFunc({
+      contextFieldName: 'picklistObject',
+    }),
+    neighborSharedToTypeLookup: neighborContextFunc({
+      contextFieldName: 'sharedToType',
+      contextValueMapper: shareToMapper,
+    }),
+    neighborTableLookup: neighborContextFunc({ contextFieldName: 'table' }),
+    neighborCaseOwnerTypeLookup: neighborContextFunc({
+      contextFieldName: 'caseOwnerType',
+    }),
+    neighborAssignedToTypeLookup: neighborContextFunc({
+      contextFieldName: 'assignedToType',
+    }),
+    neighborRelatedEntityTypeLookup: neighborContextFunc({
+      contextFieldName: 'relatedEntityType',
+    }),
+    parentSObjectTypeLookupTopLevel: neighborContextFunc({
+      contextFieldName: 'SObjectType',
+      levelsUp: 'top',
+    }),
+  }
 }
 
 export const addReferences = async (
@@ -177,24 +160,22 @@ export const addReferences = async (
   referenceElements: ReadOnlyElementsSource,
   defs: FieldReferenceDefinition[],
   typesToIgnore: string[],
+  contextStrategyLookup: Record<ReferenceContextStrategyName, referenceUtils.ContextFunc>,
 ): Promise<void> => {
   const resolverFinder = generateReferenceResolverFinder(defs)
 
-  const elementsWithFields = flatMapAsync(
-    await referenceElements.getAll(),
-    extractFlatCustomObjectFields,
-  )
+  const elementsWithFields = flatMapAsync(await referenceElements.getAll(), extractFlatCustomObjectFields)
   const { elemLookup, elemByElemID } = await multiIndex
     .buildMultiIndex<Element>()
     .addIndex({
       name: 'elemLookup',
       filter: hasApiName,
-      key: async (elem) => [await metadataType(elem), await apiName(elem)],
+      key: async elem => [await metadataType(elem), await apiName(elem)],
     })
     .addIndex({
       name: 'elemByElemID',
-      filter: (elem) => !isField(elem),
-      key: (elem) => [elem.elemID.getFullName()],
+      filter: elem => !isField(elem),
+      key: elem => [elem.elemID.getFullName()],
     })
     .process(elementsWithFields)
 
@@ -202,9 +183,9 @@ export const addReferences = async (
   let instances = elements.filter(isInstanceElement)
   if (typesToIgnore.length > 0) {
     const isIgnoredInstance = isInstanceOfTypeSync(...typesToIgnore)
-    instances = instances.filter((instance) => !isIgnoredInstance(instance))
+    instances = instances.filter(instance => !isIgnoredInstance(instance))
   }
-  await awu(instances).forEach(async (instance) => {
+  await awu(instances).forEach(async instance => {
     instance.value = await replaceReferenceValues({
       instance,
       resolverFinder,
@@ -214,32 +195,25 @@ export const addReferences = async (
       contextStrategyLookup,
     })
   })
-  log.debug('added references in the following fields: %s', [
-    ...fieldsWithResolvedReferences,
-  ])
+  log.debug('added references in the following fields: %s', [...fieldsWithResolvedReferences])
 }
 
 /**
  * Convert field values into references, based on predefined rules.
  *
  */
-const filter: LocalFilterCreator = ({ config }) => ({
+const filter: FilterCreator = ({ config }) => ({
   name: 'fieldReferencesFilter',
-  onFetch: async (elements) => {
-    const typesToIgnore: string[] = []
-    if (!config.fetchProfile.isFeatureEnabled('generateRefsInProfiles')) {
-      typesToIgnore.push(PROFILE_METADATA_TYPE)
-    }
-    if (
-      config.fetchProfile.isCustomReferencesHandlerEnabled('permisisonSets')
-    ) {
-      typesToIgnore.push(PERMISSION_SET_METADATA_TYPE)
-    }
+  onFetch: async elements => {
+    const typesToIgnore = config.fetchProfile.isCustomReferencesHandlerEnabled('profilesAndPermissionSets')
+      ? [PROFILE_METADATA_TYPE, PERMISSION_SET_METADATA_TYPE, MUTING_PERMISSION_SET_METADATA_TYPE]
+      : []
     await addReferences(
       elements,
       buildElementsSourceForFetch(elements, config),
-      fieldNameToTypeMappingDefs,
+      getDefsFromFetchProfile(config.fetchProfile),
       typesToIgnore,
+      createContextStrategyLookups(config.fetchProfile),
     )
   },
 })

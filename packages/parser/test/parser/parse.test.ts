@@ -1,17 +1,9 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
 import {
   ObjectType,
@@ -314,6 +306,24 @@ describe('Salto parser', () => {
         })
       })
 
+      describe('when meta type is dropped', () => {
+        const body = `
+          type salesforce.object is {
+          }
+        `
+
+        beforeEach(async () => {
+          ;({ elements, sourceMap, errors } = await parseBody(body))
+        })
+
+        it('should have an error', () => {
+          expect(errors).toHaveLength(1)
+          const error = errors[0]
+          expect(error.summary).toEqual('Invalid type definition')
+          expect(elements).toHaveLength(0)
+        })
+      })
+
       describe('with invalid name', () => {
         const body = `
           type salesforce.someType.a {
@@ -566,7 +576,30 @@ describe('Salto parser', () => {
 
   describe('with a settings definition', () => {
     describe('labels', () => {
-      describe('when the definition is valid', () => {
+      describe("with explicit 'is object'", () => {
+        const body = `
+          settings salesforce.global is object {
+          }
+        `
+
+        beforeEach(async () => {
+          ;({ elements, sourceMap, errors } = await parseBody(body))
+        })
+
+        it('should parse settings', () => {
+          expect(elements).toHaveLength(1)
+          const settings = elements[0] as ObjectType
+          expect(isObjectType(settings)).toBe(true)
+          expect(settings.isSettings).toBe(true)
+          expect(settings.elemID).toEqual(new ElemID('salesforce', 'global'))
+        })
+
+        it('should contain all elements in source map', validateSourceMap)
+
+        it('should have no errors', checkNoErrors)
+      })
+
+      describe('with implicit definition', () => {
         const body = `
           settings salesforce.global {
           }
@@ -589,7 +622,66 @@ describe('Salto parser', () => {
         it('should have no errors', checkNoErrors)
       })
 
-      describe("with 'is' keyword", () => {
+      describe('with meta type', () => {
+        const body = `
+          settings salesforce.global is salesforce.StandardSettings {
+          }
+        `
+
+        beforeEach(async () => {
+          ;({ elements, sourceMap, errors } = await parseBody(body))
+        })
+
+        it('should parse settings', () => {
+          expect(elements).toHaveLength(1)
+          const settings = elements[0] as ObjectType
+          expect(isObjectType(settings)).toBe(true)
+          expect(settings.isSettings).toBe(true)
+          expect(settings.elemID).toEqual(new ElemID('salesforce', 'global'))
+          expect(settings.metaType?.elemID).toEqual(new ElemID('salesforce', 'StandardSettings'))
+        })
+
+        it('should contain all elements in source map', validateSourceMap)
+
+        it('should have no errors', checkNoErrors)
+      })
+
+      describe('with invalid meta type', () => {
+        const body = `
+          settings salesforce.object is salesforce.StandardSettings.field.name {
+          }
+        `
+
+        beforeEach(async () => {
+          ;({ elements, sourceMap, errors } = await parseBody(body))
+        })
+
+        it('should have an error', () => {
+          expect(errors).toHaveLength(1)
+          expect(errors[0].summary).toEqual('Invalid meta type')
+          expect(elements).toHaveLength(0)
+        })
+      })
+
+      describe("when 'is' keyword is dropped", () => {
+        const body = `
+          settings salesforce.global object {
+          }
+        `
+
+        beforeEach(async () => {
+          ;({ elements, sourceMap, errors } = await parseBody(body))
+        })
+
+        it('should have an error', () => {
+          expect(errors).toHaveLength(1)
+          const error = errors[0]
+          expect(error.summary).toEqual('Invalid settings type definition')
+          expect(elements).toHaveLength(0)
+        })
+      })
+
+      describe('when meta type is dropped', () => {
         const body = `
           settings salesforce.global is {
           }
@@ -620,8 +712,8 @@ describe('Salto parser', () => {
         it('should have an error', () => {
           expect(errors).toHaveLength(1)
           const error = errors[0]
-          expect(error.summary).toEqual('Invalid settings type definition')
-          expect(elements).toHaveLength(0)
+          expect(error.summary).toEqual('Primitive settings type')
+          expect(elements).toHaveLength(1)
         })
       })
     })

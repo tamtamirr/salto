@@ -1,17 +1,9 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
 import { CORE_ANNOTATIONS, ElemID, InstanceElement, ObjectType } from '@salto-io/adapter-api'
 import { buildElementsSourceFromElements } from '@salto-io/adapter-utils'
@@ -21,6 +13,7 @@ import NetsuiteClient from '../../../src/client/client'
 import { RemoteFilterOpts } from '../../../src/filter'
 import SuiteAppClient from '../../../src/client/suiteapp_client/suiteapp_client'
 import mockSdfClient from '../../client/sdf_client'
+import { getTypesToInternalId } from '../../../src/data_elements/types'
 import { createEmptyElementsSourceIndexes, getDefaultAdapterConfig } from '../../utils'
 import 'moment-timezone'
 
@@ -34,6 +27,7 @@ describe('netsuite saved searches author information tests', () => {
   const runSavedSearchQueryMock = jest.fn()
   const SDFClient = mockSdfClient()
   const clientWithoutSuiteApp = new NetsuiteClient(SDFClient)
+  const { internalIdToTypes, typeToInternalId } = getTypesToInternalId([])
   const suiteAppClient = {
     runSuiteQL: runSuiteQLMock,
     runSavedSearchQuery: runSavedSearchQueryMock,
@@ -63,6 +57,8 @@ describe('netsuite saved searches author information tests', () => {
       isPartial: false,
       config: await getDefaultAdapterConfig(),
       timeZoneAndFormat: { format: 'MM/DD/YYYY H:mm a', timeZone: 'America/Toronto' },
+      internalIdToTypes,
+      typeToInternalId,
     }
   })
 
@@ -105,6 +101,8 @@ describe('netsuite saved searches author information tests', () => {
       isPartial: false,
       config: await getDefaultAdapterConfig(),
       timeZoneAndFormat: { format: 'DD/M/YYYY h:mm a', timeZone: 'America/Toronto' },
+      internalIdToTypes,
+      typeToInternalId,
     }
     runSavedSearchQueryMock.mockResolvedValue([
       { id: '1', modifiedby: [{ value: '1', text: 'user 1 name' }], datemodified: '28/1/1995 6:17 am' },
@@ -123,6 +121,8 @@ describe('netsuite saved searches author information tests', () => {
       isPartial: false,
       config: await getDefaultAdapterConfig(),
       timeZoneAndFormat: { format: 'D MMMM, YYYY h:mm a', timeZone: 'Asia/Jerusalem' },
+      internalIdToTypes,
+      typeToInternalId,
     }
     runSavedSearchQueryMock.mockResolvedValue([
       { id: '1', modifiedby: [{ value: '1', text: 'user 1 name' }], datemodified: '28 January, 1995 6:17 am' },
@@ -140,6 +140,8 @@ describe('netsuite saved searches author information tests', () => {
       isPartial: false,
       config: await getDefaultAdapterConfig(),
       timeZoneAndFormat: { format: 'D MMMM, YYYY h:mm a', timeZone: 'Asia/Jerusalem' },
+      internalIdToTypes,
+      typeToInternalId,
     }
     runSavedSearchQueryMock.mockResolvedValue([
       { id: '1', modifiedby: [{ value: '1', text: 'user 1 name' }], datemodified: '28 January, 3995 6:17 am' },
@@ -158,6 +160,8 @@ describe('netsuite saved searches author information tests', () => {
       isPartial: false,
       config: await getDefaultAdapterConfig(),
       timeZoneAndFormat: { format: undefined, timeZone: 'Asia/Jerusalem' },
+      internalIdToTypes,
+      typeToInternalId,
     }
     await filterCreator(filterOpts).onFetch?.(elements)
     expect(savedSearch.annotations[CORE_ANNOTATIONS.CHANGED_AT]).toBeUndefined()
@@ -199,6 +203,8 @@ describe('netsuite saved searches author information tests', () => {
         elementsSource: buildElementsSourceFromElements([]),
         isPartial: false,
         config: await getDefaultAdapterConfig(),
+        internalIdToTypes,
+        typeToInternalId,
       }
     })
     it('should not change any elements in fetch', async () => {
@@ -227,6 +233,8 @@ describe('netsuite saved searches author information tests', () => {
             },
           },
         },
+        internalIdToTypes,
+        typeToInternalId,
       }
     })
     it('should not change any elements in fetch', async () => {

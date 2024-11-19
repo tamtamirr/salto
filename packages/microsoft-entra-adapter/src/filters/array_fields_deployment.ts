@@ -1,17 +1,9 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
 import _ from 'lodash'
 import {
@@ -34,11 +26,8 @@ import {
 import {
   deployment,
   definitions as definitionsUtils,
-  filters,
   filterUtils,
-  references,
   ChangeElementResolver,
-  createChangeElementResolver,
 } from '@salto-io/adapter-components'
 import { logger } from '@salto-io/logging'
 import { types } from '@salto-io/lowerdash'
@@ -50,8 +39,9 @@ import {
   applyFunctionToChangeData,
 } from '@salto-io/adapter-utils'
 import { Options } from '../definitions/types'
-import { UserConfig } from '../config'
 import { ADAPTER_NAME } from '../constants'
+import { customConvertError } from '../error_utils'
+import { changeResolver } from '../definitions/references'
 
 const log = logger(module)
 
@@ -211,6 +201,7 @@ const deployArrayField = async <Options extends definitionsUtils.APIDefinitionsO
           elemID: topLevelChangeData.elemID,
           severity: 'Error',
           message: e.message,
+          detailedMessage: e.message,
         },
       ],
     }
@@ -262,24 +253,25 @@ const deployArrayField = async <Options extends definitionsUtils.APIDefinitionsO
  * The filter will deploy the top level change and then deploy the array field changes, which can be either additions or removals.
  */
 export const deployArrayFieldsFilterCreator =
-  ({
-    convertError = deployment.defaultConvertError,
-    ...arrayFieldDefinition
-  }: Pick<filters.FilterCreationArgs<Options, UserConfig>, 'convertError'> &
-    DeployArrayFieldFilterParams): filterUtils.AdapterFilterCreator<{}, filter.FilterResult, {}, Options> =>
+  (
+    arrayFieldDefinition: DeployArrayFieldFilterParams,
+  ): filterUtils.AdapterFilterCreator<{}, filter.FilterResult, {}, Options> =>
   ({ definitions, elementSource, sharedContext }) => ({
     name: 'deployArrayFieldsFilter',
     deploy: async (changes, changeGroup) => {
       const { deploy, ...otherDefs } = definitions
       const { topLevelTypeName } = arrayFieldDefinition
       if (deploy === undefined) {
+        log.error('could not find deploy definitions')
+        const message = 'Deploy not supported'
         return {
           deployResult: {
             appliedChanges: [],
             errors: [
               {
                 severity: 'Error',
-                message: 'Deploy not supported',
+                message,
+                detailedMessage: message,
               },
             ],
           },
@@ -287,13 +279,16 @@ export const deployArrayFieldsFilterCreator =
         }
       }
       if (changeGroup === undefined) {
+        log.error('change group not provided')
+        const message = 'Deploy not supported'
         return {
           deployResult: {
             appliedChanges: [],
             errors: [
               {
                 severity: 'Error',
-                message: 'Deploy not supported',
+                message,
+                detailedMessage: message,
               },
             ],
           },
@@ -305,10 +300,8 @@ export const deployArrayFieldsFilterCreator =
         definitions: { deploy, ...otherDefs },
         changeGroup,
         elementSource,
-        convertError,
-        changeResolver: createChangeElementResolver<Change<InstanceElement>>({
-          getLookUpName: references.generateLookupFunc(definitions.references?.rules ?? []),
-        }),
+        convertError: customConvertError,
+        changeResolver,
         sharedContext,
       }
 

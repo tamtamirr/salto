@@ -1,17 +1,9 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
 import { filterUtils } from '@salto-io/adapter-components'
 import { InstanceElement, ObjectType, toChange } from '@salto-io/adapter-api'
@@ -41,7 +33,7 @@ describe('script_runner_instance_deploy', () => {
     filter = scriptRunnerInstanceDeploy(getFilterParams({ config })) as FilterType
     jest.spyOn(deployment, 'deployChanges').mockResolvedValueOnce({
       appliedChanges: [toChange({ after: scriptInstance1 })],
-      errors: [{ message: '123', severity: 'Warning' }],
+      errors: [{ message: '123', severity: 'Warning', detailedMessage: '123' }],
     })
   })
   it('should return correct applied changes and leftovers', async () => {
@@ -51,7 +43,7 @@ describe('script_runner_instance_deploy', () => {
       toChange({ after: instance3 }),
     ])
     expect(res.deployResult.appliedChanges).toEqual([toChange({ after: scriptInstance1 })])
-    expect(res.deployResult.errors).toEqual([{ message: '123', severity: 'Warning' }])
+    expect(res.deployResult.errors).toEqual([{ message: '123', severity: 'Warning', detailedMessage: '123' }])
     expect(res.leftoverChanges).toEqual([toChange({ after: instance3 })])
   })
   it('should return empty if no relevant changes', async () => {

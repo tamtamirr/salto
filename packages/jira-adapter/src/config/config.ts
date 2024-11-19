@@ -1,17 +1,9 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
 import _ from 'lodash'
 import { createMatchingObjectType } from '@salto-io/adapter-utils'
@@ -60,6 +52,7 @@ type JiraDeployConfig = definitions.UserDeployConfig &
 
 type JiraFetchFilters = definitions.DefaultFetchCriteria & {
   type?: string
+  state?: string
 }
 
 type JiraFetchConfig = definitions.UserFetchConfig<{ fetchCriteria: JiraFetchFilters }> & {
@@ -67,6 +60,7 @@ type JiraFetchConfig = definitions.UserFetchConfig<{ fetchCriteria: JiraFetchFil
   addTypeToFieldName?: boolean
   convertUsersIds?: boolean
   parseTemplateExpressions?: boolean
+  parseAdditionalAutomationExpressions?: boolean
   enableScriptRunnerAddon?: boolean
   enableJSM?: boolean
   enableJsmExperimental?: boolean
@@ -77,9 +71,12 @@ type JiraFetchConfig = definitions.UserFetchConfig<{ fetchCriteria: JiraFetchFil
   enableMissingReferences?: boolean
   enableIssueLayouts?: boolean
   enableNewWorkflowAPI?: boolean
+  allowUserCallFailure?: boolean
   enableAssetsObjectFieldConfiguration?: boolean
   automationPageSize?: number
   splitFieldContextOptions?: boolean
+  enableRequestTypeFieldNameAlignment?: boolean
+  removeFieldConfigurationDefaultValues?: boolean
 }
 
 export type MaskingConfig = {
@@ -154,6 +151,16 @@ export const PARTIAL_DEFAULT_CONFIG: Omit<JiraConfig, 'apiDefinitions'> = {
     fieldConfigurationItemsDeploymentLimit: 100,
     usePrivateAPI: true,
     boardColumnRetry: 5,
+    logging: {
+      responseStrategies: [
+        { pattern: '^\\/rest\\/greenhopper\\/1.0\\/rapidviewconfig\\/estimation', numItems: 1, strategy: 'omit' },
+        { pattern: '^\\/rest\\/agile\\/1.0\\/board/.*\\/configuration', numItems: 50, strategy: 'omit' },
+        { pattern: '^\\/rest\\/api\\/2\\/user\\/search', numItems: 10, strategy: 'truncate' },
+        { pattern: '^\\/rest\\/gira\\/1', numItems: 10, strategy: 'omit' },
+        { pattern: '^\\/rest\\/gira\\/1', numItems: 1, strategy: 'truncate' }, // for truncating the request data
+        { size: 100000, strategy: 'truncate' },
+      ],
+    },
   },
   fetch: {
     ...elements.query.INCLUDE_ALL_CONFIG,
@@ -162,8 +169,10 @@ export const PARTIAL_DEFAULT_CONFIG: Omit<JiraConfig, 'apiDefinitions'> = {
     removeDuplicateProjectRoles: true,
     addAlias: true,
     enableIssueLayouts: true,
-    enableNewWorkflowAPI: false,
+    enableNewWorkflowAPI: true,
+    allowUserCallFailure: false,
     enableAssetsObjectFieldConfiguration: false,
+    removeFieldConfigurationDefaultValues: false,
   },
   deploy: {
     forceDelete: false,
@@ -177,8 +186,16 @@ export const PARTIAL_DEFAULT_CONFIG: Omit<JiraConfig, 'apiDefinitions'> = {
   },
 }
 
-export const getDefaultConfig = ({ isDataCenter }: { isDataCenter: boolean }): JiraConfig => ({
+const getPartialDefaultConfig = (isDataCenter: boolean): Omit<JiraConfig, 'apiDefinitions'> => ({
   ...PARTIAL_DEFAULT_CONFIG,
+  fetch: {
+    ...PARTIAL_DEFAULT_CONFIG.fetch,
+    enableNewWorkflowAPI: !isDataCenter,
+  },
+})
+
+export const getDefaultConfig = ({ isDataCenter }: { isDataCenter: boolean }): JiraConfig => ({
+  ...getPartialDefaultConfig(isDataCenter),
   apiDefinitions: getProductSettings({ isDataCenter }).defaultApiDefinitions,
   [SCRIPT_RUNNER_API_DEFINITIONS]: getProductSettings({ isDataCenter }).defaultScriptRunnerApiDefinitions,
   [JSM_DUCKTYPE_API_DEFINITIONS]: getProductSettings({ isDataCenter }).defaultDuckTypeApiDefinitions,
@@ -197,133 +214,80 @@ const createClientConfigType = (): ObjectType => {
   return configType
 }
 
-export type ChangeValidatorName =
-  | 'unresolvedReference'
-  | 'brokenReferences'
-  | 'deployTypesNotSupported'
-  | 'readOnlyProjectRoleChange'
-  | 'defaultFieldConfiguration'
-  | 'fieldConfigurationDescriptionLength'
-  | 'fieldConfigurationItemDescriptionLength'
-  | 'screen'
-  | 'issueTypeScheme'
-  | 'issueTypeSchemeDefaultType'
-  | 'teamManagedProject'
-  | 'projectDeletion'
-  | 'status'
-  | 'privateApi'
-  | 'emptyValidatorWorkflowChange'
-  | 'readOnlyWorkflow'
-  | 'dashboardGadgets'
-  | 'referencedWorkflowDeletion'
-  | 'dashboardLayout'
-  | 'issueLayouts'
-  | 'permissionType'
-  | 'automations'
-  | 'activeSchemeDeletion'
-  | 'sameIssueTypeNameChange'
-  | 'statusMigrationChange'
-  | 'workflowSchemeMigration'
-  | 'workflowStatusMappings'
-  | 'inboundTransition'
-  | 'issueTypeSchemeMigration'
-  | 'missingExtensionsTransitionRules'
-  | 'activeSchemeChange'
-  | 'masking'
-  | 'issueTypeDeletion'
-  | 'lockedFields'
-  | 'fieldContext'
-  | 'fieldSecondGlobalContext'
-  | 'systemFields'
-  | 'workflowProperties'
-  | 'permissionScheme'
-  | 'screenSchemeDefault'
-  | 'wrongUserPermissionScheme'
-  | 'accountId'
-  | 'workflowSchemeDups'
-  | 'workflowTransitionDuplicateName'
-  | 'permissionSchemeDeployment'
-  | 'projectCategory'
-  | 'customFieldsWith10KOptions'
-  | 'issueTypeHierarchy'
-  | 'automationProjects'
-  | 'deleteLastQueueValidator'
-  | 'defaultAdditionQueueValidator'
-  | 'defaultAttributeValidator'
-  | 'boardColumnConfig'
-  | 'automationToAssets'
-  | 'addJsmProject'
-  | 'deleteLabelAtttribute'
-  | 'jsmPermissions'
-  | 'fieldContextOptions'
+const CHANGE_VALIDATOR_NAMES = [
+  'unresolvedReference',
+  'brokenReferences',
+  'deployTypesNotSupported',
+  'readOnlyProjectRoleChange',
+  'defaultFieldConfiguration',
+  'fieldConfigurationDescriptionLength',
+  'fieldConfigurationItemDescriptionLength',
+  'screen',
+  'issueTypeScheme',
+  'issueTypeSchemeDefaultType',
+  'teamManagedProject',
+  'projectDeletion',
+  'status',
+  'privateApi',
+  'emptyValidatorWorkflowChange',
+  'readOnlyWorkflow',
+  'dashboardGadgets',
+  'referencedWorkflowDeletion',
+  'dashboardLayout',
+  'issueLayouts',
+  'permissionType',
+  'automations',
+  'activeSchemeDeletion',
+  'statusMigrationChange',
+  'workflowSchemeMigration',
+  'workflowStatusMappings',
+  'inboundTransition',
+  'issueTypeSchemeMigration',
+  'missingExtensionsTransitionRules',
+  'activeSchemeChange',
+  'masking',
+  'issueTypeDeletion',
+  'lockedFields',
+  'fieldContext',
+  'fieldSecondGlobalContext',
+  'systemFields',
+  'workflowProperties',
+  'permissionScheme',
+  'screenSchemeDefault',
+  'wrongUserPermissionScheme',
+  'accountId',
+  'workflowSchemeDups',
+  'workflowTransitionDuplicateName',
+  'permissionSchemeDeployment',
+  'projectCategory',
+  'customFieldsWith10KOptions',
+  'issueTypeHierarchy',
+  'automationProjects',
+  'deleteLastQueueValidator',
+  'defaultAdditionQueueValidator',
+  'defaultAttributeValidator',
+  'boardColumnConfig',
+  'automationToAssets',
+  'addJsmProject',
+  'deleteLabelAtttribute',
+  'jsmPermissions',
+  'fieldContextOptions',
+  'uniqueFields',
+  'assetsObjectFieldConfigurationAql',
+  'projectAssigneeType',
+  'fieldContextDefaultValue',
+  'fieldContextOrderRemoval',
+  'optionValue',
+  'enhancedSearchDeployment',
+  'fieldContext',
+  'emptyProjectScopedContext',
+]
 
-type ChangeValidatorConfig = Partial<Record<ChangeValidatorName, boolean>>
+export type ChangeValidatorName = (typeof CHANGE_VALIDATOR_NAMES)[number]
 
-const changeValidatorConfigType = createMatchingObjectType<ChangeValidatorConfig>({
-  elemID: new ElemID(JIRA, 'changeValidatorConfig'),
-  fields: {
-    unresolvedReference: { refType: BuiltinTypes.BOOLEAN },
-    boardColumnConfig: { refType: BuiltinTypes.BOOLEAN },
-    brokenReferences: { refType: BuiltinTypes.BOOLEAN },
-    deployTypesNotSupported: { refType: BuiltinTypes.BOOLEAN },
-    readOnlyProjectRoleChange: { refType: BuiltinTypes.BOOLEAN },
-    defaultFieldConfiguration: { refType: BuiltinTypes.BOOLEAN },
-    fieldConfigurationDescriptionLength: { refType: BuiltinTypes.BOOLEAN },
-    fieldConfigurationItemDescriptionLength: { refType: BuiltinTypes.BOOLEAN },
-    screen: { refType: BuiltinTypes.BOOLEAN },
-    issueTypeScheme: { refType: BuiltinTypes.BOOLEAN },
-    issueTypeSchemeDefaultType: { refType: BuiltinTypes.BOOLEAN },
-    teamManagedProject: { refType: BuiltinTypes.BOOLEAN },
-    projectDeletion: { refType: BuiltinTypes.BOOLEAN },
-    status: { refType: BuiltinTypes.BOOLEAN },
-    privateApi: { refType: BuiltinTypes.BOOLEAN },
-    emptyValidatorWorkflowChange: { refType: BuiltinTypes.BOOLEAN },
-    referencedWorkflowDeletion: { refType: BuiltinTypes.BOOLEAN },
-    readOnlyWorkflow: { refType: BuiltinTypes.BOOLEAN },
-    dashboardGadgets: { refType: BuiltinTypes.BOOLEAN },
-    dashboardLayout: { refType: BuiltinTypes.BOOLEAN },
-    issueLayouts: { refType: BuiltinTypes.BOOLEAN },
-    permissionType: { refType: BuiltinTypes.BOOLEAN },
-    automations: { refType: BuiltinTypes.BOOLEAN },
-    activeSchemeDeletion: { refType: BuiltinTypes.BOOLEAN },
-    sameIssueTypeNameChange: { refType: BuiltinTypes.BOOLEAN },
-    statusMigrationChange: { refType: BuiltinTypes.BOOLEAN },
-    workflowSchemeMigration: { refType: BuiltinTypes.BOOLEAN },
-    workflowStatusMappings: { refType: BuiltinTypes.BOOLEAN },
-    inboundTransition: { refType: BuiltinTypes.BOOLEAN },
-    issueTypeSchemeMigration: { refType: BuiltinTypes.BOOLEAN },
-    missingExtensionsTransitionRules: { refType: BuiltinTypes.BOOLEAN },
-    activeSchemeChange: { refType: BuiltinTypes.BOOLEAN },
-    masking: { refType: BuiltinTypes.BOOLEAN },
-    issueTypeDeletion: { refType: BuiltinTypes.BOOLEAN },
-    lockedFields: { refType: BuiltinTypes.BOOLEAN },
-    fieldContext: { refType: BuiltinTypes.BOOLEAN },
-    fieldSecondGlobalContext: { refType: BuiltinTypes.BOOLEAN },
-    systemFields: { refType: BuiltinTypes.BOOLEAN },
-    workflowProperties: { refType: BuiltinTypes.BOOLEAN },
-    permissionScheme: { refType: BuiltinTypes.BOOLEAN },
-    screenSchemeDefault: { refType: BuiltinTypes.BOOLEAN },
-    wrongUserPermissionScheme: { refType: BuiltinTypes.BOOLEAN },
-    accountId: { refType: BuiltinTypes.BOOLEAN },
-    workflowSchemeDups: { refType: BuiltinTypes.BOOLEAN },
-    workflowTransitionDuplicateName: { refType: BuiltinTypes.BOOLEAN },
-    permissionSchemeDeployment: { refType: BuiltinTypes.BOOLEAN },
-    projectCategory: { refType: BuiltinTypes.BOOLEAN },
-    customFieldsWith10KOptions: { refType: BuiltinTypes.BOOLEAN },
-    issueTypeHierarchy: { refType: BuiltinTypes.BOOLEAN },
-    automationProjects: { refType: BuiltinTypes.BOOLEAN },
-    deleteLastQueueValidator: { refType: BuiltinTypes.BOOLEAN },
-    defaultAdditionQueueValidator: { refType: BuiltinTypes.BOOLEAN },
-    defaultAttributeValidator: { refType: BuiltinTypes.BOOLEAN },
-    automationToAssets: { refType: BuiltinTypes.BOOLEAN },
-    addJsmProject: { refType: BuiltinTypes.BOOLEAN },
-    deleteLabelAtttribute: { refType: BuiltinTypes.BOOLEAN },
-    jsmPermissions: { refType: BuiltinTypes.BOOLEAN },
-    fieldContextOptions: { refType: BuiltinTypes.BOOLEAN },
-  },
-  annotations: {
-    [CORE_ANNOTATIONS.ADDITIONAL_PROPERTIES]: false,
-  },
+const changeValidatorConfigType = definitions.createChangeValidatorConfigType({
+  adapterName: JIRA,
+  changeValidatorNames: CHANGE_VALIDATOR_NAMES,
 })
 
 const jiraDeployConfigType = definitions.createUserDeployConfigType(JIRA, changeValidatorConfigType, {
@@ -339,6 +303,7 @@ const fetchFiltersType = createMatchingObjectType<JiraFetchFilters>({
   fields: {
     name: { refType: BuiltinTypes.STRING },
     type: { refType: BuiltinTypes.STRING },
+    state: { refType: BuiltinTypes.STRING },
   },
   annotations: {
     [CORE_ANNOTATIONS.ADDITIONAL_PROPERTIES]: false,
@@ -356,8 +321,10 @@ const fetchConfigType = definitions.createUserFetchConfigType({
     enableJsmExperimental: { refType: BuiltinTypes.BOOLEAN },
     enableJSMPremium: { refType: BuiltinTypes.BOOLEAN },
     removeDuplicateProjectRoles: { refType: BuiltinTypes.BOOLEAN },
+    allowUserCallFailure: { refType: BuiltinTypes.BOOLEAN },
     // Default is true
     parseTemplateExpressions: { refType: BuiltinTypes.BOOLEAN },
+    parseAdditionalAutomationExpressions: { refType: BuiltinTypes.BOOLEAN },
     addAlias: { refType: BuiltinTypes.BOOLEAN },
     splitFieldConfiguration: { refType: BuiltinTypes.BOOLEAN },
     enableMissingReferences: { refType: BuiltinTypes.BOOLEAN },
@@ -366,6 +333,8 @@ const fetchConfigType = definitions.createUserFetchConfigType({
     enableAssetsObjectFieldConfiguration: { refType: BuiltinTypes.BOOLEAN },
     automationPageSize: { refType: BuiltinTypes.NUMBER },
     splitFieldContextOptions: { refType: BuiltinTypes.BOOLEAN },
+    enableRequestTypeFieldNameAlignment: { refType: BuiltinTypes.BOOLEAN },
+    removeFieldConfigurationDefaultValues: { refType: BuiltinTypes.BOOLEAN },
   },
   fetchCriteriaType: fetchFiltersType,
   omitElemID: true,
@@ -417,8 +386,12 @@ export const configType = createMatchingObjectType<Partial<JiraConfig>>({
       'fetch.enableIssueLayouts',
       'fetch.removeDuplicateProjectRoles',
       'fetch.enableNewWorkflowAPI',
+      'fetch.allowUserCallFailure',
       'fetch.enableAssetsObjectFieldConfiguration',
       'fetch.automationPageSize',
+      'fetch.parseAdditionalAutomationExpressions',
+      'fetch.enableRequestTypeFieldNameAlignment',
+      'fetch.removeFieldConfigurationDefaultValues',
       'deploy.taskMaxRetries',
       'deploy.taskRetryDelay',
       'deploy.ignoreMissingExtensions',

@@ -1,17 +1,9 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
 import path from 'path'
 import { promisify } from 'util'
@@ -25,6 +17,7 @@ import type rocksdb from '@salto-io/rocksdb'
 import { logger } from '@salto-io/logging'
 import _ from 'lodash'
 import { remoteMapLocations } from './location_pool'
+import { LocationCounters } from './counters'
 
 const { asynciterable } = collections
 const { awu } = asynciterable
@@ -39,6 +32,11 @@ const log = logger(module)
 
 export const TMP_DB_DIR = 'tmp-dbs'
 export type RocksDBValue = string | Buffer | undefined
+
+const DB_OPTIONS = {
+  // Explicitly setting the default value that rocksdb would use (64MB) because the JS binding sets a smaller default value (4MB)
+  writeBufferSize: 67108864,
+}
 
 type CreateIteratorOpts = remoteMap.IterationOpts & {
   keys: boolean
@@ -245,35 +243,44 @@ const closeTmpConnection = async (
   log.debug('closed temporary connection to %s', tmpLocation)
 }
 
-export const closeRemoteMapsOfLocation = async (location: string): Promise<void> => {
-  log.debug('closing all remote maps of location %s', location)
-  const persistentConnection = persistentDBConnections[location]
-  if (await persistentConnection) {
-    await closeConnection(location, persistentConnection, persistentDBConnections)
-  }
-  const tmpConnections = tmpDBConnections[location]
-  if (tmpConnections) {
-    await awu(Object.entries(tmpConnections)).forEach(async ([tmpLoc, tmpCon]) => {
-      await closeTmpConnection(location, tmpLoc, tmpCon)
-    })
-    delete tmpDBConnections[location]
-  }
-  const readOnlyConnection = readonlyDBConnections[location]
-  if (await readOnlyConnection) {
-    await closeConnection(location, readOnlyConnection, readonlyDBConnections)
-  }
-  const roConnectionsPerMap = readonlyDBConnectionsPerRemoteMap[location]
-  if (roConnectionsPerMap) {
-    await awu(Object.values(roConnectionsPerMap)).forEach(async conn => {
-      await closeDanglingConnection(conn)
-    })
-    delete readonlyDBConnectionsPerRemoteMap[location]
-    log.debug('closed read-only connections per remote map of location %s', location)
-  }
-  const locationResources = remoteMapLocations.get(location)
-  locationResources.counters.dump()
-  remoteMapLocations.return(locationResources)
-}
+export const closeRemoteMapsOfLocation = async (location: string): Promise<void> =>
+  log.timeDebug(
+    async () => {
+      let didClose = false
+      const persistentConnection = persistentDBConnections[location]
+      if (await persistentConnection) {
+        await closeConnection(location, persistentConnection, persistentDBConnections)
+        didClose = true
+      }
+      const tmpConnections = tmpDBConnections[location]
+      if (tmpConnections) {
+        await awu(Object.entries(tmpConnections)).forEach(async ([tmpLoc, tmpCon]) => {
+          await closeTmpConnection(location, tmpLoc, tmpCon)
+        })
+        delete tmpDBConnections[location]
+        didClose = true
+      }
+      const readOnlyConnection = readonlyDBConnections[location]
+      if (await readOnlyConnection) {
+        await closeConnection(location, readOnlyConnection, readonlyDBConnections)
+        didClose = true
+      }
+      const roConnectionsPerMap = readonlyDBConnectionsPerRemoteMap[location]
+      if (roConnectionsPerMap) {
+        await awu(Object.values(roConnectionsPerMap)).forEach(async conn => {
+          await closeDanglingConnection(conn)
+        })
+        delete readonlyDBConnectionsPerRemoteMap[location]
+        didClose = true
+        log.debug('closed read-only connections per remote map of location %s', location)
+      }
+      if (didClose) {
+        remoteMapLocations.return(location)
+      }
+    },
+    'closeRemoteMapsOfLocation with location %s',
+    location,
+  )
 
 export const closeAllRemoteMaps = async (): Promise<void> => {
   log.debug('closing all remote maps')
@@ -337,7 +344,7 @@ const getOpenDBConnection = async (loc: string, isReadOnly: boolean): Promise<ro
     )
   }
   const newDb = getRemoteDbImpl()(loc)
-  await promisify(newDb.open.bind(newDb, { readOnly: isReadOnly }))()
+  await promisify(newDb.open.bind(newDb, { readOnly: isReadOnly, ...DB_OPTIONS }))()
   currentConnectionsCount += 1
   return newDb
 }
@@ -397,7 +404,23 @@ const createFilteredReadIterator = (
   }
 }
 
-const createIterator = (prefix: string, opts: CreateIteratorOpts, connection: rocksdb): ReadIterator => {
+type CreateIteratorArgs = {
+  prefix: string
+  opts: CreateIteratorOpts
+  connection: rocksdb
+  statCounters?: LocationCounters
+  isEmpty?: boolean | undefined
+}
+const createIterator = ({ prefix, opts, connection, statCounters, isEmpty }: CreateIteratorArgs): ReadIterator => {
+  if (isEmpty) {
+    // If we know the result of the iterator is going to be empty, we can skip creating the connection iterator
+    // This is more efficient because the low level iterator works with a prefix, it doesn't really know about namespaces
+    // and therefore potentially has to do much more work to figure out that the iterator is empty
+    return {
+      next: async () => undefined,
+      nextPage: async () => undefined,
+    }
+  }
   // Cannot use inner limit when filtering because if we filter anything out we will need
   // to get additional results from the inner iterator
   const limit = opts.filter === undefined ? opts.first : undefined
@@ -408,6 +431,7 @@ const createIterator = (prefix: string, opts: CreateIteratorOpts, connection: ro
     ...(opts.after !== undefined ? { gt: opts.after } : { gte: prefix }),
     ...(limit !== undefined ? { limit } : {}),
   })
+  statCounters?.DBIteratorCreated.inc()
   return opts.filter === undefined
     ? createReadIterator(connectionIterator)
     : createFilteredReadIterator(connectionIterator, opts.filter, opts.first)
@@ -417,6 +441,8 @@ export const createRemoteMapCreator = (
   location: string,
   persistentDefaultValue = false,
 ): remoteMap.RemoteMapCreator => {
+  // This is a problem - we can create more than one remote map creator for a location
+  // if we do that, we don't know how many times we need to return the location cache :(
   const { counters: statCounters, cache: locationCache } = remoteMapLocations.get(location)
 
   let persistentDB: rocksdb
@@ -429,6 +455,7 @@ export const createRemoteMapCreator = (
     deserialize,
   }: remoteMap.CreateRemoteMapParams<T>): Promise<remoteMap.RemoteMap<T, K>> => {
     let wasClearCalled = false
+    let isNamespaceEmpty: boolean | undefined
     const delKeys = new Set<string>()
     const locationTmpDir = getDBTmpDir(location)
     if (!(await fileUtils.exists(location))) {
@@ -456,7 +483,13 @@ export const createRemoteMapCreator = (
         ...opts,
         ...(opts.after ? { after: keyToTempDBKey(opts.after) } : {}),
       }
-      return createIterator(tempKeyPrefix, normalizedOpts, tmpDB)
+      return createIterator({
+        prefix: tempKeyPrefix,
+        opts: normalizedOpts,
+        connection: tmpDB,
+        isEmpty: isNamespaceEmpty,
+        statCounters,
+      })
     }
 
     const createPersistentIterator = (opts: CreateIteratorOpts): ReadIterator => {
@@ -464,7 +497,13 @@ export const createRemoteMapCreator = (
         ...opts,
         ...(opts.after ? { after: keyToDBKey(opts.after) } : {}),
       }
-      return createIterator(keyPrefix, normalizedOpts, persistentDB)
+      return createIterator({
+        prefix: keyPrefix,
+        opts: normalizedOpts,
+        connection: persistentDB,
+        isEmpty: isNamespaceEmpty,
+        statCounters,
+      })
     }
     const batchUpdate = async (
       batchInsertIterator: AsyncIterable<remoteMap.RemoteMapEntry<string, string>>,
@@ -489,6 +528,9 @@ export const createRemoteMapCreator = (
       }
       if (i % batchInterval !== 0) {
         await promisify(batch.write.bind(batch))()
+      }
+      if (i > 0) {
+        isNamespaceEmpty = undefined
       }
       return i > 0
     }
@@ -578,6 +620,7 @@ export const createRemoteMapCreator = (
         if (locationCache.has(keyToTempDBKey(key))) {
           statCounters.LocationCacheHit.inc()
           statCounters.RemoteMapHit.inc()
+          isNamespaceEmpty = false
           resolve(locationCache.get(keyToTempDBKey(key)) as T)
           return
         }
@@ -585,8 +628,10 @@ export const createRemoteMapCreator = (
         const resolveRet = async (value: Buffer | string): Promise<void> => {
           const ret = await deserialize(value.toString())
           locationCache.set(keyToTempDBKey(key), ret)
+          isNamespaceEmpty = false
           resolve(ret)
         }
+        // eslint-disable-next-line @typescript-eslint/no-misused-promises
         tmpDB.get(keyToTempDBKey(key), async (error, value) => {
           if (error) {
             if (wasClearCalled) {
@@ -594,6 +639,7 @@ export const createRemoteMapCreator = (
               resolve(undefined)
               return
             }
+            // eslint-disable-next-line @typescript-eslint/no-misused-promises
             persistentDB.get(keyToDBKey(key), async (innerError, innerValue) => {
               if (innerError) {
                 statCounters.RemoteMapMiss.inc()
@@ -612,18 +658,19 @@ export const createRemoteMapCreator = (
     const deleteImpl = async (key: string): Promise<void> => {
       delKeys.add(key)
       locationCache.del(key)
+      isNamespaceEmpty = undefined
     }
     const createDBIfNotExist = async (loc: string): Promise<void> => {
       const newDb: rocksdb = getRemoteDbImpl()(loc)
       const readOnly = !persistent
       try {
-        await promisify(newDb.open.bind(newDb, { readOnly }))()
+        await promisify(newDb.open.bind(newDb, { readOnly, ...DB_OPTIONS }))()
         await promisify(newDb.close.bind(newDb))()
       } catch (e) {
         if (newDb.status === 'new' && readOnly) {
           log.info('DB does not exist. Creating on %s', loc)
           try {
-            await promisify(newDb.open.bind(newDb))()
+            await promisify(newDb.open.bind(newDb, DB_OPTIONS))()
             await promisify(newDb.close.bind(newDb))()
           } catch (err) {
             throw new Error(`Failed to open DB in write mode - ${loc}. Error: ${err}`)
@@ -696,6 +743,7 @@ export const createRemoteMapCreator = (
       set: async (key: string, element: T): Promise<void> => {
         delKeys.delete(key)
         locationCache.set(keyToTempDBKey(key), element)
+        isNamespaceEmpty = false
         await promisify(tmpDB.put.bind(tmpDB))(keyToTempDBKey(key), await serialize(element))
       },
       setAll: setAllImpl,
@@ -730,39 +778,44 @@ export const createRemoteMapCreator = (
         wasClearCalled = false
         return flushRes
       },
-      revert: async () => {
-        locationCache.reset()
-        delKeys.clear()
-        wasClearCalled = false
-        await clearImpl(tmpDB, tempKeyPrefix)
-      },
       clear: async () => {
         locationCache.reset()
         await clearImpl(tmpDB, tempKeyPrefix)
         wasClearCalled = true
+        isNamespaceEmpty = true
       },
       delete: deleteImpl,
       has: async (key: string): Promise<boolean> => {
         if (locationCache.has(keyToTempDBKey(key))) {
+          isNamespaceEmpty = false
           return true
         }
         const hasKeyImpl = async (k: string, db: rocksdb): Promise<boolean> =>
           new Promise(resolve => {
+            // eslint-disable-next-line @typescript-eslint/no-misused-promises
             db.get(k, async (error, value) => {
               resolve(!error && value !== undefined)
             })
           })
-        return (
+        const found =
           (await hasKeyImpl(keyToTempDBKey(key), tmpDB)) ||
-          (!wasClearCalled && hasKeyImpl(keyToDBKey(key), persistentDB))
-        )
+          (!wasClearCalled && (await hasKeyImpl(keyToDBKey(key), persistentDB)))
+        if (found) {
+          isNamespaceEmpty = false
+        }
+        return found
       },
       close: async (): Promise<void> => {
         // Do nothing - we can not close the connection here
         //  because we share the connection across multiple namespaces
         log.warn('cannot close connection of remote map with close method - use closeRemoteMapsOfLocation')
       },
-      isEmpty: async (): Promise<boolean> => awu(keysImpl({ first: 1 })).isEmpty(),
+      isEmpty: async (): Promise<boolean> => {
+        if (isNamespaceEmpty === undefined) {
+          isNamespaceEmpty = await awu(keysImpl({ first: 1 })).isEmpty()
+        }
+        return isNamespaceEmpty
+      },
     }
   }
 }
@@ -784,7 +837,7 @@ export const createReadOnlyRemoteMapCreator = (location: string): remoteMap.Read
         ...opts,
         ...(opts.after ? { after: keyToDBKey(opts.after) } : {}),
       }
-      return createIterator(keyPrefix, normalizedOpts, db)
+      return createIterator({ prefix: keyPrefix, opts: normalizedOpts, connection: db })
     }
     const createDBConnection = async (): Promise<void> => {
       readonlyDBConnectionsPerRemoteMap[location] = readonlyDBConnectionsPerRemoteMap[location] ?? {}
@@ -809,6 +862,7 @@ export const createReadOnlyRemoteMapCreator = (location: string): remoteMap.Read
         const resolveRet = async (value: Buffer | string): Promise<void> => {
           resolve(await deserialize(value.toString()))
         }
+        // eslint-disable-next-line @typescript-eslint/no-misused-promises
         db.get(keyToDBKey(key), async (error, value) => {
           if (error) {
             resolve(undefined)
@@ -891,9 +945,6 @@ export const createReadOnlyRemoteMapCreator = (location: string): remoteMap.Read
         notImplemented('flush')
         return false
       },
-      revert: async () => {
-        notImplemented('revert')
-      },
       clear: async () => {
         notImplemented('clear')
       },
@@ -902,6 +953,7 @@ export const createReadOnlyRemoteMapCreator = (location: string): remoteMap.Read
       },
       has: async (key: string): Promise<boolean> =>
         new Promise(resolve => {
+          // eslint-disable-next-line @typescript-eslint/no-misused-promises
           db.get(keyToDBKey(key), async (error, value) => {
             resolve(!error && value !== undefined)
           })

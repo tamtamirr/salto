@@ -1,20 +1,13 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
 import { filterUtils, client as clientUtils } from '@salto-io/adapter-components'
 import { BuiltinTypes, ElemID, InstanceElement, ObjectType, StaticFile, toChange } from '@salto-io/adapter-api'
+import { naclCase } from '@salto-io/adapter-utils'
 import { ISSUE_TYPE_NAME, JIRA } from '../../src/constants'
 import { getFilterParams, mockClient } from '../utils'
 import issueTypeFilter from '../../src/filters/issue_type'
@@ -113,8 +106,11 @@ describe('issueTypeFilter', () => {
         mockGet.mockClear()
       })
       it('should set icon content', async () => {
-        const anotherInstance = instance.clone()
-        anotherInstance.value.name = 'anotherInstance'
+        const anotherInstance = new InstanceElement(naclCase('another instance'), issueType, {
+          name: 'anotherInstance',
+          description: 'anotherInstanceDescription',
+          avatarId: 1,
+        })
         mockGet.mockImplementation(params => {
           if (params.url === '/rest/api/3/universal_avatar/view/type/issuetype/avatar/1') {
             return {
@@ -128,7 +124,7 @@ describe('issueTypeFilter', () => {
         expect(instance.value.avatar).toBeDefined()
         expect(instance.value.avatar).toEqual(
           new StaticFile({
-            filepath: 'jira/IssueType/instanceName.png',
+            filepath: 'jira/IssueType/instance.png',
             encoding: 'binary',
             content,
           }),
@@ -136,7 +132,7 @@ describe('issueTypeFilter', () => {
         expect(anotherInstance.value.avatar).toBeDefined()
         expect(anotherInstance.value.avatar).toEqual(
           new StaticFile({
-            filepath: 'jira/IssueType/anotherInstance.png',
+            filepath: 'jira/IssueType/another_instance.s.png',
             encoding: 'binary',
             content,
           }),
@@ -157,7 +153,7 @@ describe('issueTypeFilter', () => {
         expect(instance.value.avatar).toBeDefined()
         expect(instance.value.avatar).toEqual(
           new StaticFile({
-            filepath: 'jira/IssueType/instanceName.png',
+            filepath: 'jira/IssueType/instance.png',
             encoding: 'binary',
             content: Buffer.from('a string, not a buffer.'),
           }),
@@ -184,6 +180,7 @@ describe('issueTypeFilter', () => {
           errors: [
             {
               message: 'Failed to fetch attachment content from Jira API. error: 500 Internal request',
+              detailedMessage: 'Failed to fetch attachment content from Jira API. error: 500 Internal request',
               severity: 'Warning',
             },
           ],
@@ -206,6 +203,8 @@ describe('issueTypeFilter', () => {
             {
               message:
                 'Failed to fetch attachment content from Jira API. error: Error: Failed to fetch attachment content, response is not a buffer.',
+              detailedMessage:
+                'Failed to fetch attachment content from Jira API. error: Error: Failed to fetch attachment content, response is not a buffer.',
               severity: 'Warning',
             },
           ],
@@ -227,6 +226,8 @@ describe('issueTypeFilter', () => {
           errors: [
             {
               message:
+                'Failed to fetch attachment content from Jira API. error: Error: Failed to fetch issue type icon. It might be corrupted. To fix this, upload a new icon in your jira instance.',
+              detailedMessage:
                 'Failed to fetch attachment content from Jira API. error: Error: Failed to fetch issue type icon. It might be corrupted. To fix this, upload a new icon in your jira instance.',
               severity: 'Warning',
             },
@@ -463,6 +464,9 @@ describe('issueTypeFilter', () => {
       const res = await filter.deploy([{ action: 'modify', data: { before: instance, after: instsnceAfter } }])
       expect(res.deployResult.errors).toHaveLength(1)
       expect(res.deployResult.errors[0].message).toEqual(
+        'Error: Failed to deploy icon to Jira issue type: Failed to deploy icon to Jira issue type: Invalid response from Jira API',
+      )
+      expect(res.deployResult.errors[0].detailedMessage).toEqual(
         'Error: Failed to deploy icon to Jira issue type: Failed to deploy icon to Jira issue type: Invalid response from Jira API',
       )
       expect(res.deployResult.appliedChanges).toHaveLength(0)

@@ -1,17 +1,9 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
 import { logger } from '@salto-io/logging'
 import { values as lowerdashValues } from '@salto-io/lowerdash'
@@ -71,35 +63,46 @@ export const generateInstancesWithInitialTypes = <Options extends FetchApiDefini
         customNameMappingFunctions,
       })
 
-      const instances = entries
-        .map(value => recursiveNaclCase(value))
-        .map((entry, index) =>
-          createInstance({
-            entry,
-            type,
-            toElemName,
-            toPath,
-            // TODO pick better default name, include service id
-            defaultName: `unnamed_${index}`,
-            allowEmptyArrays: elementDef.topLevel?.allowEmptyArrays,
-          }),
-        )
-        .filter(isDefined)
+      const instances = log.timeTrace(
+        () =>
+          entries
+            .map(value => recursiveNaclCase(value))
+            .map((entry, index) =>
+              createInstance({
+                entry,
+                type,
+                toElemName,
+                toPath,
+                // TODO pick better default name, include service id
+                defaultName: `unnamed_${index}`,
+                allowEmptyArrays: elementDef.topLevel?.allowEmptyArrays,
+              }),
+            )
+            .filter(isDefined),
+        'generateInstancesWithInitialTypes: create instances for %s',
+        typeName,
+      )
 
       // TODO filter instances by fetch query before extracting standalone fields (SALTO-5425)
 
-      const instancesWithStandalone = extractStandaloneInstances({
-        adapterName,
-        instances,
-        defQuery,
-        getElemIdFunc,
-        customNameMappingFunctions,
-        definedTypes,
-      })
+      const instancesWithStandalone = log.timeTrace(
+        () =>
+          extractStandaloneInstances({
+            adapterName,
+            instances,
+            defQuery,
+            getElemIdFunc,
+            customNameMappingFunctions,
+            definedTypes,
+          }),
+        'generateInstancesWithInitialTypes: extractStandaloneInstances for %s',
+        typeName,
+      )
 
       return { types: [type, ...nestedTypes], instances: instancesWithStandalone }
     },
-    'generateInstancesWithInitialTypes for %s.%s',
+    'generateInstancesWithInitialTypes for %s.%s, %s entries',
     args.adapterName,
     args.typeName,
+    args.entries.length,
   )

@@ -1,17 +1,9 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
 import wu from 'wu'
 import _ from 'lodash'
@@ -69,6 +61,7 @@ import { RemoteMap, RemoteMapCreator } from '../remote_map'
 import { ParsedNaclFile } from './parsed_nacl_file'
 import { createParseResultCache, ParsedNaclFileCache } from './parsed_nacl_files_cache'
 import { isInvalidStaticFile } from '../static_files/common'
+import { getSaltoFlagBool } from '../../flags'
 
 const { awu } = collections.asynciterable
 type ThenableIterable<T> = collections.asynciterable.ThenableIterable<T>
@@ -81,6 +74,8 @@ export type RoutingMode = 'isolated' | 'default' | 'align' | 'override'
 
 export const FILE_EXTENSION = '.nacl'
 export const HASH_KEY = 'hash'
+
+const CREATE_FILENAMES_TO_ELEMENT_IDS_MAPPING_FLAG = 'CREATE_FILENAMES_TO_ELEMENT_IDS_MAPPING'
 
 const PARSE_CONCURRENCY = 100
 const DUMP_CONCURRENCY = 100
@@ -121,6 +116,7 @@ export type NaclFilesSource<Changes = ChangeSet<Change>> = Omit<ElementsSource, 
     filePath: string
     encoding: BufferEncoding
     isTemplate?: boolean
+    hash?: string
   }) => Promise<StaticFile | undefined>
   isPathIncluded: (filePath: string) => { included: boolean; isNacl?: boolean }
 }
@@ -143,6 +139,21 @@ export const toPathHint = (filename: string): string[] => {
   const dirPathSplitted = dirName === '.' ? [] : dirName.split(osPath.sep)
   return [...dirPathSplitted, osPath.basename(filename, osPath.extname(filename))]
 }
+
+// not returning `Record<string, ElemID[]>` on purpose, so we'll run `ElemID.fromFullName(..)`
+// only when the element ids of a specific filename are requested
+const createFilenameToElementIDFullNamesMapping = (
+  currentState: NaclFilesState,
+  naclFilesByName: Record<string, ParsedNaclFile>,
+): Promise<Record<string, { path: string }[]>> =>
+  log.timeDebug(
+    () =>
+      awu(currentState.elementsIndex.entries())
+        .flatMap(({ key, value }) => value.map(filename => ({ path: key, filename })))
+        .filter(({ filename }) => naclFilesByName[filename] !== undefined)
+        .groupBy(({ filename }) => filename),
+    'create filename to element id full names mapping from elements index',
+  )
 
 export const getElementReferenced = async (
   element: Element,
@@ -312,10 +323,7 @@ const createNaclFilesState = async (
     await remoteMapCreator<Element>({
       namespace: getRemoteMapNamespace('merged', sourceName),
       serialize: async element => serialize([element], 'keepRef'),
-      deserialize: async data =>
-        deserializeSingleElement(data, async sf =>
-          staticFilesSource.getStaticFile({ filepath: sf.filepath, encoding: sf.encoding, isTemplate: sf.isTemplate }),
-        ),
+      deserialize: async data => deserializeSingleElement(data, async sf => staticFilesSource.getStaticFile(sf)),
       persistent,
     }),
   ),
@@ -373,6 +381,23 @@ const buildNaclFilesState = async ({
   // We need to iterate over this twice - so no point in making this iterable :/
   const relevantElementIDs: ElemID[] = []
   const newElementsToMerge: AsyncIterable<Element>[] = []
+
+  const shouldCreateFilenameToElementIDsMapping = getSaltoFlagBool(CREATE_FILENAMES_TO_ELEMENT_IDS_MAPPING_FLAG)
+  log.debug('shouldCreateFilenameToElementIDsMapping is %s', shouldCreateFilenameToElementIDsMapping)
+
+  const filenameToElementIDFullNames =
+    !_.isEmpty(newParsed) && shouldCreateFilenameToElementIDsMapping
+      ? await createFilenameToElementIDFullNamesMapping(currentState, newParsed)
+      : {}
+
+  const getElementIDsFromNaclFile = async (naclFile: ParsedNaclFile): Promise<ElemID[]> => {
+    if (shouldCreateFilenameToElementIDsMapping) {
+      const elementIDFullnamesInNaclFile = filenameToElementIDFullNames[naclFile.filename] ?? []
+      return elementIDFullnamesInNaclFile.map(({ path }) => ElemID.fromFullName(path))
+    }
+    const elementsInNaclFile = (await naclFile.elements()) ?? []
+    return elementsInNaclFile.map(element => element.elemID)
+  }
 
   const updateIndex = async <T>(
     index: RemoteMap<T[]>,
@@ -467,18 +492,15 @@ const buildNaclFilesState = async ({
         )
 
         const currentNaclFileElements = (await naclFile.elements()) ?? []
-        const oldNaclFileElements = (await parsedFile?.elements()) ?? []
+        const oldNaclFileElementIDs = parsedFile !== undefined ? await getElementIDsFromNaclFile(parsedFile) : []
         updateIndexOfFile(
           elementsIndexAdditions,
           elementsIndexDeletions,
           naclFile.filename,
-          oldNaclFileElements.map(e => e.elemID.getFullName()),
+          oldNaclFileElementIDs.map(elemID => elemID.getFullName()),
           currentNaclFileElements.map(e => e.elemID.getFullName()),
         )
-        relevantElementIDs.push(
-          ...currentNaclFileElements.map(e => e.elemID),
-          ...oldNaclFileElements.map(e => e.elemID),
-        )
+        relevantElementIDs.push(...currentNaclFileElements.map(e => e.elemID), ...oldNaclFileElementIDs)
         if (!_.isEmpty(currentNaclFileElements)) {
           newElementsToMerge.push(awu(currentNaclFileElements as Element[]))
         }
@@ -505,13 +527,13 @@ const buildNaclFilesState = async ({
           referencedIndexDeletions[elementFullName] = referencedIndexDeletions[elementFullName] ?? new Set<string>()
           referencedIndexDeletions[elementFullName].add(oldNaclFile.filename)
         })
-        const oldNaclFileElements = (await oldNaclFile.elements()) ?? []
-        oldNaclFileElements.forEach(element => {
-          const elementFullName = element.elemID.getFullName()
+        const oldNaclFileElementIDs = await getElementIDsFromNaclFile(oldNaclFile)
+        oldNaclFileElementIDs.forEach(elemID => {
+          const elementFullName = elemID.getFullName()
           elementsIndexDeletions[elementFullName] = elementsIndexDeletions[elementFullName] ?? new Set<string>()
           elementsIndexDeletions[elementFullName].add(oldNaclFile.filename)
         })
-        relevantElementIDs.push(...oldNaclFileElements.map(e => e.elemID))
+        relevantElementIDs.push(...oldNaclFileElementIDs)
         toDelete.push(naclFile.filename)
         log.trace('Finished updating indexes of %s', naclFile.filename)
       })
@@ -583,10 +605,47 @@ const logNaclFileUpdateErrorContext = (
   log.debug('data after:\n%s', naclDataAfter)
 }
 
-// Returns a list of all static files that existed in the changes 'before' and doesn't exist in the 'after'
-export const getDanglingStaticFiles = (fileChanges: DetailedChange[]): StaticFile[] => {
-  // Using filepath is currently enough because all implementations of static files have unique file paths
-  // The only exception is 'buildHistoryStateStaticFilesSource' but it doesn't support deletion at the moment
+const filterStaticFilesByIndex = async (
+  danglingStaticFiles: StaticFile[],
+  staticFileIndex: Pick<RemoteMap<string[]>, 'get'>,
+): Promise<StaticFile[]> => {
+  const elementsByFilePaths = _.groupBy(danglingStaticFiles, file => file.filepath)
+  const files = await Promise.all(
+    _.flatMap(elementsByFilePaths, async (staticFiles, filePath) => {
+      const indexedStaticFileAmount = (await staticFileIndex.get(filePath))?.length
+      if (indexedStaticFileAmount && staticFiles.length < indexedStaticFileAmount) {
+        // There are additional static files in the index that are not in the changes
+        log.debug(
+          `For static file ${filePath}: Trying to remove ${staticFiles.length} while there are ${indexedStaticFileAmount} files in the index.`,
+        )
+        return []
+      }
+      // All static files were removed
+      return staticFiles
+    }),
+  )
+  return files.flat()
+}
+
+/* 
+  Returns a list of all static files that existed in the changes 'before' and doesn't exist in the 'after'
+  If staticFileIndex is defined, it also checks whether there are any other elements that still point to the specific file.
+  NOTE: Because of the current structure of the static file index, 
+  we can't recognize the case where a single file has pointers to the same static file multiple times.
+  This can be either with a single element that has multiple pointers to the same file, or multiple elements that point to the same static file.
+*/
+export const getDanglingStaticFiles = async (
+  fileChanges: DetailedChange[],
+  staticFileIndex?: Pick<RemoteMap<string[]>, 'get'>,
+): Promise<StaticFile[]> => {
+  const beforeFilePaths = fileChanges
+    .filter(isRemovalOrModificationChange)
+    .map(({ id, data }) => ({ id, data: data.before }))
+    .flatMap(getNestedStaticFiles)
+  if (beforeFilePaths.length === 0) {
+    log.debug('no static files were found in the changes before')
+    return []
+  }
   const afterFilePaths = new Set<string>(
     fileChanges
       .filter(isAdditionOrModificationChange)
@@ -594,11 +653,18 @@ export const getDanglingStaticFiles = (fileChanges: DetailedChange[]): StaticFil
       .flatMap(getNestedStaticFiles)
       .map(file => file.filepath),
   )
-  return fileChanges
-    .filter(isRemovalOrModificationChange)
-    .map(change => change.data.before)
-    .flatMap(getNestedStaticFiles)
-    .filter(file => !afterFilePaths.has(file.filepath))
+  const potentiallyDanglingStaticFiles = beforeFilePaths.filter(staticFile => !afterFilePaths.has(staticFile.filepath))
+  const danglingStaticFiles =
+    staticFileIndex === undefined
+      ? potentiallyDanglingStaticFiles
+      : await filterStaticFilesByIndex(potentiallyDanglingStaticFiles, staticFileIndex)
+  log.debug(
+    'found %d dangling static files, out of %d static files in the changes before. %d static files with multiple pointers were filtered out.',
+    danglingStaticFiles.length,
+    beforeFilePaths.length,
+    potentiallyDanglingStaticFiles.length - danglingStaticFiles.length,
+  )
+  return danglingStaticFiles
 }
 
 const buildNaclFilesSource = (
@@ -844,10 +910,10 @@ const buildNaclFilesSource = (
       return naclFile ? naclFile.buffer : ''
     }
 
-    // This method was written with the assumption that each static file is pointed by no more
-    // then one value in the nacls. A ticket was open to fix that (SALTO-954)
     const removeDanglingStaticFiles = async (allChanges: DetailedChange[]): Promise<void> => {
-      await Promise.all(getDanglingStaticFiles(allChanges).map(file => staticFilesSource.delete(file)))
+      const { staticFilesIndex } = await getState()
+      const danglingStaticFiles = await getDanglingStaticFiles(allChanges, staticFilesIndex)
+      await Promise.all(danglingStaticFiles.map(file => staticFilesSource.delete(file)))
     }
     const changesByFileName = await groupChangesByFilename(changes)
     log.debug(
@@ -1100,6 +1166,7 @@ const buildNaclFilesSource = (
         filepath: args.filePath,
         encoding: args.encoding,
         isTemplate: args.isTemplate,
+        hash: args.hash,
       })
       if (isStaticFile(staticFile)) {
         return staticFile

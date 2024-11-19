@@ -1,17 +1,9 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
 import { MockInterface, mockFunction } from '@salto-io/test-utils'
 import {
@@ -93,14 +85,14 @@ describe('pagination', () => {
           funcCreator: paginationFuncCreator,
         },
         callArgs: {
-          body: { something: 'SOMETHING' },
+          data: { something: 'SOMETHING' },
         },
         contexts: [],
       })
       expect(result).toEqual([{ context: {}, pages: [{ a: 'a' }] }])
       expect(paginationFunc).toHaveBeenCalledTimes(1)
       expect(client.post).toHaveBeenCalledTimes(1)
-      expect(client.post).toHaveBeenCalledWith({ url: '/ep', body: { something: 'SOMETHING' } })
+      expect(client.post).toHaveBeenCalledWith({ url: '/ep', data: { something: 'SOMETHING' } })
     })
     it('should pass query args in all requests', async () => {
       paginationFunc

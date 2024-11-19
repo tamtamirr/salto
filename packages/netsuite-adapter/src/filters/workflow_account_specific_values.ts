@@ -1,17 +1,9 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
 import _ from 'lodash'
 import Ajv from 'ajv'
@@ -36,14 +28,11 @@ import NetsuiteClient from '../client/client'
 import { RemoteFilterCreator } from '../filter'
 import {
   ACCOUNT_SPECIFIC_VALUE,
-  ALLOCATION_TYPE,
-  EMPLOYEE,
   INIT_CONDITION,
   NAME_FIELD,
-  PROJECT_EXPENSE_TYPE,
   SCRIPT_ID,
   SELECT_RECORD_TYPE,
-  TAX_SCHEDULE,
+  VALUE_FIELD,
   WORKFLOW,
 } from '../constants'
 import {
@@ -53,12 +42,13 @@ import {
   QueryRecordSchema,
 } from '../client/suiteapp_client/types'
 import {
+  AdditionalQueryName,
   MissingInternalId,
   SUITEQL_TABLE,
   getSuiteQLTableInternalIdsMap,
   updateSuiteQLTableInstances,
 } from '../data_elements/suiteql_table_elements'
-import { INTERNAL_ID_TO_TYPES } from '../data_elements/types'
+import { SuiteQLTableName } from '../data_elements/types'
 import { captureServiceIdInfo } from '../service_id_info'
 import { LazyElementsSourceIndexes } from '../elements_source_index/types'
 import { assignToCustomFieldsSelectRecordTypeIndex } from '../elements_source_index/elements_source_index'
@@ -71,6 +61,8 @@ const RECORDS_PER_QUERY = 10
 
 const FORMULA = 'formula'
 const FORMULA_PARAMS = 'formulaParams'
+
+const MULTISELECT_FIELD = 'valuemultiselect'
 
 const RESOLVED_ACCOUNT_SPECIFIC_VALUE_PREFIX = `${ACCOUNT_SPECIFIC_VALUE} (`
 const RESOLVED_ACCOUNT_SPECIFIC_VALUE_SUFFIX = ')'
@@ -125,12 +117,93 @@ type ResolvedAccountSpecificValuesResult = {
   missingInternalIds: MissingInternalId[]
 }
 
-const STANDARD_FIELDS_TO_RECORD_TYPE: Record<string, string> = {
-  STDITEMTAXSCHEDULE: TAX_SCHEDULE,
+// the following formula params are represented with internal id in the formula queried by suiteapp
+const FORMULA_PARAMS_WITH_INTERNAL_ID = [
+  {
+    [SELECT_RECORD_TYPE]: '-118',
+    [VALUE_FIELD]: 'ADMINISTRATOR',
+  },
+]
+
+const isFormulaValueWithInternalId = (param: Value): boolean => {
+  if (!_.isPlainObject(param)) {
+    return false
+  }
+  // not only params with ACCOUNT_SPECIFIC_VALUE are represented with internalid in the formula (e.g roles),
+  // but only params that have selectrecordtype are represented with internalid in the formula.
+  if (param[SELECT_RECORD_TYPE] === undefined) {
+    return false
+  }
+  if (
+    typeof param[VALUE_FIELD] === 'string' &&
+    // params that have a constant string `value` (e.g "INVOICE") aren't represented with internalid in the formula.
+    /^[A-Z]+$/.test(param[VALUE_FIELD]) &&
+    // some constant string `value` are represented with internalid (e.g 'ADMINISTRATOR' role)
+    !FORMULA_PARAMS_WITH_INTERNAL_ID.some(item => _.isEqual(item, _.pick(param, Object.keys(item))))
+  ) {
+    return false
+  }
+  return true
+}
+
+const ADDITIONAL_INTERNAL_ID_TO_TYPES: Record<string, (SuiteQLTableName | AdditionalQueryName)[]> = {
+  '-192': ['shipItem'],
+  '-3': ['vendor'],
+  '-104': ['entityStatus'],
+  '-320': ['supportCaseStatus'],
+  '-166': ['employeeStatus'],
+  '-253': ['accountingBook'],
+  '-517': ['jobResourceRole'],
+}
+
+const STANDARD_FIELDS_TO_RECORD_TYPE: Record<string, SuiteQLTableName | AdditionalQueryName> = {
+  // STDBODY fields
   STDBODYACCOUNT: 'account',
-  STDEVENTALLOCATIONTYPE: ALLOCATION_TYPE,
-  STDENTITYPROJECTEXPENSETYPE: PROJECT_EXPENSE_TYPE,
+  STDBODYCLASS: 'classification',
+  STDBODYDEPARTMENT: 'department',
+  STDBODYTOSUBSIDIARY: 'subsidiary',
+  STDBODYLOCATION: 'location',
+  STDBODYDECISIONMAKER: 'contact',
+  STDBODYEMPLOYEE: 'employee',
+  STDBODYNEXTAPPROVER: 'employee',
+  STDBODYINCOTERM: 'incoterm',
+  STDBODYENTITYEMPLOYEE: 'employee',
+  STDBODYENTITYSTATUS: 'entityStatus',
+  STDBODYPAYMENTMETHOD: 'paymentMethod',
+
+  // STDEVENT fields
+  STDEVENTALLOCATIONTYPE: 'allocationType',
+  STDEVENTCASESTATUS: 'supportCaseStatus',
+  STDEVENTCASEPRIORITY: 'supportCasePriority',
+
+  // STDENTITY fields
+  STDENTITYPROJECTEXPENSETYPE: 'projectExpenseType',
   STDENTITYSTATUS: 'entityStatus',
+  STDENTITYPURCHASEORDERAPPROVER: 'employee',
+  STDENTITYTIMEAPPROVER: 'employee',
+  STDENTITYDEPARTMENT: 'department',
+  STDENTITYTERMS: 'term',
+  STDENTITYSUBSIDIARY: 'subsidiary',
+  STDENTITYRECEIVABLESACCOUNT: 'account',
+  STDENTITYPAYABLESACCOUNT: 'account',
+
+  // STDTIME fields
+  STDTIMEDEPARTMENT: 'department',
+  STDTIMECLASS: 'classification',
+  STDTIMELOCATION: 'location',
+  STDTIMEEMPLOYEE: 'employee',
+  STDTIMEAPPROVALSTATUS: 'approvalStatus',
+  STDTIMEITEM: 'item',
+  STDTIMEVENDOR: 'vendor',
+  STDTIMENEXTAPPROVER: 'employee',
+
+  // STDITEM fields
+  STDITEMTAXSCHEDULE: 'taxSchedule',
+  STDITEMSUBSIDIARY: 'subsidiary',
+  STDITEMCLASS: 'classification',
+  STDITEMDEPARTMENT: 'department',
+  STDITEMREVENUERECOGNITIONRULE: 'revenueRecognitionRule',
+  STDITEMLOCATION: 'location',
 }
 
 const getSelectRecordTypeFromReference = (
@@ -173,12 +246,13 @@ const getSelectRecordType: GetFieldTypeIDFunc = params => {
 }
 
 const GET_FIELD_TYPE_FUNCTIONS: Record<string, GetFieldTypeIDFunc> = {
-  sender: ({ isFieldWithAccountSpecificValue }) => (isFieldWithAccountSpecificValue ? EMPLOYEE : undefined),
-  recipient: ({ isFieldWithAccountSpecificValue }) =>
+  sender: ({ isFieldWithAccountSpecificValue }): SuiteQLTableName | undefined =>
+    isFieldWithAccountSpecificValue ? 'employee' : undefined,
+  recipient: ({ isFieldWithAccountSpecificValue }): SuiteQLTableName[] | undefined =>
     // there is no intersection between the internal ids of those types,
     // and no indication in the element which type should be used.
-    isFieldWithAccountSpecificValue ? [EMPLOYEE, 'contact', 'customer', 'partner', 'vendor'] : undefined,
-  campaignevent: ({ isFieldWithAccountSpecificValue }) =>
+    isFieldWithAccountSpecificValue ? ['employee', 'contact', 'customer', 'partner', 'vendor'] : undefined,
+  campaignevent: ({ isFieldWithAccountSpecificValue }): SuiteQLTableName | undefined =>
     isFieldWithAccountSpecificValue ? 'campaignEvent' : undefined,
   selectrecordtype: getSelectRecordType,
   resultfield: params => {
@@ -333,12 +407,18 @@ const getQueryRecordType = (path: ElemID): QueryRecordType | undefined => {
   return QUERY_RECORD_TYPES[path.createParentID().name as QueryRecordType]
 }
 
+const getTypesFromInternalId = (internalIdToTypes: Record<string, string[]>, typeToInternalId: string): string[] => [
+  ...(internalIdToTypes[typeToInternalId] ?? []),
+  ...(ADDITIONAL_INTERNAL_ID_TO_TYPES[typeToInternalId] ?? []),
+]
+
 const getQueryRecordFieldType = (
   instance: InstanceElement,
   value: Values,
   field: string,
   suiteQLTablesMap: Record<string, unknown>,
   selectRecordTypeMap: Record<string, unknown>,
+  internalIdToTypes: Record<string, string[]>,
 ): string | string[] | undefined => {
   // a field type by the field itself should be the first option ([field, value[field]])
   const fieldType = [[field, value[field]]]
@@ -373,7 +453,7 @@ const getQueryRecordFieldType = (
   const suiteQLTableName =
     suiteQLTablesMap[fieldType] !== undefined
       ? fieldType
-      : (INTERNAL_ID_TO_TYPES[fieldType] ?? []).find(typeName => suiteQLTablesMap[typeName] !== undefined)
+      : getTypesFromInternalId(internalIdToTypes, fieldType).find(typeName => suiteQLTablesMap[typeName] !== undefined)
 
   if (suiteQLTableName === undefined) {
     log.warn('could not find SuiteQL table instance %s', fieldType)
@@ -390,10 +470,18 @@ const getFieldsWithAccountSpecificValue = (
   path: ElemID,
   suiteQLTablesMap: Record<string, InstanceElement>,
   selectRecordTypeMap: Record<string, unknown>,
+  internalIdToTypes: Record<string, string[]>,
 ): QueryRecordField[] =>
   Object.entries(value).flatMap(([field, fieldValue]) => {
     if (fieldValue === ACCOUNT_SPECIFIC_VALUE) {
-      const fieldType = getQueryRecordFieldType(instance, value, field, suiteQLTablesMap, selectRecordTypeMap)
+      const fieldType = getQueryRecordFieldType(
+        instance,
+        value,
+        field,
+        suiteQLTablesMap,
+        selectRecordTypeMap,
+        internalIdToTypes,
+      )
       if (fieldType !== undefined) {
         return { name: field, type: fieldType }
       }
@@ -403,8 +491,15 @@ const getFieldsWithAccountSpecificValue = (
       if (
         parameters.some(
           param =>
-            param?.value === ACCOUNT_SPECIFIC_VALUE &&
-            getQueryRecordFieldType(instance, param, 'value', suiteQLTablesMap, selectRecordTypeMap) !== undefined,
+            param?.[VALUE_FIELD] === ACCOUNT_SPECIFIC_VALUE &&
+            getQueryRecordFieldType(
+              instance,
+              param,
+              'value',
+              suiteQLTablesMap,
+              selectRecordTypeMap,
+              internalIdToTypes,
+            ) !== undefined,
         )
       ) {
         if (typeof fieldValue[FORMULA] !== 'string') {
@@ -424,6 +519,7 @@ const getQueryRecords = (
   instance: InstanceElement,
   suiteQLTablesMap: Record<string, InstanceElement>,
   selectRecordTypeMap: Record<string, unknown>,
+  internalIdToTypes: Record<string, string[]>,
 ): InstanceWithQueryRecords => {
   const allQueryRecords: Record<string, Omit<QueryRecord, 'path'>> = {}
 
@@ -436,7 +532,14 @@ const getQueryRecords = (
       }
       const type = getQueryRecordType(elemID)
       if (type !== undefined) {
-        const fields = getFieldsWithAccountSpecificValue(instance, value, elemID, suiteQLTablesMap, selectRecordTypeMap)
+        const fields = getFieldsWithAccountSpecificValue(
+          instance,
+          value,
+          elemID,
+          suiteQLTablesMap,
+          selectRecordTypeMap,
+          internalIdToTypes,
+        )
         allQueryRecords[elemID.getFullName()] = {
           type,
           serviceId: value[SCRIPT_ID],
@@ -542,36 +645,81 @@ const getNameByInternalId = (
     .map(typeName => getSuiteQLTableInternalIdsMap(suiteQLTablesMap[typeName])[internalId])
     .find(res => res !== undefined)?.name
 
+const getParamLocations = ({
+  conditionFormula,
+  param,
+  startAtIndex = 0,
+  isFirstAppearance = true,
+}: {
+  conditionFormula: string
+  param: Values
+  startAtIndex?: number
+  isFirstAppearance?: boolean
+}): { param: Values; location: number; isFirstAppearance: boolean }[] => {
+  const location = conditionFormula.indexOf(`"${param.name}"`, startAtIndex)
+  if (location === -1) {
+    return []
+  }
+  return [{ param, location, isFirstAppearance }].concat(
+    getParamLocations({ conditionFormula, param, startAtIndex: location + 1, isFirstAppearance: false }),
+  )
+}
+
 const getParametersAccountSpecificValueToTransform = (
   instance: InstanceElement,
   value: Values,
   formulaWithInternalIds: string,
   suiteQLTablesMap: Record<string, InstanceElement>,
   selectRecordTypeMap: Record<string, unknown>,
+  internalIdToTypes: Record<string, string[]>,
 ): AccountSpecificValueToTransform[] => {
-  const params = getConditionParameters(value[INIT_CONDITION])
-    // not only params with ACCOUNT_SPECIFIC_VALUE are represented with internalid in the formula (e.g roles)
-    // but only params that have selectrecordtype are represented with internalid in the formula
+  const conditionFormula = value[INIT_CONDITION][FORMULA]
+  const allParams = getConditionParameters(value[INIT_CONDITION])
+  const params = allParams
+    // not only params with ACCOUNT_SPECIFIC_VALUE are represented with internalid in the formula (e.g roles),
+    // but only params that have selectrecordtype are represented with internalid in the formula.
     .filter(param => param?.[SELECT_RECORD_TYPE] !== undefined)
-  const internalIds = Array.from(matchAll(formulaWithInternalIds, /-?\d+/g))
+    .filter(isFormulaValueWithInternalId)
+    // each param can appear more than once in the condition formula.
+    // in that case we're expecting to see it multiple times in formulaWithInternalIds.
+    .flatMap(param => getParamLocations({ conditionFormula, param }))
+  const internalIds = Array.from(matchAll(formulaWithInternalIds, /['"]?[-\w]?\d+(\.\d+)?['"]?/g))
     .map(res => res[0])
-    // 0 (zero) can be used in a formula (e.g 'arrayIndexOf(...) < 0'), but it's not an internalid
-    .filter(internalId => internalId !== '0')
-  if (params.length !== internalIds.length) {
-    log.warn(
-      'params length %d do not match the internal ids extracted from the formula: %s',
-      params.length,
-      formulaWithInternalIds,
+    .filter(
+      internalId =>
+        // ignore string numbers (e.g '1', "2")
+        isNumberStr(internalId) &&
+        // ignore non integers (e.g 1.5, 2.0)
+        !internalId.includes('.') &&
+        // ignore zero and invalid numbers
+        !internalId.startsWith('0') &&
+        !internalId.startsWith('-0'),
     )
+
+  if (params.length !== internalIds.length) {
+    log.warn('params length %d do not match the internal ids extracted from the formula: %o', params.length, {
+      formula: {
+        fromSuiteApp: formulaWithInternalIds,
+        fromSDF: conditionFormula,
+      },
+      params: allParams,
+    })
     return []
   }
-  const sortedParams = _.sortBy(params, param => value[INIT_CONDITION][FORMULA].indexOf(`"${param.name}"`))
-  return sortedParams.flatMap((param, index) => {
-    if (param.value !== ACCOUNT_SPECIFIC_VALUE) {
+  const sortedParams = _.sortBy(params, param => param.location)
+  return sortedParams.flatMap(({ param, isFirstAppearance }, index) => {
+    if (param[VALUE_FIELD] !== ACCOUNT_SPECIFIC_VALUE || !isFirstAppearance) {
       return []
     }
     const internalId = internalIds[index]
-    const paramType = getQueryRecordFieldType(instance, param, 'value', suiteQLTablesMap, selectRecordTypeMap)
+    const paramType = getQueryRecordFieldType(
+      instance,
+      param,
+      'value',
+      suiteQLTablesMap,
+      selectRecordTypeMap,
+      internalIdToTypes,
+    )
     if (paramType === undefined) {
       return []
     }
@@ -585,6 +733,7 @@ const getAccountSpecificValueToTransform = (
   results: QueryRecordResponse[],
   suiteQLTablesMap: Record<string, InstanceElement>,
   selectRecordTypeMap: Record<string, unknown>,
+  internalIdToTypes: Record<string, string[]>,
 ): AccountSpecificValueToTransform[] => {
   const innerValue = record.elemID.isTopLevel() ? instance.value : resolvePath(instance, record.elemID)
   const innerResult = getInnerResult(results, record.path)
@@ -598,6 +747,14 @@ const getAccountSpecificValueToTransform = (
       log.warn('missing field %s in record %s: %o', field.name, record.serviceId, innerResult.body)
       return []
     }
+    if (
+      field.name === MULTISELECT_FIELD &&
+      Array.isArray(internalId) &&
+      internalId.length === 1 &&
+      typeof internalId[0] === 'string'
+    ) {
+      return { field, value: innerValue, internalId: internalId[0] }
+    }
     if (typeof internalId !== 'string') {
       log.warn('field %s in record %s is not a string: %o', field.name, record.serviceId, internalId)
       return []
@@ -609,6 +766,7 @@ const getAccountSpecificValueToTransform = (
         internalId,
         suiteQLTablesMap,
         selectRecordTypeMap,
+        internalIdToTypes,
       )
     }
     return { field, value: innerValue, internalId }
@@ -632,6 +790,7 @@ const toMultipleInternalIdsWarning = (elemID: ElemID, name: string, internalId: 
 export const getResolvedAccountSpecificValues = (
   instance: InstanceElement,
   suiteQLNameToInternalIdsMap: Record<string, Record<string, string[]>>,
+  internalIdToTypes: Record<string, string[]>,
 ): ResolvedAccountSpecificValuesResult => {
   const resolvedAccountSpecificValues: ResolvedAccountSpecificValue[] = []
   const resolveWarnings: ChangeError[] = []
@@ -647,7 +806,14 @@ export const getResolvedAccountSpecificValues = (
       return
     }
     const name = getResolvedAccountSpecificValue(fieldValue)
-    const fieldType = getQueryRecordFieldType(instance, value, field, suiteQLNameToInternalIdsMap, {})
+    const fieldType = getQueryRecordFieldType(
+      instance,
+      value,
+      field,
+      suiteQLNameToInternalIdsMap,
+      {},
+      internalIdToTypes,
+    )
     const internalIds = _.uniq(makeArray(fieldType).flatMap(type => suiteQLNameToInternalIdsMap[type][name] ?? []))
     const internalId = internalIds[0]
     if (internalIds.length === 0) {
@@ -703,6 +869,8 @@ const filterCreator: RemoteFilterCreator = ({
   client,
   elementsSourceIndex,
   isPartial,
+  config,
+  internalIdToTypes,
   suiteQLNameToInternalIdsMap = {},
 }) => ({
   name: 'workflowAccountSpecificValues',
@@ -720,7 +888,7 @@ const filterCreator: RemoteFilterCreator = ({
     const selectRecordTypeMap = await getSelectRecordTypeMap(elements, elementsSourceIndex, isPartial)
     const workflowInstances = instances.filter(instance => instance.elemID.typeName === WORKFLOW)
     const queryRecords = workflowInstances
-      .map(instance => getQueryRecords(instance, suiteQLTablesMap, selectRecordTypeMap))
+      .map(instance => getQueryRecords(instance, suiteQLTablesMap, selectRecordTypeMap, internalIdToTypes))
       .filter(({ records }) => records.length > 0)
 
     if (queryRecords.length === 0) {
@@ -739,7 +907,14 @@ const filterCreator: RemoteFilterCreator = ({
 
     const accountSpecificValuesToTransform = queryRecords.flatMap(({ instance, records }) =>
       records.flatMap(record =>
-        getAccountSpecificValueToTransform(instance, record, results, suiteQLTablesMap, selectRecordTypeMap),
+        getAccountSpecificValueToTransform(
+          instance,
+          record,
+          results,
+          suiteQLTablesMap,
+          selectRecordTypeMap,
+          internalIdToTypes,
+        ),
       ),
     )
 
@@ -751,6 +926,7 @@ const filterCreator: RemoteFilterCreator = ({
 
     await updateSuiteQLTableInstances({
       client,
+      config,
       queryBy: 'internalId',
       itemsToQuery: internalIdsToQuery,
       suiteQLTablesMap,
@@ -775,9 +951,11 @@ const filterCreator: RemoteFilterCreator = ({
       return
     }
     workflowInstances.forEach(instance =>
-      getResolvedAccountSpecificValues(instance, suiteQLNameToInternalIdsMap).resolvedAccountSpecificValues.forEach(
-        ({ path, value }) => setPath(instance, path, value),
-      ),
+      getResolvedAccountSpecificValues(
+        instance,
+        suiteQLNameToInternalIdsMap,
+        internalIdToTypes,
+      ).resolvedAccountSpecificValues.forEach(({ path, value }) => setPath(instance, path, value)),
     )
   },
 })

@@ -1,23 +1,24 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
 import * as core from '@salto-io/core'
 import * as callbacks from '../../src/callbacks'
 import * as mocks from '../mocks'
-import { cleanAction, cacheUpdateAction, setStateProviderAction } from '../../src/commands/workspace'
-import { CliExitCode } from '../../src/types'
+import { cleanAction, cacheUpdateAction, setStateProviderAction, wsValidateAction } from '../../src/commands/workspace'
+import { CliExitCode, Spinner } from '../../src/types'
+import * as workspaceFunctions from '../../src/workspace/workspace'
+
+jest.mock('../../src/workspace/workspace', () => ({
+  ...jest.requireActual('../../src/workspace/workspace'),
+  validateWorkspace: jest.fn(),
+  printWorkspaceErrors: jest.fn(),
+}))
+
+const mockedWorkspaceFunctions = jest.mocked(workspaceFunctions)
 
 jest.mock('@salto-io/core', () => ({
   ...jest.requireActual<{}>('@salto-io/core'),
@@ -313,6 +314,88 @@ describe('workspace command group', () => {
         })
         expect(result).toEqual(CliExitCode.UserInputError)
         expect(workspace.updateStateProvider).not.toHaveBeenCalled()
+      })
+    })
+  })
+
+  describe('validate command', () => {
+    const commandName = 'validate'
+    let cliCommandArgs: mocks.MockCommandArgs
+    let workspace: mocks.MockWorkspace
+    let spinner: Spinner
+    let spinnerOutput: string[]
+
+    beforeEach(() => {
+      spinnerOutput = []
+      cliCommandArgs = mocks.mockCliCommandArgs(commandName, cliArgs)
+      workspace = mocks.mockWorkspace({})
+      spinner = {
+        succeed: (text: string) => spinnerOutput.push(text),
+        fail: (text: string) => spinnerOutput.push(text),
+      }
+    })
+
+    describe('when workspace is valid', () => {
+      beforeEach(async () => {
+        mockedWorkspaceFunctions.validateWorkspace.mockResolvedValueOnce(
+          Promise.resolve({
+            status: 'Valid',
+            errors: [],
+          }),
+        )
+        await wsValidateAction({
+          ...cliCommandArgs,
+          input: {},
+          workspace,
+          spinnerCreator: () => spinner,
+        })
+      })
+      it('should indicate the workspace is valid', () => {
+        expect(workspaceFunctions.printWorkspaceErrors).not.toHaveBeenCalled()
+        expect(spinnerOutput.length).toEqual(1)
+        expect(spinnerOutput[0]).toContain('valid')
+      })
+    })
+    describe('when workspace is not valid', () => {
+      describe('when workspace has a warning', () => {
+        beforeEach(async () => {
+          mockedWorkspaceFunctions.validateWorkspace.mockResolvedValueOnce(
+            Promise.resolve({
+              status: 'Warning',
+              errors: [],
+            }),
+          )
+          await wsValidateAction({
+            ...cliCommandArgs,
+            input: {},
+            workspace,
+            spinnerCreator: () => spinner,
+          })
+        })
+        it('should indicate the workspace is not valid and specify the warnings', () => {
+          expect(workspaceFunctions.printWorkspaceErrors).toHaveBeenCalled()
+          expect(spinnerOutput.length).toEqual(1)
+          expect(spinnerOutput[0]).toContain('warning')
+        })
+      })
+      describe('when workspace has an error', () => {
+        beforeEach(async () => {
+          mockedWorkspaceFunctions.validateWorkspace.mockResolvedValueOnce({
+            status: 'Error',
+            errors: [],
+          })
+          await wsValidateAction({
+            ...cliCommandArgs,
+            input: {},
+            workspace,
+            spinnerCreator: () => spinner,
+          })
+        })
+        it('should indicate the workspace is not valid and specify the errors', () => {
+          expect(workspaceFunctions.printWorkspaceErrors).toHaveBeenCalled()
+          expect(spinnerOutput.length).toEqual(1)
+          expect(spinnerOutput[0]).toContain('error')
+        })
       })
     })
   })

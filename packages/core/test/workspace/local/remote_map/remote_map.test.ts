@@ -1,22 +1,14 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
 import _ from 'lodash'
 import { generateElements, defaultParams } from '@salto-io/dummy-adapter'
 import { Element, ObjectType, isObjectType } from '@salto-io/adapter-api'
-import { collections } from '@salto-io/lowerdash'
+import { collections, values } from '@salto-io/lowerdash'
 import { promisify } from 'util'
 import { serialization, remoteMap as rm, merger } from '@salto-io/workspace'
 import rocksdb from '@salto-io/rocksdb'
@@ -29,7 +21,9 @@ import {
   TMP_DB_DIR,
   closeRemoteMapsOfLocation,
   cleanDatabases,
+  closeAllRemoteMaps,
 } from '../../../../src/local-workspace/remote_map/remote_map'
+import { remoteMapLocations } from '../../../../src/local-workspace/remote_map/location_pool'
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const rocksdbImpl = require('../../../../src/local-workspace/remote_map/rocksdb').default
@@ -52,9 +46,6 @@ const createElements = async (): Promise<Element[]> => {
 }
 
 const DB_LOCATION = '/tmp/test_db'
-
-let remoteMap: rm.RemoteMap<Element>
-let readOnlyRemoteMap: rm.RemoteMap<Element>
 
 const createMap = async (
   namespace: string,
@@ -85,6 +76,9 @@ describe('test operations on remote db', () => {
   let elements: Element[]
   let sortedElements: string[]
   let filteredSortedElements: string[]
+  let remoteMap: rm.RemoteMap<Element>
+  let readOnlyRemoteMap: rm.RemoteMap<Element>
+  let expectedElementFromMap: Element
 
   const filterFn = (key: string): boolean => key.includes('a')
 
@@ -96,21 +90,23 @@ describe('test operations on remote db', () => {
     remoteMap = await createMap(namespace)
     await remoteMap.set(elements[0].elemID.getFullName(), elements[0])
     await remoteMap.flush()
+    // eslint-disable-next-line prefer-destructuring
+    expectedElementFromMap = (await deserialize(await serialize([elements[0]])))[0]
+    await closeRemoteMapsOfLocation(DB_LOCATION)
+    remoteMap = await createMap(namespace)
     readOnlyRemoteMap = await createReadOnlyMap(namespace)
   })
   afterEach(async () => {
-    await remoteMap.revert()
     await closeRemoteMapsOfLocation(DB_LOCATION)
   })
 
-  it('finds an item after it is set', async () => {
-    await remoteMap.set(elements[0].elemID.getFullName(), elements[0])
-    expect(await remoteMap.get(elements[0].elemID.getFullName())).toEqual(elements[0])
-  })
   describe('get', () => {
+    it('should get an item that was written to the map in a previous run', async () => {
+      expect(await remoteMap.get(elements[0].elemID.getFullName())).toEqual(expectedElementFromMap)
+    })
     it('should get an item after it is set', async () => {
-      await remoteMap.set(elements[0].elemID.getFullName(), elements[0])
-      expect(await remoteMap.get(elements[0].elemID.getFullName())).toEqual(elements[0])
+      await remoteMap.set(elements[1].elemID.getFullName(), elements[1])
+      expect(await remoteMap.get(elements[1].elemID.getFullName())).toEqual(elements[1])
     })
     it('get non existent key', async () => {
       const id = 'not.exist'
@@ -131,19 +127,20 @@ describe('test operations on remote db', () => {
   })
   describe('getMany', () => {
     it('should get items after set', async () => {
-      await remoteMap.set(elements[0].elemID.getFullName(), elements[0])
-      const anotherElemID = 'dummy.bla'
-      await remoteMap.set(anotherElemID, elements[0])
-      expect(await remoteMap.getMany([elements[0].elemID.getFullName(), anotherElemID])).toEqual([
-        elements[0],
-        elements[0],
+      // await remoteMap.set(elements[0].elemID.getFullName(), elements[0])
+      await remoteMap.set(elements[1].elemID.getFullName(), elements[1])
+      expect(await remoteMap.getMany([elements[0].elemID.getFullName(), elements[1].elemID.getFullName()])).toEqual([
+        expectedElementFromMap,
+        elements[1],
       ])
     })
 
     it('get non existent key', async () => {
-      await remoteMap.set(elements[0].elemID.getFullName(), elements[0])
       const id = 'not.exist'
-      expect(await remoteMap.getMany([id, elements[0].elemID.getFullName()])).toEqual([undefined, elements[0]])
+      expect(await remoteMap.getMany([id, elements[0].elemID.getFullName()])).toEqual([
+        undefined,
+        expectedElementFromMap,
+      ])
     })
     describe('read only', () => {
       it('should get items after set', async () => {
@@ -156,7 +153,6 @@ describe('test operations on remote db', () => {
   describe('delete', () => {
     it('should delete an item and not find it anymore', async () => {
       const elemID = elements[0].elemID.getFullName()
-      await remoteMap.set(elemID, elements[0])
       expect(await remoteMap.get(elemID)).toBeDefined()
       await remoteMap.delete(elemID)
       expect(await remoteMap.get(elemID)).toBeUndefined()
@@ -164,7 +160,6 @@ describe('test operations on remote db', () => {
 
     it('deleted elements should not be returned from keys', async () => {
       const elemID = elements[0].elemID.getFullName()
-      await remoteMap.set(elemID, elements[0])
       expect(await awu(remoteMap.keys()).toArray()).toContain(elements[0].elemID.getFullName())
       await remoteMap.delete(elemID)
       expect(await awu(remoteMap.keys()).toArray()).not.toContain(elements[0].elemID.getFullName())
@@ -172,7 +167,6 @@ describe('test operations on remote db', () => {
 
     it('deleted elements should not be returned from keys with pages', async () => {
       const elemID = elements[0].elemID.getFullName()
-      await remoteMap.set(elemID, elements[0])
       expect(
         await awu(remoteMap.keys({ pageSize: 2 }))
           .flat()
@@ -203,7 +197,7 @@ describe('test operations on remote db', () => {
   describe('clear', () => {
     describe('when called in writeable remote map', () => {
       beforeEach(async () => {
-        await remoteMap.set(elements[0].elemID.getFullName(), elements[0])
+        await remoteMap.set(elements[2].elemID.getFullName(), elements[2])
         expect(await awu(remoteMap.keys()).toArray()).not.toHaveLength(0)
         await remoteMap.clear()
         await remoteMap.set(elements[1].elemID.getFullName(), elements[1])
@@ -218,8 +212,9 @@ describe('test operations on remote db', () => {
       })
       it('get should not return cleared values', async () => {
         await expect(remoteMap.get(elements[0].elemID.getFullName())).resolves.toBeUndefined()
+        await expect(remoteMap.get(elements[2].elemID.getFullName())).resolves.toBeUndefined()
         // We try this twice since we had a bug that in the second call it would return the wrong results
-        await expect(remoteMap.get(elements[0].elemID.getFullName())).resolves.toBeUndefined()
+        await expect(remoteMap.get(elements[2].elemID.getFullName())).resolves.toBeUndefined()
       })
       it('should return entries that were only set after clear', async () => {
         const entries = await awu(remoteMap.entries()).toArray()
@@ -229,6 +224,7 @@ describe('test operations on remote db', () => {
       })
       it('should return false for cleared keys', async () => {
         expect(await remoteMap.has(elements[0].elemID.getFullName())).toBeFalsy()
+        expect(await remoteMap.has(elements[2].elemID.getFullName())).toBeFalsy()
       })
 
       it('should return true for keys set after clear', async () => {
@@ -236,12 +232,18 @@ describe('test operations on remote db', () => {
       })
       it('should return from get only values set after clear', async () => {
         expect(await remoteMap.get(elements[0].elemID.getFullName())).toBeUndefined()
+        expect(await remoteMap.get(elements[2].elemID.getFullName())).toBeUndefined()
         expect((await remoteMap.get(elements[1].elemID.getFullName()))?.isEqual(elements[1])).toBeTruthy()
       })
       it('should return from getMany only values set after clear', async () => {
-        const vals = await remoteMap.getMany([elements[0].elemID.getFullName(), elements[1].elemID.getFullName()])
+        const vals = await remoteMap.getMany([
+          elements[0].elemID.getFullName(),
+          elements[1].elemID.getFullName(),
+          elements[2].elemID.getFullName(),
+        ])
         expect(vals[0]).toBeUndefined()
         expect(vals[1]?.isEqual(elements[1])).toBeTruthy()
+        expect(vals[2]).toBeUndefined()
       })
       it('should return true from flush', async () => {
         expect(await remoteMap.flush()).toBeTruthy()
@@ -256,10 +258,12 @@ describe('test operations on remote db', () => {
 
   describe('has', () => {
     it('should return true if key exists', async () => {
-      await remoteMap.set(elements[0].elemID.getFullName(), elements[0])
       expect(await remoteMap.has(elements[0].elemID.getFullName())).toEqual(true)
     })
-
+    it('should return true if key was set on this map', async () => {
+      await remoteMap.set(elements[1].elemID.getFullName(), elements[1])
+      expect(await remoteMap.has(elements[1].elemID.getFullName())).toEqual(true)
+    })
     it('should return false if key does not exist', async () => {
       expect(await remoteMap.has('not-exist')).toEqual(false)
     })
@@ -278,7 +282,10 @@ describe('test operations on remote db', () => {
       const res = await emptyRemoteMap.isEmpty()
       expect(res).toEqual(true)
     })
-
+    it('should return true if the map was cleared', async () => {
+      await remoteMap.clear()
+      await expect(remoteMap.isEmpty()).resolves.toBeTrue()
+    })
     it('should return false if the remote map is not empty', async () => {
       expect(await remoteMap.isEmpty()).toEqual(false)
     })
@@ -291,7 +298,7 @@ describe('test operations on remote db', () => {
       })
     })
   })
-  describe('list', () => {
+  describe('keys', () => {
     describe('without filter', () => {
       it('should list all keys', async () => {
         await remoteMap.setAll(createAsyncIterable(elements))
@@ -344,6 +351,12 @@ describe('test operations on remote db', () => {
         expect(pages).toHaveLength(5)
         expect(pages.slice(0, -1).every(page => page.length === 3)).toBeTruthy()
         expect(_.flatten(pages)).toEqual(sortedElements)
+      })
+
+      it('should return an empty iterator when the map is empty', async () => {
+        await remoteMap.clear()
+        await expect(awu(remoteMap.keys()).toArray()).resolves.toEqual([])
+        await expect(awu(remoteMap.keys({ pageSize: 2 })).toArray()).resolves.toEqual([])
       })
 
       describe('read only', () => {
@@ -759,6 +772,24 @@ describe('test operations on remote db', () => {
   it('should throw exception if the namespace is invalid', async () => {
     await expect(createMap('inval:d')).rejects.toThrow()
   })
+
+  describe('closeAllRemoteMaps', () => {
+    beforeEach(async () => {
+      // Read something to ensure the cache is not empty
+      const key = (await awu(remoteMap.keys()).find(values.isDefined)) as string
+      await remoteMap.get(key)
+
+      const locationInfo = remoteMapLocations.get(DB_LOCATION)
+      expect(locationInfo.cache.itemCount).not.toBe(0)
+      remoteMapLocations.return(DB_LOCATION)
+      await closeAllRemoteMaps()
+    })
+    it('should clear all caches', () => {
+      const locationInfo = remoteMapLocations.get(DB_LOCATION)
+      expect(locationInfo.cache.itemCount).toBe(0)
+      remoteMapLocations.return(DB_LOCATION)
+    })
+  })
 })
 
 describe('tmp db deletion', () => {
@@ -803,6 +834,7 @@ describe('non persistent mode', () => {
 })
 
 describe('full integration', () => {
+  let remoteMap: rm.RemoteMap<Element>
   it('creates keys and values, flushes', async () => {
     remoteMap = await createMap('integration')
     const elements = await createElements()

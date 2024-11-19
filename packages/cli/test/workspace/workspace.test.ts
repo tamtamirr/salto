@@ -1,17 +1,9 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
 import _ from 'lodash'
 import { FetchChange } from '@salto-io/core'
@@ -28,8 +20,6 @@ import {
 import { MockWriteStream, dummyChanges, detailedChange, mockErrors, getMockTelemetry } from '../mocks'
 import { getCliTelemetry } from '../../src/telemetry'
 
-import { version } from '../../src/generated/version.json'
-
 const mockWsFunctions = {
   accounts: mockFunction<Workspace['accounts']>().mockReturnValue(['salesforce']),
   envs: mockFunction<Workspace['envs']>().mockReturnValue(['default']),
@@ -45,15 +35,7 @@ const mockWsFunctions = {
     Promise.resolve({ ...error, sourceLocations: [] }),
   ),
   getTotalSize: mockFunction<Workspace['getTotalSize']>(),
-  getStateRecency: mockFunction<Workspace['getStateRecency']>().mockResolvedValue({
-    accountName: 'salesforce',
-    serviceName: 'salesforce',
-    date: new Date(),
-    status: 'Valid',
-  }),
-  state: mockFunction<Workspace['state']>().mockReturnValue({
-    getStateSaltoVersion: () => Promise.resolve(version),
-  } as state.State),
+  state: mockFunction<Workspace['state']>().mockReturnValue({} as state.State),
 }
 
 const mockWs = mockWsFunctions as unknown as Workspace
@@ -83,8 +65,8 @@ describe('workspace', () => {
       it('returns true if there are only warnings', async () => {
         mockWsFunctions.errors.mockResolvedValueOnce(
           mockErrors([
-            { message: 'Error', severity: 'Warning' },
-            { message: 'Error2', severity: 'Warning' },
+            { message: 'Error', severity: 'Warning', detailedMessage: 'Error' },
+            { message: 'Error2', severity: 'Warning', detailedMessage: 'Error2' },
           ]),
         )
 
@@ -95,8 +77,8 @@ describe('workspace', () => {
       it('returns false if there is at least one sever error', async () => {
         mockWsFunctions.errors.mockResolvedValueOnce(
           mockErrors([
-            { message: 'Error', severity: 'Warning' },
-            { message: 'Error2', severity: 'Error' },
+            { message: 'Error', severity: 'Warning', detailedMessage: 'Error' },
+            { message: 'Error2', severity: 'Error', detailedMessage: 'Error2' },
           ]),
         )
 
@@ -139,7 +121,9 @@ describe('workspace', () => {
     })
 
     it('with validation errors', async () => {
-      mockWsFunctions.errors.mockResolvedValueOnce(mockErrors([{ message: 'Error BLA', severity: 'Error' }]))
+      mockWsFunctions.errors.mockResolvedValueOnce(
+        mockErrors([{ message: 'Error BLA', severity: 'Error', detailedMessage: 'Error BLA' }]),
+      )
       const result = await updateWorkspace({
         workspace: mockWs,
         output: cliOutput,
@@ -191,7 +175,9 @@ describe('workspace', () => {
       expect(res).toBeTruthy()
     })
     it('should return false on error', async () => {
-      mockWsFunctions.errors.mockResolvedValue(mockErrors([{ message: 'Error BLA', severity: 'Error' }]))
+      mockWsFunctions.errors.mockResolvedValue(
+        mockErrors([{ message: 'Error BLA', severity: 'Error', detailedMessage: 'Error BLA' }]),
+      )
       const res = await applyChangesToWorkspace({
         workspace: mockWs,
         changes,

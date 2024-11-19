@@ -1,17 +1,9 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
 import { definitions, config as configUtils } from '@salto-io/adapter-components'
 
@@ -25,15 +17,11 @@ export type Themes = {
   brands?: string[]
   referenceOptions: {
     enableReferenceLookup: boolean
-    javascriptReferenceLookupStrategy?:
-      | {
-          strategy: 'numericValues'
-          minimumDigitAmount: number
-        }
-      | {
-          strategy: 'varNamePrefix'
-          prefix: string
-        }
+    javascriptReferenceLookupStrategy?: {
+      strategy: 'numericValues' | 'varNamePrefix'
+      minimumDigitAmount?: number
+      prefix?: string
+    }
   }
 }
 
@@ -64,6 +52,8 @@ export type ZendeskFetchConfig = definitions.UserFetchConfig<{
   omitInactive?: OmitInactiveConfig
   omitTicketStatusTicketField?: boolean
   useNewInfra?: boolean
+  useGuideNewInfra?: boolean
+  translationBodyAsStaticFile?: boolean
 }
 
 export type ZendeskClientRateLimitConfig = definitions.ClientRateLimitConfig & { rateLimitBuffer?: number }
@@ -77,7 +67,13 @@ export type ZendeskDeployConfig = definitions.UserDeployConfig &
     createMissingOrganizations?: boolean
   }
 
-export const fixerNames = ['mergeLists', 'fallbackUsers', 'removeDupUsers', 'orderElements'] as const
+export const fixerNames = [
+  'mergeLists',
+  'fallbackUsers',
+  'removeDupUsers',
+  'orderElements',
+  'deployArticlesAsDraft',
+] as const
 
 type FixerNames = (typeof fixerNames)[number]
 

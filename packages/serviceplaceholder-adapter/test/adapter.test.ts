@@ -1,17 +1,9 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
 import _ from 'lodash'
 import axios from 'axios'
@@ -35,12 +27,25 @@ import { credentialsType } from '../src/auth'
 import { DEFAULT_CONFIG } from '../src/config'
 import { ADAPTER_NAME } from '../src/constants'
 // TODO update mock file -
-// for fetch: run fetch with trace-level logs:
-//  > SALTO_LOG_FILE=log.txt SALTO_LOG_LEVEL=trace salto fetch
-// then run
-//  > python3 <path-to-repo>/packages/adapter-components/scripts/client/mock_replies.py <log file> fetch_mock_replies.json
-// for deploy: same as above, replace fetch with deploy
-// make sure to minimize and sanitize the mocks - they may contain sensitive information!
+/** 
+ For fetch:
+ Add the following to your adapter.nacl file to capture full logs of the responses:
+ client = {
+   logging = {
+     responseStrategies = [
+       {
+         strategy = "full"
+       },
+     ]
+    }
+ } 
+ then run fetch with trace-level logs:
+  > SALTO_LOG_FILE=log.txt SALTO_LOG_LEVEL=trace salto fetch
+ then run
+  > python3 <path-to-repo>/packages/adapter-components/scripts/client/mock_replies.py <log file> fetch_mock_replies.json
+ for deploy: same as above, replace fetch with deploy
+ make sure to minimize and sanitize the mocks - they may contain sensitive information!
+ */
 import fetchMockReplies from './fetch_mock_replies.json'
 import deployMockReplies from './deploy_mock_replies.json'
 

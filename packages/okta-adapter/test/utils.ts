@@ -1,17 +1,9 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
 import { buildElementsSourceFromElements } from '@salto-io/adapter-utils'
 import {
@@ -30,7 +22,7 @@ import { DEFAULT_CONFIG, OktaUserConfig } from '../src/user_config'
 import { OLD_API_DEFINITIONS_CONFIG } from '../src/config'
 import { OktaOptions } from '../src/definitions/types'
 import { createClientDefinitions } from '../src/definitions/requests/clients'
-import { PAGINATION } from '../src/definitions/requests/pagination'
+import { createPaginationDefinitions } from '../src/definitions/requests/pagination'
 import { createFetchDefinitions } from '../src/definitions/fetch/fetch'
 import { getAdminUrl } from '../src/client/admin'
 import fetchCriteria from '../src/fetch_criteria'
@@ -76,27 +68,36 @@ export const mockClient = (): ClientWithMockConnection => {
   return { client, paginator, connection }
 }
 
+export const createFetchQuery = (config?: OktaUserConfig): elementUtils.query.ElementQuery =>
+  elementUtils.query.createElementQuery(config?.fetch ?? DEFAULT_CONFIG?.fetch, fetchCriteria)
+
 export const createDefinitions = ({
+  fetchQuery = createFetchQuery(),
   client,
   usePrivateAPI = true,
 }: {
+  fetchQuery?: elementUtils.query.ElementQuery
   client?: OktaClient
   usePrivateAPI?: boolean
 }): definitionsUtils.RequiredDefinitions<OktaOptions> => {
   const cli = client ?? mockClient().client
   return {
     clients: createClientDefinitions({ main: cli, private: cli }),
-    pagination: PAGINATION,
-    fetch: createFetchDefinitions(DEFAULT_CONFIG, usePrivateAPI, getAdminUrl(cli.baseUrl)),
+    pagination: createPaginationDefinitions(DEFAULT_CONFIG),
+    fetch: createFetchDefinitions({
+      userConfig: DEFAULT_CONFIG,
+      fetchQuery,
+      usePrivateAPI,
+      baseUrl: getAdminUrl(cli.baseUrl),
+    }),
   }
 }
 
-export const createFetchQuery = (config?: OktaUserConfig): elementUtils.query.ElementQuery =>
-  elementUtils.query.createElementQuery(config?.fetch ?? DEFAULT_CONFIG?.fetch, fetchCriteria)
-
 export const getFilterParams = (params?: Partial<Parameters<FilterCreator>[0]>): Parameters<FilterCreator>[0] => ({
   paginator: mockClient().paginator,
-  definitions: createDefinitions({}),
+  definitions: createDefinitions({
+    fetchQuery: createFetchQuery(params?.config),
+  }),
   config: DEFAULT_CONFIG,
   elementSource: buildElementsSourceFromElements([]),
   fetchQuery: createFetchQuery(params?.config),

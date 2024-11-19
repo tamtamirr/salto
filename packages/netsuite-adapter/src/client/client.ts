@@ -1,17 +1,9 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
 
 import {
@@ -35,11 +27,7 @@ import { NetsuiteFetchQueries, NetsuiteQuery } from '../config/query'
 import { Credentials, isSuiteAppCredentials, toUrlAccountId } from './credentials'
 import SdfClient from './sdf_client'
 import SuiteAppClient from './suiteapp_client/suiteapp_client'
-import {
-  createSuiteAppFileCabinetOperations,
-  SuiteAppFileCabinetOperations,
-  DeployType,
-} from './suiteapp_client/suiteapp_file_cabinet'
+import { deployFileCabinetInstances, importFileCabinet } from './suiteapp_client/suiteapp_file_cabinet'
 import {
   ConfigRecord,
   EnvType,
@@ -51,7 +39,7 @@ import {
   SuiteAppType,
   SuiteQLQueryArgs,
 } from './suiteapp_client/types'
-import { CustomRecordResponse, RecordResponse } from './suiteapp_client/soap_client/types'
+import { CustomRecordResponse, SoapDeployResult, RecordResponse } from './suiteapp_client/soap_client/types'
 import {
   DeployableChange,
   FeaturesMap,
@@ -67,16 +55,13 @@ import {
 } from './types'
 import { toCustomizationInfo } from '../transformer'
 import {
+  isFileCabinetDeployGroup,
   isSdfCreateOrUpdateGroupId,
   isSdfDeleteGroupId,
   isSuiteAppCreateRecordsGroupId,
   isSuiteAppDeleteRecordsGroupId,
   isSuiteAppUpdateRecordsGroupId,
-  SUITEAPP_CREATING_FILES_GROUP_ID,
-  SUITEAPP_DELETING_FILES_GROUP_ID,
-  SUITEAPP_FILE_CABINET_GROUPS,
   SUITEAPP_UPDATING_CONFIG_GROUP_ID,
-  SUITEAPP_UPDATING_FILES_GROUP_ID,
 } from '../group_changes'
 import { DeployResult, getElementValueOrAnnotations, getServiceId } from '../types'
 import { ADDITIONAL_DEPENDENCIES, APPLICATION_ID, CONFIG_FEATURES, CUSTOM_RECORD_TYPE, ROLE } from '../constants'
@@ -104,12 +89,6 @@ const { awu } = collections.asynciterable
 const { lookupValue } = values
 const log = logger(module)
 const { DefaultMap } = collections.map
-
-const GROUP_TO_DEPLOY_TYPE: Record<string, DeployType> = {
-  [SUITEAPP_CREATING_FILES_GROUP_ID]: 'add',
-  [SUITEAPP_UPDATING_FILES_GROUP_ID]: 'update',
-  [SUITEAPP_DELETING_FILES_GROUP_ID]: 'delete',
-}
 
 type DependencyInfo = {
   dependencyMap: Map<string, Set<string>>
@@ -153,7 +132,6 @@ const logDecorator = decorators.wrapMethodWith(async ({ call, name }: decorators
 export default class NetsuiteClient {
   private sdfClient: SdfClient
   private suiteAppClient?: SuiteAppClient
-  private suiteAppFileCabinet?: SuiteAppFileCabinetOperations
   public readonly url: URL
 
   constructor(sdfClient: SdfClient, suiteAppClient?: SuiteAppClient) {
@@ -162,7 +140,6 @@ export default class NetsuiteClient {
     if (this.suiteAppClient === undefined) {
       log.debug('Salto SuiteApp not configured')
     } else {
-      this.suiteAppFileCabinet = createSuiteAppFileCabinetOperations(this.suiteAppClient)
       log.debug('Salto SuiteApp configured')
     }
 
@@ -222,10 +199,12 @@ export default class NetsuiteClient {
   @logDecorator
   async deployConfigChanges(instancesChanges: Change<InstanceElement>[]): Promise<DeployResult> {
     if (this.suiteAppClient === undefined) {
+      const message = `Salto SuiteApp is not configured and therefore changes group "${SUITEAPP_UPDATING_CONFIG_GROUP_ID}" cannot be deployed`
       return {
         errors: [
           {
-            message: `Salto SuiteApp is not configured and therefore changes group "${SUITEAPP_UPDATING_CONFIG_GROUP_ID}" cannot be deployed`,
+            message,
+            detailedMessage: message,
             severity: 'Error',
           },
         ],
@@ -251,8 +230,9 @@ export default class NetsuiteClient {
     extensionsToExclude: string[],
     forceFileCabinetExclude: boolean,
   ): Promise<ImportFileCabinetResult> {
-    if (this.suiteAppFileCabinet !== undefined) {
-      return this.suiteAppFileCabinet.importFileCabinet(
+    if (this.suiteAppClient !== undefined) {
+      return importFileCabinet(
+        this.suiteAppClient,
         query,
         maxFileCabinetSizeInGB,
         extensionsToExclude,
@@ -392,10 +372,12 @@ export default class NetsuiteClient {
       }
     })
     if (missingExcludedFeatures.size > 0) {
+      const message = `The following features are required but they are excluded: ${Array.from(missingExcludedFeatures).join(', ')}.`
       return {
         failedToUpdate: true,
         error: {
-          message: `The following features are required but they are excluded: ${Array.from(missingExcludedFeatures).join(', ')}.`,
+          message,
+          detailedMessage: message,
           severity: 'Error',
         },
       }
@@ -449,7 +431,7 @@ export default class NetsuiteClient {
             .filter(isInstanceChange)
             .map(getChangeData)
             .filter(inst => inst.elemID.typeName === CONFIG_FEATURES)
-            .map(({ elemID }) => toElementError(elemID, message))
+            .map(({ elemID }) => toElementError({ elemID, message, detailedMessage: message }))
 
           return {
             errors: errors.concat(featuresError),
@@ -461,7 +443,9 @@ export default class NetsuiteClient {
           const res = NetsuiteClient.updateFeaturesMap(featuresMap, error)
           if (res.failedToUpdate) {
             return {
-              errors: errors.concat({ message: error.message, severity: 'Error' }).concat(res.error ?? []),
+              errors: errors
+                .concat({ message: error.message, detailedMessage: error.message, severity: 'Error' })
+                .concat(res.error ?? []),
               appliedChanges: [],
             }
           }
@@ -470,7 +454,9 @@ export default class NetsuiteClient {
         }
         const elemIdsWithError = getChangesElemIdsToRemove(error, dependencyMap, changesToDeploy)
         const elementErrors = elemIdsWithError.flatMap(({ message, elemID }) =>
-          changesByTopLevel[elemID.getFullName()].map(getChangeData).map(elem => toElementError(elem.elemID, message)),
+          changesByTopLevel[elemID.getFullName()]
+            .map(getChangeData)
+            .map(elem => toElementError({ elemID: elem.elemID, message, detailedMessage: message })),
         )
         errors.push(...elementErrors)
 
@@ -497,8 +483,9 @@ export default class NetsuiteClient {
 
         const numOfRemovedNodes = numOfAttemptedNodesToDeploy - dependencyGraph.nodes.size
         if (numOfRemovedNodes === 0) {
+          const { message } = toError(error)
           log.error('no changes were removed from error: %o', error)
-          errors.push({ message: toError(error).message, severity: 'Error' })
+          errors.push({ message, detailedMessage: message, severity: 'Error' })
           return { errors, appliedChanges: [] }
         }
         log.debug(
@@ -545,13 +532,15 @@ export default class NetsuiteClient {
     }
 
     const instancesChanges = changes.filter(isInstanceChange)
-    if (SUITEAPP_FILE_CABINET_GROUPS.includes(groupID)) {
-      return this.suiteAppFileCabinet !== undefined
-        ? this.suiteAppFileCabinet.deploy(instancesChanges, GROUP_TO_DEPLOY_TYPE[groupID])
+    if (isFileCabinetDeployGroup(groupID)) {
+      const message = `Salto SuiteApp is not configured and therefore changes group "${groupID}" cannot be deployed`
+      return this.suiteAppClient !== undefined
+        ? deployFileCabinetInstances(this.suiteAppClient, instancesChanges, groupID)
         : {
             errors: [
               {
-                message: `Salto SuiteApp is not configured and therefore changes group "${groupID}" cannot be deployed`,
+                message,
+                detailedMessage: message,
                 severity: 'Error',
               },
             ],
@@ -574,8 +563,9 @@ export default class NetsuiteClient {
       const deployResults = await this.runDeployRecordsOperation(relevantInstances, groupID, hasElemID)
       return getDeployResultFromSuiteAppResult(relevantChanges, deployResults)
     } catch (error) {
+      const { message } = toError(error)
       return {
-        errors: [{ message: toError(error).message, severity: 'Error' }],
+        errors: [{ message, detailedMessage: message, severity: 'Error' }],
         appliedChanges: [],
       }
     }
@@ -585,7 +575,7 @@ export default class NetsuiteClient {
     elements: InstanceElement[],
     groupID: string,
     hasElemID: HasElemIDFunc,
-  ): Promise<(number | Error)[]> {
+  ): Promise<SoapDeployResult[]> {
     if (this.suiteAppClient === undefined) {
       throw new Error(`Salto SuiteApp is not configured and therefore changes group "${groupID}" cannot be deployed`)
     }

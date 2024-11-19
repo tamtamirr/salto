@@ -1,17 +1,9 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
 import {
   AdditionChange,
@@ -38,6 +30,7 @@ import * as CreateModule from '../../src/filters/guide_themes/create'
 import * as DeleteModule from '../../src/filters/guide_themes/delete'
 import * as PublishModule from '../../src/filters/guide_themes/publish'
 import { createFilterCreatorParams } from '../utils'
+import { shortElemIdHash } from '../../src/filters/utils'
 
 jest.mock('jszip', () =>
   jest.fn().mockImplementation(() => {
@@ -196,7 +189,11 @@ describe('filterCreator', () => {
 
           it('returns a warning for the theme', async () => {
             const errors = [
-              { message: 'Error fetching theme id park?, download failed specific error', severity: 'Warning' },
+              {
+                message: 'Error fetching theme id park?, download failed specific error',
+                detailedMessage: 'Error fetching theme id park?, download failed specific error',
+                severity: 'Warning',
+              },
             ]
             expect(await filter.onFetch?.([brand1, themeWithId])).toEqual({ errors })
           })
@@ -215,7 +212,11 @@ describe('filterCreator', () => {
 
           it('returns a default warning for the theme', async () => {
             const errors = [
-              { message: 'Error fetching theme id park?, no content returned from Zendesk API', severity: 'Warning' },
+              {
+                message: 'Error fetching theme id park?, no content returned from Zendesk API',
+                detailedMessage: 'Error fetching theme id park?, no content returned from Zendesk API',
+                severity: 'Warning',
+              },
             ]
             expect(await filter.onFetch?.([brand1, themeWithId])).toEqual({ errors })
           })
@@ -238,7 +239,7 @@ describe('filterCreator', () => {
           expect(liveThemeWithId.value.root.files['file1_txt@v'].filename).toEqual('file1.txt')
           expect(liveThemeWithId.value.root.files['file1_txt@v'].content).toEqual(
             new StaticFile({
-              filepath: `${ZENDESK}/themes/brands/oneTwo/SixFlags/file1.txt`,
+              filepath: `${ZENDESK}/themes/brands/oneTwo/${shortElemIdHash(liveThemeWithId.elemID)}_SixFlags/file1.txt`,
               content: Buffer.from('file1content'),
             }),
           )
@@ -247,7 +248,7 @@ describe('filterCreator', () => {
           )
           expect(liveThemeWithId.value.root.folders['subfolder_dot@v'].files['file2_txt@v'].content).toEqual(
             new StaticFile({
-              filepath: `${ZENDESK}/themes/brands/oneTwo/SixFlags/subfolder.dot/file2.txt`,
+              filepath: `${ZENDESK}/themes/brands/oneTwo/${shortElemIdHash(liveThemeWithId.elemID)}_SixFlags/subfolder.dot/file2.txt`,
               content: Buffer.from('file2content'),
             }),
           )
@@ -261,13 +262,13 @@ describe('filterCreator', () => {
           expect(Object.keys(nonLiveThemeWithId.value.root)).toHaveLength(2)
           expect(nonLiveThemeWithId.value.root.files['file1_txt@v'].content).toEqual(
             new StaticFile({
-              filepath: `${ZENDESK}/themes/brands/oneTwo/SixFlags/file1.txt`,
+              filepath: `${ZENDESK}/themes/brands/oneTwo/${shortElemIdHash(nonLiveThemeWithId.elemID)}_SixFlags/file1.txt`,
               content: Buffer.from('file1content'),
             }),
           )
           expect(nonLiveThemeWithId.value.root.folders['subfolder_dot@v'].files['file2_txt@v'].content).toEqual(
             new StaticFile({
-              filepath: `${ZENDESK}/themes/brands/oneTwo/SixFlags/subfolder.dot/file2.txt`,
+              filepath: `${ZENDESK}/themes/brands/oneTwo/${shortElemIdHash(nonLiveThemeWithId.elemID)}_SixFlags/subfolder.dot/file2.txt`,
               content: Buffer.from('file2content'),
             }),
           )
@@ -302,7 +303,13 @@ describe('filterCreator', () => {
           })
 
           it('returns a warning for the theme', async () => {
-            const errors = [{ message: 'Error fetching theme id park?, Bad zip file', severity: 'Warning' }]
+            const errors = [
+              {
+                message: 'Error fetching theme id park?, Bad zip file',
+                detailedMessage: 'Error fetching theme id park?, Bad zip file',
+                severity: 'Warning',
+              },
+            ]
             expect(await filter.onFetch?.([brand1, themeWithId])).toEqual({ errors })
           })
         })
@@ -360,6 +367,7 @@ describe('filterCreator', () => {
               {
                 elemID: invalidTheme.elemID,
                 message: 'Invalid theme directory',
+                detailedMessage: 'Invalid theme directory',
                 severity: 'Error',
               },
             ],
@@ -396,6 +404,7 @@ describe('filterCreator', () => {
               {
                 elemID: invalidTheme.elemID,
                 message: 'Error while resolving references in file fileWithReference.js',
+                detailedMessage: 'Error while resolving references in file fileWithReference.js',
                 severity: 'Error',
               },
             ],
@@ -479,7 +488,14 @@ describe('filterCreator', () => {
             expect(await filter.deploy?.(changes)).toEqual({
               deployResult: {
                 appliedChanges: [],
-                errors: [{ elemID: newThemeWithFiles.elemID, message: 'create error', severity: 'Error' }],
+                errors: [
+                  {
+                    elemID: newThemeWithFiles.elemID,
+                    message: 'create error',
+                    detailedMessage: 'create error',
+                    severity: 'Error',
+                  },
+                ],
               },
               leftoverChanges: [],
             })
@@ -503,6 +519,8 @@ describe('filterCreator', () => {
                   {
                     elemID: newThemeWithFiles.elemID,
                     message:
+                      'Missing theme id from create theme response for theme zendesk.theme.instance.newThemeWithFiles',
+                    detailedMessage:
                       'Missing theme id from create theme response for theme zendesk.theme.instance.newThemeWithFiles',
                     severity: 'Error',
                   },
@@ -595,7 +613,14 @@ describe('filterCreator', () => {
             expect(await filter.deploy?.(changes)).toEqual({
               deployResult: {
                 appliedChanges: [],
-                errors: [{ elemID: newThemeWithFiles.elemID, message: 'create error', severity: 'Error' }],
+                errors: [
+                  {
+                    elemID: newThemeWithFiles.elemID,
+                    message: 'create error',
+                    detailedMessage: 'create error',
+                    severity: 'Error',
+                  },
+                ],
               },
               leftoverChanges: [],
             })
@@ -638,6 +663,8 @@ describe('filterCreator', () => {
                     elemID: newThemeWithFiles.elemID,
                     message:
                       'Failed to publish. The theme has been created but not published; you can manually publish it in the Zendesk UI.',
+                    detailedMessage:
+                      'Failed to publish. The theme has been created but not published; you can manually publish it in the Zendesk UI.',
                     severity: 'Error',
                   },
                 ],
@@ -661,6 +688,8 @@ describe('filterCreator', () => {
                     elemID: newThemeWithFiles.elemID,
                     message:
                       'Missing theme id from create theme response for theme zendesk.theme.instance.newThemeWithFiles',
+                    detailedMessage:
+                      'Missing theme id from create theme response for theme zendesk.theme.instance.newThemeWithFiles',
                     severity: 'Error',
                   },
                 ],
@@ -681,7 +710,14 @@ describe('filterCreator', () => {
             expect(await filter.deploy?.(changes)).toEqual({
               deployResult: {
                 appliedChanges: [],
-                errors: [{ elemID: newThemeWithFiles.elemID, message: 'delete error', severity: 'Error' }],
+                errors: [
+                  {
+                    elemID: newThemeWithFiles.elemID,
+                    message: 'delete error',
+                    detailedMessage: 'delete error',
+                    severity: 'Error',
+                  },
+                ],
               },
               leftoverChanges: [],
             })

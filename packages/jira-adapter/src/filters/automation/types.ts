@@ -1,17 +1,9 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
 
 import { BuiltinTypes, CORE_ANNOTATIONS, ElemID, Field, ListType, ObjectType } from '@salto-io/adapter-api'
@@ -53,6 +45,7 @@ export const createAutomationTypes = (): {
     fields: {
       type: { refType: BuiltinTypes.STRING },
       value: { refType: BuiltinTypes.UNKNOWN },
+      rawValue: { refType: BuiltinTypes.UNKNOWN },
     },
     path: [JIRA, elements.TYPES_PATH, elements.SUBTYPES_PATH, AUTOMATION_FIELD],
   })
@@ -79,6 +72,7 @@ export const createAutomationTypes = (): {
     fields: {
       field: { refType: fieldType },
       value: { refType: fieldType },
+      rawValue: { refType: BuiltinTypes.UNKNOWN },
     },
     path: [JIRA, elements.TYPES_PATH, elements.SUBTYPES_PATH, AUTOMATION_OPERATION],
   })
@@ -152,6 +146,14 @@ export const createAutomationTypes = (): {
     },
   })
 
+  const templateFormsConfigType = new ObjectType({
+    elemID: new ElemID(JIRA, 'TemplateFormsConfig'),
+    fields: {
+      projectId: { refType: BuiltinTypes.NUMBER },
+      templateFormIds: { refType: new ListType(BuiltinTypes.NUMBER) },
+    },
+  })
+
   const componentValueType = new ObjectType({
     elemID: new ElemID(JIRA, AUTOMATION_COMPONENT_VALUE_TYPE),
     fields: {
@@ -183,13 +185,8 @@ export const createAutomationTypes = (): {
       schemaId: { refType: BuiltinTypes.STRING },
       objectTypeLabel: { refType: BuiltinTypes.STRING },
       objectTypeId: { refType: BuiltinTypes.STRING },
+      templateFormsConfig: { refType: templateFormsConfigType },
       requestType: { refType: BuiltinTypes.UNKNOWN }, // can be string or { type: string; value: string }
-      serviceDesk: {
-        refType: BuiltinTypes.STRING,
-        annotations: {
-          [CORE_ANNOTATIONS.HIDDEN_VALUE]: true,
-        },
-      },
     },
     path: [JIRA, elements.TYPES_PATH, elements.SUBTYPES_PATH, AUTOMATION_COMPONENT_VALUE_TYPE],
   })
@@ -202,6 +199,7 @@ export const createAutomationTypes = (): {
       type: { refType: BuiltinTypes.STRING },
       value: { refType: componentValueType },
       hasAttachmentsValue: { refType: BuiltinTypes.BOOLEAN },
+      rawValue: { refType: BuiltinTypes.UNKNOWN },
     },
     path: [JIRA, elements.TYPES_PATH, elements.SUBTYPES_PATH, AUTOMATION_COMPONENT_TYPE],
   })

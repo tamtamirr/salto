@@ -1,17 +1,9 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
 
 import { definitions } from '@salto-io/adapter-components'
@@ -29,7 +21,7 @@ import { addStartToLayers, addTimeZone, shouldChangeLayer } from '../../../src/d
 import { ADAPTER_NAME, SCHEDULE_LAYERS_TYPE_NAME, SCHEDULE_TYPE_NAME } from '../../../src/constants'
 
 describe('schedule layers definitions utils', () => {
-  let item: definitions.GeneratedItem<definitions.ContextParams & definitions.deploy.ChangeAndContext, unknown>
+  let item: definitions.GeneratedItem<definitions.ContextParams & definitions.deploy.ChangeAndExtendedContext, unknown>
   describe('addTimeZone', () => {
     beforeEach(() => {
       const change = toChange({
@@ -51,6 +43,7 @@ describe('schedule layers definitions utils', () => {
           },
           elementSource: buildElementsSourceFromElements([]),
           sharedContext: {},
+          errors: {},
         },
         value: { something: 'else', rotation_virtual_start: '2021-01-01T00:00:00Z' },
       }
@@ -89,6 +82,7 @@ describe('schedule layers definitions utils', () => {
           },
           elementSource: buildElementsSourceFromElements([]),
           sharedContext: {},
+          errors: {},
         },
         value: {
           schedule: {
@@ -153,6 +147,7 @@ describe('schedule layers definitions utils', () => {
         change: layerChange,
         elementSource: buildElementsSourceFromElements([]),
         sharedContext: {},
+        errors: {},
       })
       expect(result).toBeTruthy()
     })
@@ -170,6 +165,7 @@ describe('schedule layers definitions utils', () => {
         change: layerChange,
         elementSource: buildElementsSourceFromElements([]),
         sharedContext: {},
+        errors: {},
       })
       expect(result).toBeFalsy()
     })

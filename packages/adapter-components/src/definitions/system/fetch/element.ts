@@ -1,17 +1,9 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
 import { types } from '@salto-io/lowerdash'
 import {
@@ -49,21 +41,22 @@ export type IDPartsDefinition<TCustomNameMappingOptions extends string = never> 
   parts?: FieldIDPart<TCustomNameMappingOptions>[]
   // the delimiter to use between parts - default is '_'
   delimiter?: string
+  // elem id: default - true when parent annotation exists?
+  // path: when id parts info is missing, inherited from elemID (but the values are path-nacl-cased)
+  extendsParent?: boolean
 }
 
 export type ElemIDDefinition<TCustomNameMappingOptions extends string = never> =
   IDPartsDefinition<TCustomNameMappingOptions> & {
-    // default - true when parent annotation exists?
-    // TODO check if still needed when implementing SALTO-5421
-    extendsParent?: boolean
     // This is a temporary flag to support double nacl case for upgrading existing services to the new definitions
     // https://salto-io.atlassian.net/browse/SALTO-5743
     useOldFormat?: boolean
   }
 
 export type PathDefinition<TCustomNameMappingOptions extends string = never> = {
-  // when id parts info is missing, inherited from elemID (but the values are path-nacl-cased)
-  pathParts?: IDPartsDefinition<TCustomNameMappingOptions>[] & { extendsParent?: boolean }
+  pathParts?: IDPartsDefinition<TCustomNameMappingOptions>[]
+  // allow adding hard coded baseDir for path that will be added before the type name
+  baseDir?: string[]
 }
 
 type StandaloneFieldDefinition = {

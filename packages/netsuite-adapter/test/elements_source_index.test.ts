@@ -1,17 +1,9 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
 import {
   BuiltinTypes,
@@ -26,6 +18,7 @@ import { buildElementsSourceFromElements } from '@salto-io/adapter-utils'
 import { entitycustomfieldType } from '../src/autogen/types/standard_types/entitycustomfield'
 import { CUSTOM_RECORD_TYPE, INTERNAL_ID, METADATA_TYPE, NETSUITE, SCRIPT_ID } from '../src/constants'
 import { createElementsSourceIndex } from '../src/elements_source_index/elements_source_index'
+import { getTypesToInternalId } from '../src/data_elements/types'
 
 describe('createElementsSourceIndex', () => {
   const getAllMock = jest.fn()
@@ -35,6 +28,7 @@ describe('createElementsSourceIndex', () => {
     get: getMock,
   } as unknown as ReadOnlyElementsSource
   const entitycustomfield = entitycustomfieldType().type
+  const { typeToInternalId, internalIdToTypes } = getTypesToInternalId([])
 
   beforeEach(() => {
     getAllMock.mockReset()
@@ -42,7 +36,12 @@ describe('createElementsSourceIndex', () => {
     getAllMock.mockImplementation(buildElementsSourceFromElements([]).getAll)
   })
   it('should create the index only once and cache it', async () => {
-    const elementsSourceIndex = createElementsSourceIndex(elementsSource, true)
+    const elementsSourceIndex = createElementsSourceIndex({
+      elementsSource,
+      isPartial: true,
+      typeToInternalId,
+      internalIdToTypes,
+    })
     const index = await elementsSourceIndex.getIndexes()
     const anotherIndex = await elementsSourceIndex.getIndexes()
     expect(index).toBe(anotherIndex)
@@ -67,7 +66,12 @@ describe('createElementsSourceIndex', () => {
       ]).getAll,
     )
 
-    const elementsSourceIndex = createElementsSourceIndex(elementsSource, true)
+    const elementsSourceIndex = createElementsSourceIndex({
+      elementsSource,
+      isPartial: true,
+      typeToInternalId,
+      internalIdToTypes,
+    })
     const index = (await elementsSourceIndex.getIndexes()).internalIdsIndex
     expect(index).toEqual({
       'someType-4': new ElemID(NETSUITE, 'someType', 'instance', 'name'),
@@ -95,7 +99,13 @@ describe('createElementsSourceIndex', () => {
       ]).getAll,
     )
 
-    const elementsSourceIndex = createElementsSourceIndex(elementsSource, true, [toBeDeleted.elemID])
+    const elementsSourceIndex = createElementsSourceIndex({
+      elementsSource,
+      isPartial: true,
+      typeToInternalId,
+      internalIdToTypes,
+      deletedElements: [toBeDeleted.elemID],
+    })
     const index = (await elementsSourceIndex.getIndexes()).internalIdsIndex
     expect(index).toEqual({
       'customrecordtype-2': new ElemID(NETSUITE, 'customrecord1'),
@@ -121,7 +131,12 @@ describe('createElementsSourceIndex', () => {
       ]).getAll,
     )
 
-    const elementsSourceIndex = createElementsSourceIndex(elementsSource, false)
+    const elementsSourceIndex = createElementsSourceIndex({
+      elementsSource,
+      isPartial: false,
+      typeToInternalId,
+      internalIdToTypes,
+    })
     const index = (await elementsSourceIndex.getIndexes()).internalIdsIndex
     expect(index).toEqual({})
   })
@@ -139,7 +154,12 @@ describe('createElementsSourceIndex', () => {
     })
     getAllMock.mockImplementation(buildElementsSourceFromElements([instance1, instance2]).getAll)
 
-    const elementsSourceIndex = createElementsSourceIndex(elementsSource, true)
+    const elementsSourceIndex = createElementsSourceIndex({
+      elementsSource,
+      isPartial: true,
+      typeToInternalId,
+      internalIdToTypes,
+    })
     const index = (await elementsSourceIndex.getIndexes()).customFieldsIndex
     expect(index.contact.map(e => e.elemID.getFullName())).toEqual(
       [instance1, instance2].map(e => e.elemID.getFullName()),
@@ -160,7 +180,12 @@ describe('createElementsSourceIndex', () => {
     })
     getAllMock.mockImplementation(buildElementsSourceFromElements([instance1, instance2]).getAll)
 
-    const elementsSourceIndex = createElementsSourceIndex(elementsSource, false)
+    const elementsSourceIndex = createElementsSourceIndex({
+      elementsSource,
+      isPartial: false,
+      typeToInternalId,
+      internalIdToTypes,
+    })
     const index = (await elementsSourceIndex.getIndexes()).customFieldsIndex
     expect(index).toEqual({})
   })
@@ -180,11 +205,29 @@ describe('createElementsSourceIndex', () => {
       ]).getAll,
     )
 
-    expect((await createElementsSourceIndex(elementsSource, true).getIndexes()).elemIdToChangeByIndex).toEqual({
+    expect(
+      (
+        await createElementsSourceIndex({
+          elementsSource,
+          isPartial: true,
+          typeToInternalId,
+          internalIdToTypes,
+        }).getIndexes()
+      ).elemIdToChangeByIndex,
+    ).toEqual({
       'netsuite.someType.instance.inst': 'user name',
       'netsuite.customrecord1': 'user name2',
     })
-    expect((await createElementsSourceIndex(elementsSource, false).getIndexes()).elemIdToChangeByIndex).toEqual({
+    expect(
+      (
+        await createElementsSourceIndex({
+          elementsSource,
+          isPartial: false,
+          typeToInternalId,
+          internalIdToTypes,
+        }).getIndexes()
+      ).elemIdToChangeByIndex,
+    ).toEqual({
       'netsuite.someType.instance.inst': 'user name',
       'netsuite.customrecord1': 'user name2',
     })
@@ -204,11 +247,29 @@ describe('createElementsSourceIndex', () => {
       ]).getAll,
     )
 
-    expect((await createElementsSourceIndex(elementsSource, true).getIndexes()).elemIdToChangeAtIndex).toEqual({
+    expect(
+      (
+        await createElementsSourceIndex({
+          elementsSource,
+          isPartial: true,
+          typeToInternalId,
+          internalIdToTypes,
+        }).getIndexes()
+      ).elemIdToChangeAtIndex,
+    ).toEqual({
       'netsuite.someType.instance.inst': '03/23/2022',
       'netsuite.customrecord1': '05/26/2022',
     })
-    expect((await createElementsSourceIndex(elementsSource, false).getIndexes()).elemIdToChangeAtIndex).toEqual({
+    expect(
+      (
+        await createElementsSourceIndex({
+          elementsSource,
+          isPartial: false,
+          typeToInternalId,
+          internalIdToTypes,
+        }).getIndexes()
+      ).elemIdToChangeAtIndex,
+    ).toEqual({
       'netsuite.someType.instance.inst': '03/23/2022',
       'netsuite.customrecord1': '05/26/2022',
     })
@@ -231,7 +292,14 @@ describe('createElementsSourceIndex', () => {
     const custRecordField = custRecordType.fields.custom_field
     getAllMock.mockImplementation(buildElementsSourceFromElements([custRecordType]).getAll)
     expect(
-      (await createElementsSourceIndex(elementsSource, true).getIndexes()).customRecordFieldsServiceIdRecordsIndex,
+      (
+        await createElementsSourceIndex({
+          elementsSource,
+          isPartial: true,
+          typeToInternalId,
+          internalIdToTypes,
+        }).getIndexes()
+      ).customRecordFieldsServiceIdRecordsIndex,
     ).toEqual({
       custom_field: { elemID: custRecordField.elemID.createNestedID(SCRIPT_ID), serviceID: 'custom_field' },
     })
@@ -256,7 +324,14 @@ describe('createElementsSourceIndex', () => {
     })
     getAllMock.mockImplementation(buildElementsSourceFromElements([custRecordType, customFieldInstance]).getAll)
     expect(
-      (await createElementsSourceIndex(elementsSource, true).getIndexes()).customFieldsSelectRecordTypeIndex,
+      (
+        await createElementsSourceIndex({
+          elementsSource,
+          isPartial: true,
+          typeToInternalId,
+          internalIdToTypes,
+        }).getIndexes()
+      ).customFieldsSelectRecordTypeIndex,
     ).toEqual({
       [customFieldInstance.elemID.getFullName()]: '-4',
       [custRecordType.elemID.createNestedID('field', 'custom_field').getFullName()]: new ReferenceExpression(

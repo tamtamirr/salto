@@ -1,17 +1,9 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
 import {
   ObjectType,
@@ -26,6 +18,7 @@ import {
 } from '@salto-io/adapter-api'
 import { logger } from '@salto-io/logging'
 import { collections } from '@salto-io/lowerdash'
+import { createMatchingObjectType } from '@salto-io/adapter-utils'
 import { NETSUITE } from './constants'
 import { ObjectID } from './config/types'
 
@@ -39,12 +32,13 @@ const OBJECT_ID_TYPE_ID = new ElemID(NETSUITE, OBJECT_ID_TYPE_NAME)
 const OBJECT_ID_LIST_TYPE_ID = new ElemID(NETSUITE, OBJECT_ID_LIST_TYPE_NAME)
 const OBJECT_ID_LIST_INSTANCE_ID = new ElemID(NETSUITE, OBJECT_ID_LIST_TYPE_NAME, 'instance', ElemID.CONFIG_NAME)
 
-const objectIdType = new ObjectType({
+const objectIdType = createMatchingObjectType<ObjectID>({
   elemID: OBJECT_ID_TYPE_ID,
   isSettings: true,
   fields: {
-    instanceId: { refType: BuiltinTypes.STRING },
-    type: { refType: BuiltinTypes.STRING },
+    instanceId: { refType: BuiltinTypes.STRING, annotations: { _required: true } },
+    type: { refType: BuiltinTypes.STRING, annotations: { _required: true } },
+    suiteAppId: { refType: BuiltinTypes.STRING },
   },
   annotations: {
     [CORE_ANNOTATIONS.HIDDEN]: true,

@@ -1,17 +1,9 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
 
 import {
@@ -77,9 +69,7 @@ import * as deletionCalculator from '../src/deletion_calculator'
 import SdfClient from '../src/client/sdf_client'
 import SuiteAppClient from '../src/client/suiteapp_client/suiteapp_client'
 import { SERVER_TIME_TYPE_NAME } from '../src/server_time'
-import * as suiteAppFileCabinet from '../src/client/suiteapp_client/suiteapp_file_cabinet'
 import { SDF_CREATE_OR_UPDATE_GROUP_ID } from '../src/group_changes'
-import { SuiteAppFileCabinetOperations } from '../src/client/suiteapp_client/suiteapp_file_cabinet'
 import getChangeValidator from '../src/change_validator'
 import { getStandardTypesNames } from '../src/autogen/types'
 import { createCustomRecordTypes } from '../src/custom_records/custom_record_type'
@@ -88,7 +78,14 @@ import { getDataElements } from '../src/data_elements/data_elements'
 import * as elementsSourceIndexModule from '../src/elements_source_index/elements_source_index'
 import { fullQueryParams, fullFetchConfig } from '../src/config/config_creator'
 import { FetchByQueryFunc } from '../src/config/query'
-import { createObjectIdListElements, OBJECT_ID_LIST_TYPE_NAME, OBJECT_ID_LIST_FIELD_NAME } from '../src/scriptid_list'
+import {
+  createObjectIdListElements,
+  OBJECT_ID_LIST_TYPE_NAME,
+  OBJECT_ID_LIST_FIELD_NAME,
+  getOrCreateObjectIdListElements,
+} from '../src/scriptid_list'
+import { getTypesToInternalId } from '../src/data_elements/types'
+import { getSuiteQLTableElements } from '../src/data_elements/suiteql_table_elements'
 
 const DEFAULT_SDF_DEPLOY_PARAMS = {
   manifestDependencies: {
@@ -111,6 +108,12 @@ jest.mock('../src/config/suggestions', () => ({
 jest.mock('../src/data_elements/data_elements', () => ({
   ...jest.requireActual<{}>('../src/data_elements/data_elements'),
   getDataElements: jest.fn(() => ({ elements: [], largeTypesError: [] })),
+}))
+
+const suiteAppImportFileCabinetMock = jest.fn()
+jest.mock('../src/client/suiteapp_client/suiteapp_file_cabinet', () => ({
+  ...jest.requireActual<{}>('../src/client/suiteapp_client/suiteapp_file_cabinet'),
+  importFileCabinet: jest.fn((...args) => suiteAppImportFileCabinetMock(...args)),
 }))
 
 jest.mock('../src/change_validator')
@@ -167,12 +170,6 @@ describe('Adapter', () => {
     },
     withPartialDeletion: true,
   }
-
-  const suiteAppImportFileCabinetMock = jest.fn()
-
-  jest.spyOn(suiteAppFileCabinet, 'createSuiteAppFileCabinetOperations').mockReturnValue({
-    importFileCabinet: suiteAppImportFileCabinetMock,
-  } as unknown as SuiteAppFileCabinetOperations)
 
   const netsuiteAdapter = new NetsuiteAdapter({
     client: new NetsuiteClient(client),
@@ -270,8 +267,20 @@ describe('Adapter', () => {
       expect(fileCabinetQuery.isFileMatch('Some/File/Regex')).toBeFalsy()
       expect(fileCabinetQuery.isFileMatch('Some/anotherFile/Regex')).toBeTruthy()
 
-      // metadataTypes + folderInstance + fileInstance + featuresInstance + customTypeInstance + scriptIdListInstance + scriptIdListType + objectIdType
-      expect(elements).toHaveLength(metadataTypes.length + 7)
+      const scriptIdListElements = await getOrCreateObjectIdListElements([], buildElementsSourceFromElements([]), false)
+      const suiteQLTableElements = await getSuiteQLTableElements(config, buildElementsSourceFromElements([]), false)
+
+      expect(elements.map(elem => elem.elemID.getFullName()).sort()).toEqual(
+        [...metadataTypes, ...scriptIdListElements, ...suiteQLTableElements.elements]
+          .map(elem => elem.elemID.getFullName())
+          .concat([
+            'netsuite.companyFeatures.instance',
+            'netsuite.entitycustomfield.instance.custentity_my_script_id',
+            'netsuite.file.instance.a_b@d',
+            'netsuite.folder.instance.a_b@d',
+          ])
+          .sort(),
+      )
 
       const customFieldType = elements.find(element =>
         element.elemID.isEqual(new ElemID(NETSUITE, ENTITY_CUSTOM_FIELD)),
@@ -508,8 +517,14 @@ describe('Adapter', () => {
         failedTypes: { lockedError: {}, unexpectedError: {}, excludedTypes: [] },
       })
       const { elements } = await netsuiteAdapter.fetch(mockFetchOpts)
-      // metadataTypes + scriptIdListInstance + scriptIdListType + objectIdType
-      expect(elements).toHaveLength(metadataTypes.length + 3)
+      const scriptIdListElements = await getOrCreateObjectIdListElements([], buildElementsSourceFromElements([]), false)
+      const suiteQLTableElements = await getSuiteQLTableElements(config, buildElementsSourceFromElements([]), false)
+
+      expect(elements.map(elem => elem.elemID.getFullName()).sort()).toEqual(
+        [...metadataTypes, ...scriptIdListElements, ...suiteQLTableElements.elements]
+          .map(elem => elem.elemID.getFullName())
+          .sort(),
+      )
     })
 
     it('should call filters by their order', async () => {
@@ -992,7 +1007,9 @@ describe('Adapter', () => {
         ])
         expect(client.deploy).toHaveBeenCalledWith(undefined, DEFAULT_SDF_DEPLOY_PARAMS, testGraph)
         expect(result.errors).toHaveLength(1)
-        expect(result.errors).toEqual([{ message: clientError.message, severity: 'Error' }])
+        expect(result.errors).toEqual([
+          { message: clientError.message, detailedMessage: clientError.message, severity: 'Error' },
+        ])
         expect(result.appliedChanges).toHaveLength(0)
       })
     })
@@ -1286,24 +1303,28 @@ describe('Adapter', () => {
           // general SaltoError
           {
             message: 'General error',
+            detailedMessage: 'General error',
             severity: 'Error',
           },
           // field SaltoElementError
           {
             elemID: customRecordType.fields.custom_field.elemID,
             message: 'Custom Field Error',
+            detailedMessage: 'Custom Field Error',
             severity: 'Error',
           },
           // should be ignored (duplicates the field error)
           {
             elemID: customRecordType.elemID,
             message: 'Custom Field Error',
+            detailedMessage: 'Custom Field Error',
             severity: 'Error',
           },
           // should be transformed to a SaltoError
           {
             elemID: customSegment.elemID,
             message: 'Custom Segment Error',
+            detailedMessage: 'Custom Segment Error',
             severity: 'Error',
           },
         ]
@@ -1321,14 +1342,17 @@ describe('Adapter', () => {
             {
               elemID: customRecordType.fields.custom_field.elemID,
               message: 'Custom Field Error',
+              detailedMessage: 'Custom Field Error',
               severity: 'Error',
             },
             {
               message: 'General error',
+              detailedMessage: 'General error',
               severity: 'Error',
             },
             {
               message: 'Custom Segment Error',
+              detailedMessage: 'Custom Segment Error',
               severity: 'Error',
             },
           ],
@@ -1339,6 +1363,7 @@ describe('Adapter', () => {
 
   describe('SuiteAppClient', () => {
     let adapter: NetsuiteAdapter
+    let suiteAppClient: SuiteAppClient
 
     const dummyElement = new ObjectType({ elemID: new ElemID('dum', 'test') })
     const elementsSource = buildElementsSourceFromElements([dummyElement])
@@ -1382,7 +1407,7 @@ describe('Adapter', () => {
         largeTypesError: [],
       })
 
-      const suiteAppClient = {
+      suiteAppClient = {
         getSystemInformation: getSystemInformationMock,
         getNetsuiteWsdl: () => undefined,
         getConfigRecords: () => [],
@@ -1403,7 +1428,13 @@ describe('Adapter', () => {
 
     it('should use suiteAppFileCabinet importFileCabinet and pass it the right params', async () => {
       await adapter.fetch(mockFetchOpts)
-      expect(suiteAppImportFileCabinetMock).toHaveBeenCalledWith(expect.anything(), 3, ['.*\\.(csv|pdf|png)'], false)
+      expect(suiteAppImportFileCabinetMock).toHaveBeenCalledWith(
+        suiteAppClient,
+        expect.anything(),
+        3,
+        ['.*\\.(csv|pdf|png)'],
+        true,
+      )
     })
 
     it('should not create serverTime elements when getSystemInformation returns undefined', async () => {
@@ -1425,8 +1456,6 @@ describe('Adapter', () => {
     })
 
     describe('getChangedObjects', () => {
-      let suiteAppClient: SuiteAppClient
-
       beforeEach(() => {
         getElementMock.mockResolvedValue(
           new InstanceElement(
@@ -1470,7 +1499,7 @@ describe('Adapter', () => {
         })
       })
       it('should call getChangedObjects with the right date range', async () => {
-        await adapter.fetch(mockFetchOpts)
+        await adapter.fetch({ ...mockFetchOpts, withChangesDetection: true })
         expect(getElementMock).toHaveBeenCalledWith(
           new ElemID(NETSUITE, SERVER_TIME_TYPE_NAME, 'instance', ElemID.CONFIG_NAME),
         )
@@ -1499,7 +1528,7 @@ describe('Adapter', () => {
 
       it('should pass the received query to the client', async () => {
         const getCustomObjectsMock = jest.spyOn(client, 'getCustomObjects')
-        await adapter.fetch(mockFetchOpts)
+        await adapter.fetch({ ...mockFetchOpts, withChangesDetection: true })
 
         const passedQuery = getCustomObjectsMock.mock.calls[0][1].updatedFetchQuery
         expect(passedQuery.isObjectMatch({ instanceId: 'aaaa', type: 'workflow' })).toBeTruthy()
@@ -1534,7 +1563,6 @@ describe('Adapter', () => {
               },
               filePaths: [],
             },
-            useChangesDetection: false,
           },
           getElemIdFunc: mockGetElemIdFunc,
         })
@@ -1550,12 +1578,11 @@ describe('Adapter', () => {
           filtersCreators: [firstDummyFilter, secondDummyFilter],
           config: {
             ...config,
-            useChangesDetection: true,
           },
           getElemIdFunc: mockGetElemIdFunc,
         })
 
-        await adapter.fetch(mockFetchOpts)
+        await adapter.fetch({ ...mockFetchOpts, withChangesDetection: true })
         expect(getChangedObjectsMock).toHaveBeenCalled()
       })
     })
@@ -1605,7 +1632,14 @@ describe('Adapter', () => {
         const { partialFetchData } = await adapter.fetch({ ...mockFetchOpts, withChangesDetection: true })
         expect(getDeletedElementsMock).toHaveBeenCalled()
         expect(partialFetchData?.deletedElements).toEqual([elemId])
-        expect(spy).toHaveBeenCalledWith(expect.anything(), true, [elemId])
+        const { typeToInternalId, internalIdToTypes } = getTypesToInternalId([])
+        expect(spy).toHaveBeenCalledWith({
+          elementsSource: expect.anything(),
+          isPartial: true,
+          typeToInternalId,
+          internalIdToTypes,
+          deletedElements: [elemId],
+        })
       })
     })
 
@@ -1622,7 +1656,14 @@ describe('Adapter', () => {
         const { partialFetchData } = await adapter.fetch({ ...mockFetchOpts })
         expect(getDeletedElementsMock).not.toHaveBeenCalled()
         expect(partialFetchData?.deletedElements).toEqual(undefined)
-        expect(spy).toHaveBeenCalledWith(expect.anything(), false, [])
+        const { typeToInternalId, internalIdToTypes } = getTypesToInternalId([])
+        expect(spy).toHaveBeenCalledWith({
+          elementsSource: expect.anything(),
+          isPartial: false,
+          typeToInternalId,
+          internalIdToTypes,
+          deletedElements: [],
+        })
       })
     })
   })

@@ -1,17 +1,9 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
 import _ from 'lodash'
 import { isInstanceElement, isReferenceExpression } from '@salto-io/adapter-api'
@@ -250,7 +242,7 @@ export const referencesRules: JiraFieldReferenceDefinition[] = [
   {
     src: { field: 'projectIds', parentTypes: ['CustomFieldContext'] },
     serializationStrategy: 'id',
-    target: { type: 'Project' },
+    target: { type: PROJECT_TYPE },
   },
   {
     src: { field: 'id', parentTypes: ['WorkflowStatus'] },
@@ -265,7 +257,13 @@ export const referencesRules: JiraFieldReferenceDefinition[] = [
     target: { type: STATUS_TYPE_NAME },
   },
   {
-    src: { field: 'statusReference', parentTypes: ['WorkflowStatusAndPort'] },
+    src: { field: 'fromStatusReference', parentTypes: ['WorkflowTransitionLinks'] },
+    serializationStrategy: 'id',
+    missingRefStrategy: 'typeAndValue',
+    target: { type: STATUS_TYPE_NAME },
+  },
+  {
+    src: { field: 'toStatusReference', parentTypes: ['WorkflowTransitions'] },
     serializationStrategy: 'id',
     missingRefStrategy: 'typeAndValue',
     target: { type: STATUS_TYPE_NAME },
@@ -525,7 +523,7 @@ export const referencesRules: JiraFieldReferenceDefinition[] = [
     src: { field: 'id', parentTypes: ['ProjectPermission'] },
     serializationStrategy: 'id',
     missingRefStrategy: 'typeAndValue',
-    target: { type: 'Project' },
+    target: { type: PROJECT_TYPE },
   },
   {
     src: { field: 'id', parentTypes: ['ProjectRolePermission'] },
@@ -540,49 +538,49 @@ export const referencesRules: JiraFieldReferenceDefinition[] = [
     target: { type: 'Filter' },
   },
   {
-    src: { field: 'workflowScheme', parentTypes: ['Project'] },
+    src: { field: 'workflowScheme', parentTypes: [PROJECT_TYPE] },
     serializationStrategy: 'id',
     missingRefStrategy: 'typeAndValue',
     target: { type: 'WorkflowScheme' },
   },
   {
-    src: { field: 'issueTypeScreenScheme', parentTypes: ['Project'] },
+    src: { field: 'issueTypeScreenScheme', parentTypes: [PROJECT_TYPE] },
     serializationStrategy: 'id',
     missingRefStrategy: 'typeAndValue',
     target: { type: 'IssueTypeScreenScheme' },
   },
   {
-    src: { field: 'fieldConfigurationScheme', parentTypes: ['Project'] },
+    src: { field: 'fieldConfigurationScheme', parentTypes: [PROJECT_TYPE] },
     serializationStrategy: 'id',
     missingRefStrategy: 'typeAndValue',
     target: { type: 'FieldConfigurationScheme' },
   },
   {
-    src: { field: 'issueTypeScheme', parentTypes: ['Project'] },
+    src: { field: 'issueTypeScheme', parentTypes: [PROJECT_TYPE] },
     serializationStrategy: 'id',
     missingRefStrategy: 'typeAndValue',
     target: { type: ISSUE_TYPE_SCHEMA_NAME },
   },
   {
-    src: { field: 'permissionScheme', parentTypes: ['Project'] },
+    src: { field: 'permissionScheme', parentTypes: [PROJECT_TYPE] },
     serializationStrategy: 'id',
     missingRefStrategy: 'typeAndValue',
     target: { type: 'PermissionScheme' },
   },
   {
-    src: { field: 'notificationScheme', parentTypes: ['Project'] },
+    src: { field: 'notificationScheme', parentTypes: [PROJECT_TYPE] },
     serializationStrategy: 'id',
     missingRefStrategy: 'typeAndValue',
     target: { type: 'NotificationScheme' },
   },
   {
-    src: { field: 'issueSecurityScheme', parentTypes: ['Project'] },
+    src: { field: 'issueSecurityScheme', parentTypes: [PROJECT_TYPE] },
     serializationStrategy: 'id',
     missingRefStrategy: 'typeAndValue',
     target: { type: 'SecurityScheme' },
   },
   {
-    src: { field: 'priorityScheme', parentTypes: ['Project'] },
+    src: { field: 'priorityScheme', parentTypes: [PROJECT_TYPE] },
     serializationStrategy: 'id',
     missingRefStrategy: 'typeAndValue',
     target: { type: PRIORITY_SCHEME_TYPE_NAME },
@@ -602,13 +600,13 @@ export const referencesRules: JiraFieldReferenceDefinition[] = [
     src: { field: 'projectId', parentTypes: ['Board_location', SCRIPT_RUNNER_TYPE] },
     serializationStrategy: 'id',
     missingRefStrategy: 'typeAndValue',
-    target: { type: 'Project' },
+    target: { type: PROJECT_TYPE },
   },
   {
     src: { field: 'projectKeyOrId', parentTypes: ['Board_location'] },
     serializationStrategy: 'id',
     missingRefStrategy: 'typeAndValue',
-    target: { type: 'Project' },
+    target: { type: PROJECT_TYPE },
   },
   {
     src: { field: 'edit', parentTypes: ['ScreenTypes'] },
@@ -822,12 +820,18 @@ export const referencesRules: JiraFieldReferenceDefinition[] = [
   {
     src: { field: 'sourceProject', parentTypes: [AUTOMATION_COMPONENT_VALUE_TYPE] },
     serializationStrategy: 'id',
-    target: { type: 'Project' },
+    target: { type: PROJECT_TYPE },
   },
   {
     src: { field: 'targetProject', parentTypes: [AUTOMATION_COMPONENT_VALUE_TYPE] },
     serializationStrategy: 'id',
-    target: { type: 'Project' },
+    target: { type: PROJECT_TYPE },
+  },
+  {
+    src: { field: 'projectId', parentTypes: ['TemplateFormsConfig'] },
+    serializationStrategy: 'id',
+    missingRefStrategy: 'typeAndValue',
+    target: { type: PROJECT_TYPE },
   },
   {
     src: { field: 'groups', parentTypes: [AUTOMATION_COMPONENT_VALUE_TYPE] },
@@ -862,6 +866,11 @@ export const referencesRules: JiraFieldReferenceDefinition[] = [
     target: { type: GROUP_TYPE_NAME },
   },
   {
+    src: { field: 'value', parentTypes: [AUTOMATION_EMAIL_RECIPENT, AUTOMATION_CONDITION_CRITERIA, AUTOMATION_GROUP] },
+    serializationStrategy: 'groupId',
+    target: { type: GROUP_TYPE_NAME },
+  },
+  {
     src: { field: 'field', parentTypes: [AUTOMATION_CONDITION] },
     serializationStrategy: 'id',
     target: { type: 'Field' },
@@ -874,7 +883,7 @@ export const referencesRules: JiraFieldReferenceDefinition[] = [
   {
     src: { field: 'value', parentTypes: [AUTOMATION_PROJECT_TYPE] },
     serializationStrategy: 'id',
-    target: { type: 'Project' },
+    target: { type: PROJECT_TYPE },
   },
   {
     src: { field: 'value', parentTypes: [AUTOMATION_ROLE] },
@@ -1061,7 +1070,6 @@ export const referencesRules: JiraFieldReferenceDefinition[] = [
   {
     src: { field: 'FIELD_SELECTED_FIELDS', parentTypes: [POST_FUNCTION_CONFIGURATION] },
     serializationStrategy: 'id',
-    missingRefStrategy: 'typeAndValue',
     target: { type: FIELD_TYPE_NAME },
   },
   {
@@ -1194,7 +1202,6 @@ export const referencesRules: JiraFieldReferenceDefinition[] = [
   {
     src: { field: 'key', parentTypes: ['issueLayoutItem'] },
     serializationStrategy: 'id',
-    missingRefStrategy: 'typeAndValue',
     target: { type: FIELD_TYPE_NAME },
   },
   {

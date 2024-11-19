@@ -1,17 +1,9 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
 import wu from 'wu'
 import _ from 'lodash'
@@ -57,6 +49,7 @@ import {
   TypeReference,
   Value,
   Values,
+  isRemovalChange,
 } from '@salto-io/adapter-api'
 import {
   applyInstancesDefaults,
@@ -87,15 +80,16 @@ import {
   isElementIdMatchSelectors,
   updateElementsWithAlternativeAccount,
   Workspace,
+  flags,
 } from '@salto-io/workspace'
 import { collections, promises, types, values } from '@salto-io/lowerdash'
-import { CORE_FLAGS, getCoreFlagBool } from './flags'
+import { CORE_FLAGS } from './flags'
 import { StepEvents } from './deploy'
 import { getPlan, Plan } from './plan'
 import { AdapterEvents, createAdapterProgressReporter } from './adapters/progress'
 import { IDFilter } from './plan/plan'
 import { getAdaptersCreatorConfigs } from './adapters'
-import { mergeStaticFiles, mergeStrings } from './merge_content'
+import { mergeLists, mergeStaticFiles, mergeStrings } from './merge_content'
 import { FetchChange, FetchChangeMetadata } from '../types'
 
 const { awu, groupByAsync } = collections.asynciterable
@@ -189,24 +183,31 @@ const findNestedElementPath = (
 
 type ChangeTransformFunction = (sourceChange: FetchChange) => Promise<FetchChange[]>
 const toChangesWithPath =
-  (accountElementByFullName: (id: ElemID) => Promise<Element[]> | Element[]): ChangeTransformFunction =>
+  (accountElementByFullName: (id: ElemID) => Element[]): ChangeTransformFunction =>
   async change => {
     const changeID: ElemID = change.change.id
-    if (!changeID.isTopLevel() && change.change.action === 'add') {
-      const path = findNestedElementPath(
-        changeID,
-        await accountElementByFullName(changeID.createTopLevelParentID().parent),
-      )
-      log.trace(
-        `addition change for nested ${changeID.idType} with id ${changeID.getFullName()}, path found ${path?.join('/')}`,
-      )
-      return path ? [_.merge({}, change, { change: { path } })] : [change]
+    if (isRemovalChange(change.change)) {
+      return [change]
     }
-    const originalElements = await accountElementByFullName(changeID)
+
+    if (!changeID.isTopLevel()) {
+      if (change.change.action === 'add') {
+        const path = findNestedElementPath(changeID, accountElementByFullName(changeID.createTopLevelParentID().parent))
+        log.trace(
+          `addition change for nested ${changeID.idType} with id ${changeID.getFullName()}, path found ${path?.join('/')}`,
+        )
+        return path ? [_.merge({}, change, { change: { path } })] : [change]
+      }
+      // This is a modification change on a nested ID, path is not needed
+      return [change]
+    }
+
+    const originalElements = accountElementByFullName(changeID)
     if (originalElements.length === 0) {
       log.trace(`no original elements found for change element id ${changeID.getFullName()}`)
       return [change]
     }
+
     // Replace merged element with original elements that have a path hint
     return originalElements.map(elem => _.merge({}, change, { change: { data: { after: elem } } }))
   }
@@ -232,7 +233,7 @@ const isMergeableDiffChange = (change: FetchChange): change is MergeableDiffChan
   isAdditionOrModificationChange(change.serviceChanges[0]) &&
   isAdditionOrModificationChange(change.pendingChanges[0])
 
-const toMergedTextChange = (change: FetchChange, after: string | StaticFile): FetchChange => ({
+const toMergedChange = (change: FetchChange, after: Value): FetchChange => ({
   ...change,
   change: {
     ...change.change,
@@ -244,8 +245,8 @@ const toMergedTextChange = (change: FetchChange, after: string | StaticFile): Fe
   pendingChanges: [],
 })
 
-const autoMergeTextChange: ChangeTransformFunction = async change => {
-  if (getCoreFlagBool(CORE_FLAGS.autoMergeDisabled) || !isMergeableDiffChange(change)) {
+const autoMergeChange: ChangeTransformFunction = async change => {
+  if (!isMergeableDiffChange(change)) {
     return [change]
   }
 
@@ -256,11 +257,19 @@ const autoMergeTextChange: ChangeTransformFunction = async change => {
 
   if (isStaticFile(current) && isStaticFile(incoming) && isTypeOfOrUndefined(base, isStaticFile)) {
     const merged = await mergeStaticFiles(changeId, { current, base, incoming })
-    return [merged !== undefined ? toMergedTextChange(change, merged) : change]
+    return [merged !== undefined ? toMergedChange(change, merged) : change]
   }
   if (_.isString(current) && _.isString(incoming) && isTypeOfOrUndefined(base, _.isString)) {
     const merged = mergeStrings(changeId, { current, base, incoming })
-    return [merged !== undefined ? toMergedTextChange(change, merged) : change]
+    return [merged !== undefined ? toMergedChange(change, merged) : change]
+  }
+  if (_.isArray(current) && _.isArray(incoming) && isTypeOfOrUndefined(base, _.isArray)) {
+    if (flags.getSaltoFlagBool(CORE_FLAGS.autoMergeListsDisabled)) {
+      log.debug('skipping list auto merge since the autoMergeListsDisabled core flag is true')
+      return [change]
+    }
+    const merged = mergeLists(changeId, { current, base, incoming })
+    return [merged !== undefined ? toMergedChange(change, merged) : change]
   }
   return [change]
 }
@@ -277,6 +286,77 @@ const omitNoConflictCoreAnnotationsPendingChanges: ChangeTransformFunction = asy
     return [{ ...change, pendingChanges: [] }]
   }
   return [change]
+}
+
+/**
+ * Creates a list modification change in a given id, when there's a list in that id in all sources.
+ * This is required because that when the list in two of the sources have the same length, then one
+ * of `wsChanges`/`serviceChanges`/`pendingChanges` will have changes on the list items, instead of the
+ * whole list, that we need in order to auto-merge the list later.
+ * This logic is skipped when the list's length is the same in all sources (so there will be changes on
+ * each list item separately) or when `pendingChanges` is empty (and there's no conflict to auto-merge).
+ */
+const toListModificationChange = ({
+  elemId,
+  wsChanges,
+  serviceChanges,
+  pendingChanges,
+}: {
+  elemId: ElemID
+  wsChanges: types.NonEmptyArray<DetailedChangeWithBaseChange>
+  serviceChanges: types.NonEmptyArray<DetailedChangeWithBaseChange>
+  pendingChanges: DetailedChangeWithBaseChange[]
+}): FetchChange | undefined => {
+  if (flags.getSaltoFlagBool(CORE_FLAGS.autoMergeListsDisabled)) {
+    log.debug('skip creating list modification change since the autoMergeListsDisabled core flag is true')
+    return undefined
+  }
+
+  if (!types.isNonEmptyArray(pendingChanges)) {
+    return undefined
+  }
+
+  const { baseChange } = wsChanges[0]
+  const baseServiceChange = serviceChanges[0].baseChange
+  const basePendingChange = pendingChanges[0].baseChange
+
+  if (!isAdditionOrModificationChange(baseServiceChange) || !isAdditionOrModificationChange(basePendingChange)) {
+    return undefined
+  }
+
+  const serviceElement = baseServiceChange.data.after
+  const stateElement = isModificationChange(baseServiceChange) ? baseServiceChange.data.before : undefined
+  const workspaceElement = basePendingChange.data.after
+
+  const serviceValue = resolvePath(serviceElement, elemId)
+  const stateValue = stateElement ? resolvePath(stateElement, elemId) : undefined
+  const workspaceValue = resolvePath(workspaceElement, elemId)
+
+  if (!_.isArray(workspaceValue) || !_.isArray(serviceValue) || !isTypeOfOrUndefined(stateValue, _.isArray)) {
+    return undefined
+  }
+
+  return {
+    change: {
+      id: elemId,
+      baseChange,
+      ...toChange({ before: workspaceValue, after: serviceValue }),
+    },
+    serviceChanges: [
+      {
+        id: elemId,
+        baseChange: baseServiceChange,
+        ...toChange({ before: stateValue, after: serviceValue }),
+      },
+    ],
+    pendingChanges: [
+      {
+        id: elemId,
+        baseChange: basePendingChange,
+        ...toChange({ before: stateValue, after: workspaceValue }),
+      },
+    ],
+  }
 }
 
 const getChangesNestedUnderID = (
@@ -304,7 +384,7 @@ const toFetchChanges = (
 
       const elemId = ElemID.fromFullName(id)
       const wsChanges = getChangesNestedUnderID(elemId, workspaceToServiceChanges).map(({ change }) => change)
-      if (wsChanges.length === 0) {
+      if (!types.isNonEmptyArray(wsChanges)) {
         // If we get here it means there is a difference between the account and the state
         // but there is no difference between the account and the workspace. this can happen
         // when the nacl files are updated externally (from git usually) with the change that
@@ -322,7 +402,7 @@ const toFetchChanges = (
         changeList => changeList.map(change => change.change),
       )
 
-      if (serviceChanges.length === 0) {
+      if (!types.isNonEmptyArray(serviceChanges)) {
         // If nothing changed in the account, we don't want to do anything
         return undefined
       }
@@ -336,6 +416,11 @@ const toFetchChanges = (
           serviceChanges.map(change => `${change.action} ${change.id.getFullName()}`),
           pendingChanges.map(change => `${change.action} ${change.id.getFullName()}`),
         )
+      }
+
+      const listModificationChange = toListModificationChange({ elemId, wsChanges, serviceChanges, pendingChanges })
+      if (listModificationChange !== undefined) {
+        return [listModificationChange]
       }
 
       const createFetchChange = (change: DetailedChangeWithBaseChange): FetchChange => {
@@ -703,14 +788,23 @@ type DetailedChangeTreesResults = {
 
 // Calculate the fetch changes - calculation should be done only if workspace has data,
 // o/w all account elements should be consider as "add" changes.
-export const calcFetchChanges = async (
-  accountElements: ReadonlyArray<Element>,
-  mergedAccountElements: ReadonlyArray<Element>,
-  stateElements: elementSource.ElementsSource,
-  workspaceElements: ReadOnlyElementsSource,
-  partiallyFetchedAccounts: Map<string, PartiallyFetchedAccountData>,
-  allFetchedAccounts: Set<string>,
-): Promise<CalcFetchChangesResult> => {
+export const calcFetchChanges = async ({
+  accountElements,
+  mergedAccountElements,
+  stateElements,
+  workspaceElements,
+  partiallyFetchedAccounts,
+  allFetchedAccounts,
+  calculatePendingChanges = true,
+}: {
+  accountElements: ReadonlyArray<Element>
+  mergedAccountElements: ReadonlyArray<Element>
+  stateElements: elementSource.ElementsSource
+  workspaceElements: ReadOnlyElementsSource
+  partiallyFetchedAccounts: Map<string, PartiallyFetchedAccountData>
+  allFetchedAccounts: Set<string>
+  calculatePendingChanges?: boolean
+}): Promise<CalcFetchChangesResult> => {
   const mergedAccountElementsSource = elementSource.createInMemoryElementSource(mergedAccountElements)
 
   const partialFetchFilter: IDFilter = id =>
@@ -809,13 +903,9 @@ export const calcFetchChanges = async (
     }
   }
 
-  // When we init a new env, state will be empty. We fallback to the workspace
-  // elements since they should be considered a part of the env and the diff
-  // should be calculated with them in mind.
-  const isStateEmpty = await stateElements.isEmpty()
-  const { serviceChanges, pendingChanges, workspaceToServiceChanges, serviceToStateChanges } = isStateEmpty
-    ? await calculateChangesWithEmptyState()
-    : await calculateChangesWithState()
+  const { serviceChanges, pendingChanges, workspaceToServiceChanges, serviceToStateChanges } = calculatePendingChanges
+    ? await calculateChangesWithState()
+    : await calculateChangesWithEmptyState()
 
   // Merge pending changes and service changes into one tree so we can find conflicts between them
   serviceChanges.merge(pendingChanges)
@@ -824,8 +914,8 @@ export const calcFetchChanges = async (
 
   const changes = await awu(fetchChanges)
     .flatMap(omitNoConflictCoreAnnotationsPendingChanges)
-    .flatMap(autoMergeTextChange)
-    .flatMap(toChangesWithPath(async name => serviceElementsMap[name.getFullName()] ?? []))
+    .flatMap(autoMergeChange)
+    .flatMap(toChangesWithPath(name => serviceElementsMap[name.getFullName()] ?? []))
     .flatMap(addFetchChangeMetadata(partialFetchElementSource))
     .toArray()
   return { changes, serviceToStateChanges }
@@ -875,16 +965,22 @@ const createFetchChanges = async ({
     .filter(e => !e.isConfigType())
     .isEmpty()
 
+  // When we init a new env, the state will be empty, but the workspace can already have elements in common.
+  // In that case we shouldn't calculate pending changes, otherwise there would be conflicts
+  // between the fetched elements and the elements in common.
+  const calculatePendingChanges = !(await stateElements.isEmpty())
+
   const { changes, serviceToStateChanges } = isFirstFetch
     ? await createFirstFetchChanges(unmergedElements, processErrorsResult.keptElements)
-    : await calcFetchChanges(
-        unmergedElements,
-        processErrorsResult.keptElements,
+    : await calcFetchChanges({
+        accountElements: unmergedElements,
+        mergedAccountElements: processErrorsResult.keptElements,
         stateElements,
         workspaceElements,
-        partiallyFetchedAccountData,
-        new Set(adapterNames),
-      )
+        partiallyFetchedAccounts: partiallyFetchedAccountData,
+        allFetchedAccounts: new Set(adapterNames),
+        calculatePendingChanges,
+      })
   log.debug('finished to calculate fetch changes')
   if (progressEmitter) {
     calculateDiffEmitter.emit('completed')
@@ -991,6 +1087,7 @@ const createEmptyFetchChangeDueToError = (errMsg: string): FetchChangesResult =>
     errors: [
       {
         message: errMsg,
+        detailedMessage: errMsg,
         severity: 'Error',
       },
     ],
@@ -1036,7 +1133,7 @@ const fixStaticFilesForFromStateChanges = async (
         env,
         isTemplate: staticFile.isTemplate,
       })
-      if (!actualStaticFile?.isEqual(staticFile)) {
+      if (!isStaticFile(actualStaticFile) || !actualStaticFile.isEqual(staticFile)) {
         invalidChangeIDs.add(change.id.getFullName())
         log.warn(
           'Static files mismatch in fetch from state for change in elemID %s. (stateHash=%s naclHash=%s)',
@@ -1063,10 +1160,14 @@ const fixStaticFilesForFromStateChanges = async (
     ...fetchChangesResult,
     changes: fetchChangesResult.changes.filter(change => !invalidChangeIDs.has(change.change.id.getFullName())),
     errors: fetchChangesResult.errors.concat(
-      Array.from(invalidChangeIDs).map(invalidChangeElemID => ({
-        message: `Dropping changes in element: ${invalidChangeElemID} due to static files hashes mismatch`,
-        severity: 'Error',
-      })),
+      Array.from(invalidChangeIDs).map(invalidChangeElemID => {
+        const message = `Dropping changes in element: ${invalidChangeElemID} due to static files hashes mismatch`
+        return {
+          message,
+          detailedMessage: message,
+          severity: 'Error',
+        }
+      }),
     ),
   }
 }
@@ -1378,7 +1479,7 @@ export const getFetchAdapterAndServicesSetup = async ({
     ignoreStateElemIdMapping,
     ignoreStateElemIdMappingForSelectors,
   })
-  const resolveTypes = !getCoreFlagBool(CORE_FLAGS.skipResolveTypesInElementSource)
+  const resolveTypes = !flags.getSaltoFlagBool(CORE_FLAGS.skipResolveTypesInElementSource)
   const adaptersCreatorConfigs = await getAdaptersCreatorConfigs(
     fetchAccounts,
     await workspace.accountCredentials(fetchAccounts),

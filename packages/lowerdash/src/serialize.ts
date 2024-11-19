@@ -1,36 +1,62 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
+import { EOL } from 'os'
+
+export type StreamSerializer = (items: unknown[]) => AsyncIterable<string>
 
 /**
  * avoid creating a single string for all items, which may exceed the max allowed string length.
  * currently only supports JSON.stringify - if cycles are possible, safeJsonStringify should be used instead.
  */
-export async function* getSerializedStream(items: (unknown[] | Record<string, unknown>)[]): AsyncIterable<string> {
-  let first = true
-  yield '['
-  for (const item of items) {
-    if (first) {
-      first = false
-    } else {
-      yield ','
+export const createStreamSerializer = ({
+  maxLineLength = Infinity,
+  wrapWithKey,
+}: {
+  maxLineLength?: number
+  wrapWithKey?: string
+} = {}): StreamSerializer => {
+  const [start, end] =
+    wrapWithKey === undefined
+      ? ['[', ']']
+      : // eslint-disable-next-line no-restricted-syntax
+        [`{${JSON.stringify(wrapWithKey)}:[`, ']}']
+
+  const initialLineLength = start.length + end.length
+
+  async function* serializer(items: unknown[]): AsyncIterable<string> {
+    let first = true
+    let currentLineLength = initialLineLength
+
+    yield start
+    for (const item of items) {
+      // We don't use safeJsonStringify to save some time, because we know  we made sure there aren't circles
+      // eslint-disable-next-line no-restricted-syntax
+      const serializedItem = JSON.stringify(item) ?? ''
+      if (currentLineLength + serializedItem.length + 1 > maxLineLength) {
+        yield end
+        yield EOL
+        yield start
+        first = true
+        currentLineLength = initialLineLength
+      }
+      if (first) {
+        first = false
+      } else {
+        yield ','
+        currentLineLength += 1
+      }
+      yield serializedItem
+      currentLineLength += serializedItem.length
     }
-    // We don't use safeJsonStringify to save some time, because we know  we made sure there aren't
-    // circles
-    // eslint-disable-next-line no-restricted-syntax
-    yield JSON.stringify(item)
+    yield end
   }
-  yield ']'
+
+  return serializer
 }
+
+export const getSerializedStream = createStreamSerializer()

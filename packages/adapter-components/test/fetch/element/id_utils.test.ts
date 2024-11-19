@@ -1,17 +1,9 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
 
 import { ElemID, InstanceElement, ObjectType, ReferenceExpression } from '@salto-io/adapter-api'
@@ -341,6 +333,61 @@ describe('id utils', () => {
           createSelfFolder: true,
         })({ entry: { a: 'A', b: 'B', c: 'C' }, defaultName: 'unnamed' }),
       ).toEqual(['myAdapter', 'Records', 'ParentType', 'FieldName', 'A', 'A'])
+    })
+    describe('with baseDir provided', () => {
+      const args = { entry: { a: 'A', b: 'B', c: 'C' }, defaultName: 'unnamed' }
+      it('should nest instance path under baseDir', () => {
+        expect(
+          getElemPath({
+            def: {
+              pathParts: [{ parts: [{ fieldName: 'a' }] }],
+              baseDir: ['Base', 'Dir'],
+            },
+            typeID,
+            elemIDCreator: createElemIDFunc({
+              elemIDDef: {
+                parts: [{ fieldName: 'a' }],
+              },
+              typeID,
+            }),
+          })(args),
+        ).toEqual(['myAdapter', 'Records', 'Base', 'Dir', 'myType', 'A'])
+      })
+      it('should nest instance path under baseDir for singletons', () => {
+        expect(
+          getElemPath({
+            def: {
+              baseDir: ['Base', 'Dir'],
+            },
+            typeID,
+            elemIDCreator: createElemIDFunc({
+              elemIDDef: {
+                parts: [{ fieldName: 'a' }],
+              },
+              typeID,
+            }),
+            singleton: true,
+          })(args),
+        ).toEqual(['myAdapter', 'Records', 'Base', 'Dir', 'Settings', 'myType'])
+      })
+      it('should ignore baseDir if provided with nestUnderPath, as types with nestUnderPath should already include the baseDir', () => {
+        expect(
+          getElemPath({
+            def: {
+              pathParts: [{ parts: [{ fieldName: 'a' }] }],
+              baseDir: ['Base', 'Dir'],
+            },
+            typeID,
+            elemIDCreator: createElemIDFunc({
+              elemIDDef: {
+                parts: [{ fieldName: 'a' }],
+              },
+              typeID,
+            }),
+            nestUnderPath: ['Base', 'Dir', 'ParentType', 'ParentName'],
+          })(args),
+        ).toEqual(['myAdapter', 'Records', 'Base', 'Dir', 'ParentType', 'ParentName', 'A'])
+      })
     })
   })
 

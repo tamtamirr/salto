@@ -1,24 +1,25 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
 import { definitions } from '@salto-io/adapter-components'
-import { ClientOptions, OktaOptions, PaginationOptions } from '../types'
+import { OktaOptions } from '../types'
 import { OktaUserConfig } from '../../user_config'
 
+const OMIT_STATUS_REQUEST_BODY = {
+  post: {
+    omitBody: true,
+  },
+}
+
 export const createClientDefinitions = (
-  clients: Record<ClientOptions, definitions.RESTApiClientDefinition<PaginationOptions>['httpClient']>,
+  clients: Record<
+    definitions.ResolveClientOptionsType<OktaOptions>,
+    definitions.RESTApiClientDefinition<definitions.ResolvePaginationOptionsType<OktaOptions>>['httpClient']
+  >,
 ): definitions.ApiDefinitions<OktaOptions>['clients'] => ({
   default: 'main',
   options: {
@@ -32,38 +33,77 @@ export const createClientDefinitions = (
             readonly: true,
           },
           delete: {
+            additionalValidStatuses: [404],
             omitBody: true,
           },
         },
         customizations: {
-          Group: {
+          '/api/v1/groups': {
             get: {
               queryArgs: { limit: '10000' }, // maximum page size allowed
             },
           },
-          Application: {
+          '/api/v1/apps': {
             get: {
               queryArgs: { limit: '200' }, // maximum page size allowed
             },
           },
-          GroupRule: {
+          '/api/v1/groups/rules': {
             get: {
               queryArgs: { limit: '200' }, // maximum page size allowed
             },
           },
-          ApplicationGroupAssignment: {
+          '/api/v1/apps/{appId}/groups': {
             get: {
               queryArgs: { limit: '200' }, // maximum page size allowed
             },
           },
-          ProfileMapping: {
+          '/api/v1/mappings': {
             get: {
               queryArgs: { limit: '200' }, // maximum page size allowed
+              omitBody: true,
             },
           },
-          User: {
+          '/api/v1/users': {
             get: {
-              queryArgs: { limit: '200' }, // maximum page size allowed
+              queryArgs: {
+                limit: '200', // maximum page size allowed
+                search: 'id pr', // The search query is needed to fetch deprovisioned users
+              },
+              pagination: 'usersCursorHeader',
+            },
+          },
+          '/api/v1/apps/{id}/lifecycle/activate': OMIT_STATUS_REQUEST_BODY,
+          '/api/v1/apps/{id}/lifecycle/deactivate': OMIT_STATUS_REQUEST_BODY,
+          '/api/v1/apps/{source}/policies/{target}': {
+            put: {
+              omitBody: true,
+            },
+          },
+          '/api/v1/authorizationServers/{authorizationServerId}/policies/{id}/lifecycle/activate':
+            OMIT_STATUS_REQUEST_BODY,
+          '/api/v1/authorizationServers/{authorizationServerId}/policies/{id}/lifecycle/deactivate':
+            OMIT_STATUS_REQUEST_BODY,
+          '/api/v1/zones/{id}/lifecycle/activate': OMIT_STATUS_REQUEST_BODY,
+          '/api/v1/zones/{id}/lifecycle/deactivate': OMIT_STATUS_REQUEST_BODY,
+          '/api/v1/idps/{id}/lifecycle/deactivate': OMIT_STATUS_REQUEST_BODY,
+          '/api/v1/idps/{id}/lifecycle/activate': OMIT_STATUS_REQUEST_BODY,
+          '/api/v1/authorizationServers/{id}/lifecycle/activate': OMIT_STATUS_REQUEST_BODY,
+          '/api/v1/authorizationServers/{id}/lifecycle/deactivate': OMIT_STATUS_REQUEST_BODY,
+          '/api/v1/brands/{parent_id}/templates/email/{name}': {
+            get: {
+              omitBody: true,
+            },
+          },
+          // Customized brand pages return 404 if they are not customized (i.e., the default page is used)
+          '/api/v1/brands/{brandId}/pages/sign-in/customized': {
+            get: {
+              additionalValidStatuses: [404],
+            },
+          },
+          '/api/v1/brands/{brandId}/pages/error/customized': {
+            get: {
+              additionalValidStatuses: [404],
             },
           },
         },

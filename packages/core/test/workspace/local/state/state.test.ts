@@ -1,17 +1,9 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
 import path from 'path'
 import _ from 'lodash'
@@ -32,10 +24,14 @@ import {
 } from '@salto-io/workspace'
 import { hash, collections } from '@salto-io/lowerdash'
 import { mockFunction, setupTmpDir } from '@salto-io/test-utils'
-import { getStateContentProvider, loadState, localState } from '../../../../src/local-workspace/state/state'
+import {
+  getStateContentProvider,
+  loadState,
+  localState,
+  parseStateContent,
+} from '../../../../src/local-workspace/state/state'
 import * as stateFunctions from '../../../../src/local-workspace/state/state'
 import { getTopLevelElements } from '../../../common/elements'
-import { version as currentSaltoVersion } from '../../../../src/generated/version.json'
 import { mockStaticFilesSource } from '../../../common/state'
 import { inMemRemoteMapCreator } from '../../../common/helpers'
 import { getHashFromHashes, StateContentProvider } from '../../../../src/local-workspace/state/content_providers'
@@ -46,25 +42,37 @@ const { awu } = collections.asynciterable
 const { toMD5 } = hash
 
 type MockStateContentArgs = {
+  format: 'new' | 'old'
   elements: Element[]
-  date?: Date
   pathIndexLine?: string
-  version?: string
   extraLine?: string
 }
 const mockStateContent = async ({
+  format,
   elements,
-  date,
   pathIndexLine = '[]',
-  version = '0.0.1',
   extraLine,
 }: MockStateContentArgs): Promise<Buffer> => {
-  const elementsLine = await serialization.serialize(elements)
-  const dateLine = safeJsonStringify({ [elements[0].elemID.adapter]: date ?? new Date() })
-  const lines = [elementsLine, dateLine, pathIndexLine]
-  if (version !== undefined) {
-    lines.push(safeJsonStringify(version))
+  const accountName = elements[0].elemID.adapter
+  const stateContentLines = {
+    old: async (): Promise<string[]> => {
+      const dateLine = safeJsonStringify({ [accountName]: accountName })
+      const elementsLine = await serialization.serialize(elements)
+      return [elementsLine, dateLine, pathIndexLine]
+    },
+    new: async (): Promise<string[]> => {
+      const deprecatedLines = ['[]', '{}', '[]', '""']
+      const accountNameLine = safeJsonStringify({ accounts: [accountName] })
+      const elementsLines = await Promise.all(
+        _.chunk(elements, elements.length / 2).map(
+          async chunk => `{"elements":${await serialization.serialize(chunk)}}`,
+        ),
+      )
+      const pathIndicesLine = `{"pathIndices":${pathIndexLine}}`
+      return deprecatedLines.concat(accountNameLine).concat(elementsLines).concat(pathIndicesLine)
+    },
   }
+  const lines = await stateContentLines[format]()
   if (extraLine !== undefined) {
     lines.push(extraLine)
   }
@@ -86,10 +94,12 @@ describe('localState', () => {
         getHashFromHashes(Object.values(_.pick(currentContent, filePaths)).map(content => toMD5(content.toString()))),
       ),
       readContents: mockFunction<StateContentProvider['readContents']>().mockImplementation(filePaths =>
-        awu(Object.entries(_.pick(currentContent, filePaths))).map(([name, content]) => ({
-          name,
-          stream: Readable.from(content),
-        })),
+        awu(Object.entries(filePaths.length > 0 ? _.pick(currentContent, filePaths) : currentContent)).map(
+          ([name, content]) => ({
+            name,
+            stream: Readable.from(content),
+          }),
+        ),
       ),
       writeContents: mockFunction<StateContentProvider['writeContents']>().mockImplementation(
         async (prefix, newContents) => {
@@ -102,36 +112,34 @@ describe('localState', () => {
     }
   }
 
-  describe('multiple state files', () => {
+  describe.each(['old', 'new'] as const)('multiple state files - %s state format', stateFormat => {
     let state: wsState.State
     let contentProvider: jest.Mocked<StateContentProvider>
     let sfElements: Element[]
     let nsElements: Element[]
     let initialStateHash: string | undefined
-    let sfUpdateDate: Date
-    let nsUpdateDate: Date
     const pathPrefix = 'multiple_files'
     let mapCreator: remoteMap.RemoteMapCreator
     beforeEach(async () => {
+      process.env.SALTO_DUMP_STATE_WITH_LEGACY_FORMAT = stateFormat === 'new' ? '0' : '1'
       nsElements = getTopLevelElements('netsuite')
       sfElements = getTopLevelElements('salesforce')
-      sfUpdateDate = new Date('2023-02-01T00:00:00.000Z')
-      nsUpdateDate = new Date('2023-02-02T00:00:00.000Z')
       contentProvider = mockContentProvider({
         [`${pathPrefix}/netsuite`]: await mockStateContent({
+          format: stateFormat,
           elements: nsElements,
-          date: nsUpdateDate,
-          version: '0.1.23',
         }),
         [`${pathPrefix}/salesforce`]: await mockStateContent({
+          format: stateFormat,
           elements: sfElements,
-          date: sfUpdateDate,
-          version: '0.0.1',
         }),
       })
       mapCreator = inMemRemoteMapCreator()
       state = localState(pathPrefix, 'env', mapCreator, contentProvider)
       initialStateHash = await state.getHash()
+    })
+    afterEach(() => {
+      delete process.env.SALTO_DUMP_STATE_WITH_LEGACY_FORMAT
     })
 
     it('should read elements from both state files', async () => {
@@ -143,18 +151,6 @@ describe('localState', () => {
       it('should return both accounts', async () => {
         await expect(state.existingAccounts()).resolves.toHaveLength(2)
       })
-    })
-    describe('getAccountsUpdateDates', () => {
-      it('should return account update dates', async () => {
-        expect(await state.getAccountsUpdateDates()).toEqual({
-          netsuite: nsUpdateDate,
-          salesforce: sfUpdateDate,
-        })
-      })
-    })
-
-    it('should return the lowest version of any state file', async () => {
-      await expect(state.getStateSaltoVersion()).resolves.toEqual('0.0.1')
     })
     describe('flush when nothing changed', () => {
       it('should not write new content', async () => {
@@ -179,13 +175,19 @@ describe('localState', () => {
           ),
         )
       })
-      it('should update the state salto version', async () => {
-        // TODO: this is not really the correct behavior, we should only really update the salto version
-        // on fetch, and only for the services that got fetched
-        await expect(state.getStateSaltoVersion()).resolves.toEqual(currentSaltoVersion)
-      })
       it('should set new hash value', async () => {
         await expect(state.getHash()).resolves.not.toEqual(initialStateHash)
+      })
+      it('should write state file correctly', async () => {
+        const res = await parseStateContent(contentProvider.readContents([]))
+        expect(new Set(Object.keys(res))).toEqual(new Set(['accounts', 'pathIndices', 'elements']))
+        expect(res.pathIndices).toEqual([])
+        expect(res.accounts).toEqual(['netsuite', 'salesforce', 'salto'])
+        const originalElements = nsElements.concat(sfElements).concat(mockElement)
+        expect(res.elements).toHaveLength(originalElements.length)
+        res.elements.forEach(resElement => {
+          expect(originalElements.find(elem => elem.isEqual(resElement))).toBeDefined()
+        })
       })
     })
 
@@ -341,10 +343,6 @@ describe('localState', () => {
       expect(stateHash).toBeUndefined()
     })
 
-    it('getStateSaltoVersion should be undefined', async () => {
-      await expect(state.getStateSaltoVersion()).resolves.toBeUndefined()
-    })
-
     it('existingAccounts should be an empty list', async () => {
       await expect(state.existingAccounts()).resolves.toHaveLength(0)
     })
@@ -408,12 +406,6 @@ describe('localState', () => {
       expect(fromState.length).toBe(0)
     })
 
-    describe('getUpdateDate', () => {
-      it('should return an empty object', async () => {
-        await expect(state.getAccountsUpdateDates()).resolves.toEqual({})
-      })
-    })
-
     describe('calculateHash', () => {
       describe('when cache is changed in memory', () => {
         let origHash: string | undefined
@@ -443,21 +435,55 @@ describe('localState', () => {
     })
   })
 
-  describe('malformed state data', () => {
+  describe.each(['old', 'new'] as const)('malformed state data - %s state format', stateFormat => {
     let state: wsState.State
     let contentProvider: jest.Mocked<StateContentProvider>
+
     beforeEach(async () => {
+      process.env.SALTO_DUMP_STATE_WITH_LEGACY_FORMAT = stateFormat === 'new' ? '0' : '1'
       contentProvider = mockContentProvider({
-        'env/noVersion': await mockStateContent({ elements: getTopLevelElements(), version: undefined }),
-        'env/extraLine': await mockStateContent({ elements: getTopLevelElements('extra'), extraLine: '"more data?"' }),
-        'env/emptyVersion': await mockStateContent({ elements: getTopLevelElements('noVersion'), version: '' }),
+        'env/noVersion': await mockStateContent({
+          format: stateFormat,
+          elements: getTopLevelElements(),
+        }),
+        'env/extraLine': await mockStateContent({
+          format: stateFormat,
+          elements: getTopLevelElements('extra'),
+          extraLine: '"more data?"',
+        }),
+        'env/emptyVersion': await mockStateContent({
+          format: stateFormat,
+          elements: getTopLevelElements('noVersion'),
+        }),
       })
       state = localState('malformed', '', inMemRemoteMapCreator(), contentProvider)
     })
+
+    afterEach(() => {
+      delete process.env.SALTO_DUMP_STATE_WITH_LEGACY_FORMAT
+    })
+
     it('should still read elements successfully', async () => {
       await expect(state.getAll()).resolves.toBeDefined()
       const elements = await awu(await state.getAll()).toArray()
       expect(elements).toHaveLength(getTopLevelElements().length * 3)
+    })
+    it('should write state file correctly', async () => {
+      await state.set(mockElement)
+      await state.flush()
+
+      expect(contentProvider.writeContents).toHaveBeenCalled()
+      const res = await parseStateContent(contentProvider.readContents([]))
+      expect(new Set(Object.keys(res))).toEqual(new Set(['accounts', 'pathIndices', 'elements']))
+      expect(res.pathIndices).toEqual([])
+      expect(res.accounts).toEqual(['extra', 'noVersion', 'salto'])
+      const originalElements = getTopLevelElements()
+        .concat(getTopLevelElements('extra'))
+        .concat(getTopLevelElements('noVersion'))
+      expect(res.elements).toHaveLength(originalElements.length)
+      res.elements.forEach(resElement => {
+        expect(originalElements.find(elem => elem.isEqual(resElement))).toBeDefined()
+      })
     })
   })
 

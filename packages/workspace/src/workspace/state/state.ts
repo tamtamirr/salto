@@ -1,17 +1,9 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
 import { DetailedChange, Element, ElemID } from '@salto-io/adapter-api'
 import { safeJsonStringify } from '@salto-io/adapter-utils'
@@ -22,8 +14,6 @@ import { serialize, deserializeSingleElement } from '../../serializer/elements'
 import { StateStaticFilesSource } from '../static_files/common'
 import { StateConfig } from '../config/workspace_config_types'
 
-export type StateMetadataKey = 'version' | 'hash'
-
 export type UpdateStateElementsArgs = {
   changes: DetailedChange[]
   unmergedElements?: Element[]
@@ -32,12 +22,14 @@ export type UpdateStateElementsArgs = {
 
 export type StateData = {
   elements: RemoteElementSource
-  // The date of the last fetch
-  accountsUpdateDate: RemoteMap<Date>
+  accounts: RemoteMap<string[], 'account_names'>
   pathIndex: PathIndex
-  saltoMetadata: RemoteMap<string, StateMetadataKey>
+  saltoMetadata: RemoteMap<string, 'hash'>
   staticFilesSource: StateStaticFilesSource
   topLevelPathIndex: PathIndex
+  deprecated: {
+    accountsUpdateDate: RemoteMap<Date>
+  }
 }
 
 type UpdateConfigArgs = {
@@ -47,14 +39,12 @@ type UpdateConfigArgs = {
 export interface State extends ElementsSource {
   set(element: Element): Promise<void>
   remove(id: ElemID): Promise<void>
-  getAccountsUpdateDates(): Promise<Record<string, Date>>
   existingAccounts(): Promise<string[]>
   getPathIndex(): Promise<PathIndex>
   getTopLevelPathIndex(): Promise<PathIndex>
   getHash(): Promise<string | undefined>
   setHash(hash: string): Promise<void>
   calculateHash(): Promise<void>
-  getStateSaltoVersion(): Promise<string | undefined>
   updateStateFromChanges(args: UpdateStateElementsArgs): Promise<void>
   updateConfig(args: UpdateConfigArgs): Promise<void>
 }
@@ -95,17 +85,26 @@ export const buildStateData = async (
     deserialize: async data => JSON.parse(data),
     persistent,
   }),
-  accountsUpdateDate: await remoteMapCreator<Date>({
-    namespace: createStateNamespace(envName, 'service_update_date'),
-    serialize: async date => date.toISOString(),
-    deserialize: async data => new Date(data),
+  accounts: await remoteMapCreator<string[], 'account_names'>({
+    namespace: createStateNamespace(envName, 'accounts'),
+    serialize: async data => safeJsonStringify(data),
+    deserialize: async data => JSON.parse(data),
     persistent,
   }),
-  saltoMetadata: await remoteMapCreator<string, 'version'>({
+  saltoMetadata: await remoteMapCreator<string, 'hash'>({
     namespace: createStateNamespace(envName, 'salto_metadata'),
     serialize: async data => data,
     deserialize: async data => data,
     persistent,
   }),
   staticFilesSource,
+  deprecated: {
+    // TODO remove once all workspaces are converted to the new state format (cf. the 'accounts' member)
+    accountsUpdateDate: await remoteMapCreator<Date>({
+      namespace: createStateNamespace(envName, 'service_update_date'),
+      serialize: async date => date.toISOString(),
+      deserialize: async data => new Date(data),
+      persistent,
+    }),
+  },
 })

@@ -1,21 +1,14 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
 import axios from 'axios'
 import MockAdapter from 'axios-mock-adapter'
 import { oauthClientCredentialsBearerToken, oauthAccessTokenRefresh } from '../../src/auth'
+import { UnauthorizedError } from '../../src/client'
 
 describe('oauth', () => {
   describe('oauthClientCredentialsBearerToken', () => {
@@ -49,7 +42,7 @@ describe('oauth', () => {
       expect(req.url).toEqual('/oauth/token')
       expect(req.auth).toBeUndefined()
       expect(req.data).toEqual('client_id=client%20id&client_secret=secret&grant_type=client_credentials')
-      expect(req.headers).toEqual({
+      expect({ ...req.headers }).toEqual({
         'Content-Type': 'application/x-www-form-urlencoded',
         Accept: expect.stringContaining('application/json'),
       })
@@ -126,7 +119,7 @@ describe('oauth', () => {
       expect(req.url).toEqual('/custom_oauth_endpoint')
       expect(req.auth).toBeUndefined()
       expect(req.data).toEqual('client_id=client%20id&client_secret=secret&grant_type=client_credentials')
-      expect(req.headers).toEqual({
+      expect({ ...req.headers }).toEqual({
         'Content-Type': 'application/x-www-form-urlencoded',
         Accept: expect.stringContaining('application/json'),
         aaa: 'bbb',
@@ -167,7 +160,7 @@ describe('oauth', () => {
       expect(req.url).toEqual('/oauth/token')
       expect(req.auth).toBeUndefined()
       expect(req.data).toEqual('refresh_token=refresh&grant_type=refresh_token')
-      expect(req.headers).toEqual({
+      expect({ ...req.headers }).toEqual({
         'Content-Type': 'application/x-www-form-urlencoded',
         Accept: expect.stringContaining('application/json'),
         Authorization: expect.stringContaining('Basic'),
@@ -185,7 +178,7 @@ describe('oauth', () => {
           refreshToken: 'refresh',
           retryOptions: { retries: 2 },
         }),
-      ).rejects.toThrow(new Error('Request failed with status code 400'))
+      ).rejects.toThrow(new UnauthorizedError('Request failed with status code 400'))
     })
     it('should throw error on unexpected token type', async () => {
       mockAxiosAdapter.onPost('/oauth/token').reply(200, {
@@ -204,7 +197,7 @@ describe('oauth', () => {
           refreshToken: 'refresh',
           retryOptions: { retries: 2 },
         }),
-      ).rejects.toThrow(new Error('Unsupported token type mac'))
+      ).rejects.toThrow(new UnauthorizedError('Unsupported token type mac'))
     })
     it('should retry on transient errors', async () => {
       mockAxiosAdapter.onPost('/oauth/token').reply(503).onPost('/oauth/token').reply(200, {

@@ -1,17 +1,9 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
 
 import { logger } from '@salto-io/logging'
@@ -27,18 +19,21 @@ export const SCRIPT_RUNNER_DC_TYPES = [
 const DC_ENCODE_PREFIX = '`!`'
 const CANNED_SCRIPT = 'canned-script'
 const FIELD_COMMENT_TYPE = 'com.onresolve.scriptrunner.canned.jira.workflow.postfunctions.CommentIssue'
+const LOGGED_SCRIPT_FIRST_CHARS = 200
 
 const decodeBase64 = (base64: string): string => {
   try {
     const decoded = Buffer.from(base64, 'base64').toString('utf8')
     if (!decoded.startsWith(DC_ENCODE_PREFIX)) {
-      log.warn(`Could not decode DC ScriptRunner script, expected to start with ${DC_ENCODE_PREFIX}, got: ${decoded}`)
+      log.info(
+        `Could not decode DC ScriptRunner script, expected to start with ${DC_ENCODE_PREFIX}. The first ${LOGGED_SCRIPT_FIRST_CHARS} chars of the script are: ${decoded.substring(0, LOGGED_SCRIPT_FIRST_CHARS)}`,
+      )
       return base64
     }
     // all base64 strings of DC ScriptRunner scripts start with `!` (or YCFg in base 64)
     return decoded.substring(DC_ENCODE_PREFIX.length)
   } catch (e) {
-    log.warn(`Could not decode DC ScriptRunner script, expected base64, got: ${base64}`)
+    log.info(`Could not decode DC ScriptRunner script, expected base64, got: ${base64}`)
     return base64
   }
 }
@@ -47,18 +42,21 @@ const decodeBase64 = (base64: string): string => {
 const encodeBase64 = (script: string): string => Buffer.from(DC_ENCODE_PREFIX + script).toString('base64')
 
 const decodeScriptObject = (base64: string): unknown => {
-  const script = decodeBase64(base64)
+  const decoded = decodeBase64(base64)
   try {
-    const value = JSON.parse(script)
+    const value = JSON.parse(decoded)
     if (value.scriptPath === null) {
       delete value.scriptPath
-    } else if (value.script === null) {
+    }
+    if (value.script === null) {
       delete value.script
     }
     return value
   } catch (e) {
-    log.warn(`Could not decode DC ScriptRunner script, expected JSON, got: ${script}`)
-    return base64
+    log.info(`Could not decode DC ScriptRunner script, assuming an old format. Expected JSON, got: ${decoded}`)
+    return {
+      script: decoded,
+    }
   }
 }
 

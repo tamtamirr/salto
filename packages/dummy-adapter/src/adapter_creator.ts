@@ -1,17 +1,9 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
 import {
   Adapter,
@@ -23,12 +15,20 @@ import {
   GetCustomReferencesFunc,
   ConfigCreator,
   createRestriction,
+  AdapterFormat,
 } from '@salto-io/adapter-api'
 import { createDefaultInstanceFromType, inspectValue } from '@salto-io/adapter-utils'
 import { logger } from '@salto-io/logging'
 import _ from 'lodash'
 import DummyAdapter from './adapter'
-import { GeneratorParams, DUMMY_ADAPTER, defaultParams, changeErrorType } from './generator'
+import {
+  GeneratorParams,
+  DUMMY_ADAPTER,
+  defaultParams,
+  changeErrorType,
+  fetchErrorType,
+  generateExtraElementsFromPaths,
+} from './generator'
 
 const log = logger(module)
 
@@ -50,6 +50,7 @@ export const configType = new ObjectType({
     importantValuesFreq: { refType: new ListType(BuiltinTypes.NUMBER) },
     templateExpressionFreq: { refType: new ListType(BuiltinTypes.NUMBER) },
     templateStaticFileFreq: { refType: new ListType(BuiltinTypes.NUMBER) },
+    fetchErrors: { refType: new ListType(fetchErrorType) },
   },
 })
 
@@ -63,6 +64,10 @@ const getCustomReferences: GetCustomReferencesFunc = async elements =>
         },
       ]
     : []
+
+const loadElementsFromFolder: AdapterFormat['loadElementsFromFolder'] = async ({ baseDir }) => ({
+  elements: await generateExtraElementsFromPaths([baseDir]),
+})
 
 const objectFieldType = new ObjectType({
   elemID: new ElemID(DUMMY_ADAPTER, 'objectFieldType'),
@@ -205,4 +210,7 @@ export const adapter: Adapter = {
   configType,
   getCustomReferences,
   configCreator,
+  adapterFormat: {
+    loadElementsFromFolder,
+  },
 }

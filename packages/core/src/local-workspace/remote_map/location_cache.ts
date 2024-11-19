@@ -1,17 +1,9 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
 import { logger } from '@salto-io/logging'
 import LRU from 'lru-cache'
@@ -30,11 +22,10 @@ export class LocationCache extends LRU<string, unknown> {
 
 export type LocationCachePool = {
   get: (location: string) => LocationCache
-
-  return: (cache: LocationCache) => void
+  return: (location: string) => void
 }
 
-export type LocationCachePoolContents = Map<string, { cache: LocationCache; refcnt: number }>
+export type LocationCachePoolContents = Map<string, LocationCache>
 
 const DEFAULT_LOCATION_CACHE_SIZE = 5000
 
@@ -51,32 +42,26 @@ export const createLocationCachePool = (
       const cachePoolEntry = pool.get(location)
       if (cachePoolEntry !== undefined) {
         statCounters.LocationCacheReuse.inc()
-        cachePoolEntry.refcnt += 1
-        return cachePoolEntry.cache
+        return cachePoolEntry
       }
       statCounters.LocationCacheCreated.inc()
       const newCache: LocationCache = new LocationCache(location, cacheSize)
-      pool.set(location, { cache: newCache, refcnt: 1 })
+      pool.set(location, newCache)
       if (pool.size > poolSizeWatermark) {
         poolSizeWatermark = pool.size
         log.debug('Max location cache pool size: %d', poolSizeWatermark)
       }
       return newCache
     },
-    return: ({ location }) => {
-      const poolEntry = pool.get(location)
-      if (poolEntry === undefined || poolEntry.refcnt === 0) {
-        log.warn('Returning a locationCache for an unknown location %s. poolEntry=%o', location, poolEntry)
+    return: location => {
+      if (!pool.has(location)) {
+        log.warn('Returning a locationCache for an unknown location %s', location)
         return
       }
-      poolEntry.refcnt -= 1
-
-      if (poolEntry.refcnt === 0) {
-        pool.delete(location)
-        if (pool.size === 0) {
-          log.debug('Last location closed. Max location cache pool size: %d', poolSizeWatermark)
-          poolSizeWatermark = 0
-        }
+      pool.delete(location)
+      if (pool.size === 0) {
+        log.debug('Last location closed. Max location cache pool size: %d', poolSizeWatermark)
+        poolSizeWatermark = 0
       }
     },
   }

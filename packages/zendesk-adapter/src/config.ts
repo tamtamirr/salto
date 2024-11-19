@@ -1,17 +1,9 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
 import _ from 'lodash'
 import { ElemID, CORE_ANNOTATIONS, BuiltinTypes, ListType, MapType } from '@salto-io/adapter-api'
@@ -587,7 +579,7 @@ export const DEFAULT_TYPES: ZendeskApiConfig['types'] = {
       url: '/api/v2/business_hours/schedules',
       recurseInto: [
         {
-          type: 'business_hours_schedule_holiday',
+          type: 'business_hours_schedule__holiday',
           toField: 'holidays',
           context: [{ name: 'scheduleId', fromField: 'id' }],
         },
@@ -923,6 +915,7 @@ export const DEFAULT_TYPES: ZendeskApiConfig['types'] = {
       ),
       fieldsToOmit: FIELDS_TO_OMIT.concat({ fieldName: 'description', fieldType: 'string' }),
       serviceUrl: '/agent/admin/user_fields/{id}',
+      nameMapping: 'lowercase',
     },
     deployRequests: {
       add: {
@@ -1150,6 +1143,62 @@ export const DEFAULT_TYPES: ZendeskApiConfig['types'] = {
       modify: {
         url: '/api/v2/workspaces/reorder',
         method: 'put',
+      },
+    },
+  },
+  layout: {
+    deployRequests: {
+      add: {
+        url: '/api/v2/layouts',
+        method: 'post',
+      },
+      modify: {
+        url: '/api/v2/layouts/{layoutId}',
+        method: 'put',
+        urlParamsToFields: {
+          layoutId: 'id',
+        },
+      },
+      remove: {
+        url: '/api/v2/layouts/{layoutId}',
+        method: 'delete',
+        urlParamsToFields: {
+          layoutId: 'id',
+        },
+        omitRequestBody: true,
+      },
+    },
+  },
+  queue: {
+    deployRequests: {
+      add: {
+        url: '/api/v2/queues',
+        deployAsField: 'queue',
+        method: 'post',
+      },
+      modify: {
+        url: '/api/v2/queues/{queueId}',
+        deployAsField: 'queue',
+        method: 'put',
+        urlParamsToFields: {
+          queueId: 'id',
+        },
+      },
+      remove: {
+        url: '/api/v2/queues/{queueId}',
+        method: 'delete',
+        urlParamsToFields: {
+          queueId: 'id',
+        },
+        omitRequestBody: true,
+      },
+    },
+  },
+  queue_order: {
+    deployRequests: {
+      modify: {
+        url: 'api/v2/queues/order',
+        method: 'patch',
       },
     },
   },
@@ -1537,7 +1586,7 @@ export const DEFAULT_TYPES: ZendeskApiConfig['types'] = {
       dataField: 'locales',
     },
   },
-  business_hours_schedule_holiday: {
+  business_hours_schedule__holiday: {
     request: {
       url: '/api/v2/business_hours/schedules/{scheduleId}/holidays',
     },
@@ -1860,6 +1909,7 @@ export const DEFAULT_TYPES: ZendeskApiConfig['types'] = {
         { fieldName: 'edited_at' },
         { fieldName: 'name' },
         { fieldName: 'html_url', fieldType: 'string' },
+        { fieldName: 'draft', fieldType: 'boolean' },
       ),
       // serviceUrl is created in help_center_service_url filter
     },
@@ -2665,6 +2715,7 @@ export const SUPPORTED_TYPES = {
   custom_status: ['custom_statuses'],
   dynamic_content_item: ['dynamic_content_item'],
   group: ['groups'],
+  layout: ['layouts'],
   locale: ['locales'],
   macro_categories: ['macro_categories'],
   macro: ['macros'],
@@ -2745,7 +2796,9 @@ export const DEFAULT_CONFIG: ZendeskConfig = {
       default: OMIT_INACTIVE_DEFAULT,
     },
     omitTicketStatusTicketField: false,
-    useNewInfra: false,
+    useNewInfra: true,
+    useGuideNewInfra: false,
+    translationBodyAsStaticFile: true,
   },
   [DEPLOY_CONFIG]: {
     createMissingOrganizations: false,
@@ -2755,6 +2808,7 @@ export const DEFAULT_CONFIG: ZendeskConfig = {
     fallbackUsers: true,
     removeDupUsers: true,
     orderElements: true,
+    deployArticlesAsDraft: false,
   },
   [API_DEFINITIONS_CONFIG]: {
     typeDefaults: {
@@ -2817,13 +2871,13 @@ const ThemesReferenceJavascriptReferenceLookupStrategyType = createMatchingObjec
     minimumDigitAmount: {
       refType: BuiltinTypes.NUMBER,
       annotations: {
-        _required: true,
+        _required: false,
       },
     },
     prefix: {
       refType: BuiltinTypes.STRING,
       annotations: {
-        _required: true,
+        _required: false,
       },
     },
   },
@@ -3068,6 +3122,7 @@ const fixerConfigType = createMatchingObjectType<Partial<ZendeskFixElementsConfi
     fallbackUsers: { refType: BuiltinTypes.BOOLEAN },
     removeDupUsers: { refType: BuiltinTypes.BOOLEAN },
     orderElements: { refType: BuiltinTypes.BOOLEAN },
+    deployArticlesAsDraft: { refType: BuiltinTypes.BOOLEAN },
   },
   annotations: {
     [CORE_ANNOTATIONS.ADDITIONAL_PROPERTIES]: false,
@@ -3098,6 +3153,8 @@ export const configType = createMatchingObjectType<Partial<ZendeskConfig>>({
           omitInactive: { refType: OmitInactiveType },
           omitTicketStatusTicketField: { refType: BuiltinTypes.BOOLEAN },
           useNewInfra: { refType: BuiltinTypes.BOOLEAN },
+          useGuideNewInfra: { refType: BuiltinTypes.BOOLEAN },
+          translationBodyAsStaticFile: { refType: BuiltinTypes.BOOLEAN },
         },
         omitElemID: true,
       }),
@@ -3135,6 +3192,8 @@ export const configType = createMatchingObjectType<Partial<ZendeskConfig>>({
       `${FETCH_CONFIG}.omitInactive.customizations`,
       `${FETCH_CONFIG}.omitTicketStatusTicketField`,
       `${FETCH_CONFIG}.useNewInfra`,
+      `${FETCH_CONFIG}.useGuideNewInfra`,
+      `${FETCH_CONFIG}.translationBodyAsStaticFile`,
       DEPLOY_CONFIG,
       FIX_ELEMENTS_CONFIG,
     ),

@@ -1,17 +1,9 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
 import path from 'path'
 import { Adapter, ElemID, GetCustomReferencesFunc, InstanceElement, ObjectType, Value } from '@salto-io/adapter-api'
@@ -135,7 +127,7 @@ describe('local workspace', () => {
         envs: ['env1', 'env2'],
         remoteMapCreator: creator,
         stateStaticFilesSource: mockStaticFilesSource(),
-        workspaceConfig: { name: 'asd', uid: 'asd' },
+        workspaceConfig: { uid: 'asd' },
       })
       expect(Object.keys(elemSources.sources)).toHaveLength(3)
       const dirStoresBaseDirs = mockCreateDirStore.mock.calls.map(c => c[0]).map(params => toWorkspaceRelative(params))
@@ -159,25 +151,17 @@ describe('local workspace', () => {
 
     it('should call initWorkspace with correct input', async () => {
       const envName = 'env-name'
-      const wsName = 'ws-name'
       mockExists.mockResolvedValue(false)
-      await initLocalWorkspace('.', wsName, envName)
-      expect(mockInit.mock.calls[0][0]).toBe(wsName)
-      expect(mockInit.mock.calls[0][2]).toBe(envName)
-      const envSources: ws.EnvironmentsSources = mockInit.mock.calls[0][6]
+      await initLocalWorkspace('.', envName)
+      expect(mockInit.mock.calls[0][1]).toBe(envName)
+      const envSources: ws.EnvironmentsSources = mockInit.mock.calls[0][5]
       expect(Object.keys(envSources.sources)).toHaveLength(2)
       expect(envSources.commonSourceName).toBe(COMMON_ENV_PREFIX)
       const dirStoresBaseDirs = mockCreateDirStore.mock.calls.map(c => c[0]).map(params => toWorkspaceRelative(params))
       expect(dirStoresBaseDirs).toContain(path.join(ENVS_PREFIX, envName))
-      const uuid = mockInit.mock.calls[0][1]
+      const uuid = mockInit.mock.calls[0][0]
       expect(dirStoresBaseDirs).toContain(uuid)
       expect(dirStoresBaseDirs).toContain(path.join(uuid, CREDENTIALS_CONFIG_PATH))
-    })
-
-    it('should set name according to path if name not given', async () => {
-      mockExists.mockResolvedValue(false)
-      await initLocalWorkspace('.')
-      expect(mockInit.mock.calls[0][0]).toBe(path.basename(path.resolve('.')))
     })
   })
 

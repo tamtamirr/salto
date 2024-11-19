@@ -1,17 +1,9 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
 import chalk from 'chalk'
 import moment from 'moment'
@@ -99,15 +91,14 @@ export default class Prompts {
   public static readonly DESCRIBE_NOT_FOUND = 'Unknown element type.'
 
   public static initFailed(msg: string): string {
-    return `Could not initiate workspace: ${msg}\n`
+    return `Could not initiate workspace: ${msg}`
   }
 
   private static readonly ACCOUNT_ADD_HELP = 'Use `salto account add <service-name>` to add accounts to the environment'
 
   public static initCompleted(): string {
     return `Initiated empty workspace
-${Prompts.ACCOUNT_ADD_HELP}
-`
+${Prompts.ACCOUNT_ADD_HELP}`
   }
 
   public static readonly FETCH_HEADER = 'Fetching and applying changes from the account(s)'
@@ -136,6 +127,9 @@ The steps are: I. Fetching configs, II. Calculating difference and III. Applying
 
   public static readonly FETCH_MERGE_ERRORS = 'These errors occurred as part of the fetch:'
   public static readonly FETCH_WARNINGS = 'The fetch concluded with the following warnings:'
+  public static readonly SYNC_TO_WORKSPACE_ERRORS =
+    'Encountered the following issues when synchronizing the workspace with a folder:'
+
   public static readonly FETCH_CHANGES_APPLIED = (appliedChanges: number): string =>
     `${appliedChanges} changes were applied to the local workspace`
 
@@ -402,14 +396,8 @@ ${Prompts.LIST_IDS(ids)}
   public static readonly CLONE_TARGET_ENV_ERROR =
     "Please specify the target environment(s) by passing exactly one of '--to-envs' and '--to-all-envs' parameters"
 
-  public static readonly UNKNOWN_STATE_SALTO_VERSION =
-    'Can not determine the Salto version that was when the state of the accounts was last fetched. It is highly recommended to run the fetch command before proceeding - do you want to cancel?'
-
   public static readonly OLD_STATE_SALTO_VERSION = (stateSaltoVersion: string): string =>
     `The state of the accounts was last fetched using Salto's version ${stateSaltoVersion}. It is highly recommended to run the fetch command again before proceeding - do you want to cancel?`
-
-  public static readonly NEW_STATE_SALTO_VERSION = (stateSaltoVersion: string): string =>
-    `The state of the accounts was last fetched using Salto's version ${stateSaltoVersion} which is newer than the current installed Salto version. It is highly recommended to upgrade the current Salto version - do you want to cancel?`
 
   public static readonly CLEAN_WORKSPACE_SUMMARY = (parts: string[]): string =>
     `Going to clean the following workspace components and restore them to their initial state: ${parts.join(

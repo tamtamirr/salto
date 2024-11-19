@@ -1,17 +1,9 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
 import {
   BuiltinTypes,
@@ -236,7 +228,7 @@ describe('sortListsFilter', () => {
 
     it('should sort inner lists', async () => {
       const type = new ObjectType({
-        elemID: new ElemID(JIRA, 'someType'),
+        elemID: new ElemID(JIRA, DASHBOARD_TYPE),
         fields: {
           schemes: {
             refType: new ListType(permissionSchemeType),
@@ -269,6 +261,47 @@ describe('sortListsFilter', () => {
               },
               {
                 permission: 'B',
+              },
+            ],
+          },
+        ],
+      })
+    })
+
+    it('should not sort inner lists if type not in supported-type list', async () => {
+      const type = new ObjectType({
+        elemID: new ElemID(JIRA, 'some_type'),
+        fields: {
+          schemes: {
+            refType: new ListType(permissionSchemeType),
+          },
+        },
+      })
+      const inst = new InstanceElement('instance', type, {
+        schemes: [
+          {
+            permissions: [
+              {
+                permission: 'B',
+              },
+              {
+                permission: 'A',
+              },
+            ],
+          },
+        ],
+      })
+
+      await filter.onFetch?.([inst])
+      expect(inst.value).toEqual({
+        schemes: [
+          {
+            permissions: [
+              {
+                permission: 'B',
+              },
+              {
+                permission: 'A',
               },
             ],
           },

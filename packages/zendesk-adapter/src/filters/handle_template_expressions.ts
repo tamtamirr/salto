@@ -1,17 +1,9 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
 import {
   Change,
@@ -67,7 +59,7 @@ const TICKET_FIELD_SPLIT = '(?:(ticket.ticket_field|ticket.ticket_field_option_t
 const KEY_SPLIT = '(?:([^ ]+\\.custom_fields)\\.)'
 const TITLE_SPLIT = '(?:([^ ]+)\\.(title))'
 const SPLIT_REGEX = `${TICKET_FIELD_SPLIT}|${KEY_SPLIT}|${TITLE_SPLIT}`
-const ID_KEY_IN_JSON_REGEX = /("id"\s*:\s*\d+)/
+const ID_KEY_IN_JSON_REGEX = /("id"\s*:\s*"?\d+"?)/
 export const TICKET_TICKET_FIELD = 'ticket.ticket_field'
 export const TICKET_TICKET_FIELD_OPTION_TITLE = 'ticket.ticket_field_option_title'
 export const TICKET_ORGANIZATION_FIELD = 'ticket.organization.custom_fields'
@@ -424,21 +416,23 @@ const replaceFormulasWithTemplates = ({
       if (!ID_KEY_IN_JSON_REGEX.test(expression)) {
         return expression
       }
+      // "id": "29607168675603" or "id": 29607168675603
       const idRegex = /\d+/
-      const id = expression.match(idRegex)?.[0]
-      // should always be false, used for type check
-      if (id === undefined) {
-        log.error(`Error parsing id in expression: ${expression}`)
+      const match = expression.match(idRegex)
+      if (!match || !match.index) {
+        log.warn(`Error parsing id in expression, could not find a match: ${expression}`)
         return expression
       }
+      const id = match[0]
+      const prefix = expression.slice(0, match.index)
+      const suffix = expression.slice(match.index + id.length, expression.length)
       const instance = instancesById[id]
       if (instance === undefined && !enableMissingReferences) {
         return expression
       }
 
-      const expressionWithoutId = expression.replace(idRegex, '')
       const idInstance = instance ?? createMissingInstance(ZENDESK, 'unknown', id)
-      return [expressionWithoutId, new ReferenceExpression(idInstance.elemID, idInstance)]
+      return [prefix, new ReferenceExpression(idInstance.elemID, idInstance), suffix ?? '']
     })
   }
 
@@ -527,6 +521,7 @@ const filterCreator: FilterCreator = ({ config }) => {
     onFetch: async (elements: Element[]) => handleTemplateExpressionsOnFetch(elements, config),
     preDeploy: async (changes: Change<InstanceElement>[]) => {
       try {
+        // eslint-disable-next-line @typescript-eslint/no-misused-promises
         getContainers(changes.map(getChangeData)).forEach(async container =>
           replaceTemplatesWithValues(container, deployTemplateMapping, prepRef),
         )

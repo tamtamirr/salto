@@ -1,20 +1,12 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
 import { MockInterface, mockFunction } from '@salto-io/test-utils'
-import { SaltoError, isInstanceElement } from '@salto-io/adapter-api'
+import { SaltoError, isInstanceElement, isObjectType } from '@salto-io/adapter-api'
 import { HTTPReadClientInterface, HTTPWriteClientInterface } from '../../src/client'
 import { createMockQuery } from '../../src/fetch/query'
 import { noPagination } from '../../src/fetch/request/pagination'
@@ -90,6 +82,15 @@ describe('fetch', () => {
         if (url === '/api/v1/fields/789/default_option') {
           throw new Error('error fetching default option')
         }
+        if (url === '/api/v1/no_entries') {
+          return {
+            data: {
+              entries: [],
+            },
+            status: 200,
+            statusText: 'OK',
+          }
+        }
         throw new Error(`unexpected endpoint called: ${url}`)
       })
     })
@@ -97,6 +98,7 @@ describe('fetch', () => {
     it('should generate elements correctly', async () => {
       const customSaltoError: SaltoError = {
         message: 'error fetching default option',
+        detailedMessage: 'error fetching default option',
         severity: 'Warning',
       }
       const res = await getElements<{ customNameMappingOptions: 'custom' }>({
@@ -283,6 +285,26 @@ describe('fetch', () => {
                     },
                   },
                 },
+                no_entry: {
+                  requests: [
+                    {
+                      endpoint: {
+                        path: '/api/v1/no_entries',
+                      },
+                      transformation: {
+                        root: 'entries',
+                      },
+                    },
+                  ],
+                  resource: {
+                    directFetch: true,
+                  },
+                  element: {
+                    topLevel: {
+                      isTopLevel: true,
+                    },
+                  },
+                },
               },
             },
             customNameMappingFunctions: {
@@ -301,14 +323,15 @@ describe('fetch', () => {
         reason: 'error fetching options',
       })
       expect(res.elements.map(e => e.elemID.getFullName()).sort()).toEqual([
+        'myAdapter.default_option',
         'myAdapter.depending_option',
         'myAdapter.depending_option.instance.deps1Custom',
         'myAdapter.field',
         'myAdapter.field.instance.field1Custom',
         'myAdapter.field.instance.field2Custom',
-        'myAdapter.field__default',
         'myAdapter.group',
         'myAdapter.group.instance.group1Custom',
+        'myAdapter.no_entry',
         'myAdapter.option',
         'myAdapter.option.instance.opt1Custom',
         'myAdapter.option.instance.opt2Custom',
@@ -318,6 +341,12 @@ describe('fetch', () => {
           .filter(isInstanceElement)
           .find(e => e.elemID.getFullName() === 'myAdapter.field.instance.field1Custom')?.value.default,
       ).toEqual({ name: 'opt1' })
+      expect(
+        res.elements
+          .filter(isObjectType)
+          .find(e => e.elemID.typeName === 'field')
+          ?.fields.default?.getTypeSync().elemID.typeName,
+      ).toEqual('default_option')
       // TODO continue
     })
   })

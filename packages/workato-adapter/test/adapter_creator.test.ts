@@ -1,17 +1,9 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
 import axios from 'axios'
 import MockAdapter from 'axios-mock-adapter'
@@ -19,7 +11,7 @@ import { ObjectType, InstanceElement } from '@salto-io/adapter-api'
 import { buildElementsSourceFromElements } from '@salto-io/adapter-utils'
 import { adapter } from '../src/adapter_creator'
 import { usernameTokenCredentialsType } from '../src/auth'
-import { configType } from '../src/config'
+import { configType } from '../src/user_config'
 import { WORKATO } from '../src/constants'
 import * as connection from '../src/client/connection'
 
@@ -77,34 +69,6 @@ describe('adapter creator', () => {
         elementsSource: buildElementsSourceFromElements([]),
       }),
     ).toBeDefined()
-  })
-
-  it('should throw error on inconsistent configuration between fetch and apiDefinitions', () => {
-    expect(() =>
-      adapter.operations({
-        credentials: new InstanceElement(WORKATO, adapter.authenticationMethods.basic.credentialsType),
-        config: new InstanceElement(WORKATO, adapter.configType as ObjectType, {
-          fetch: {
-            include: [{ type: 'a' }, { type: 'b' }],
-            exclude: [],
-          },
-          apiDefinitions: {
-            types: {
-              c: {
-                request: {
-                  url: '/c',
-                },
-              },
-            },
-            supportedTypes: {
-              a: ['a'],
-              b: ['b'],
-            },
-          },
-        }),
-        elementsSource: buildElementsSourceFromElements([]),
-      }),
-    ).toThrow(new Error('Invalid type names in fetch: a,b does not match any of the supported types.'))
   })
 
   // Skipped until we decide how fetch is supposed to know which service connection is supported.

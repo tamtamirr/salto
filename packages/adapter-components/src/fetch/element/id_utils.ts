@@ -1,17 +1,9 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
 import _ from 'lodash'
 import {
@@ -215,6 +207,25 @@ export const createElemIDFunc =
     return computedName
   }
 
+const verifyNestedPathIncludesBaseDir = ({
+  nestUnderPath,
+  pathBaseDir,
+  typeName,
+}: {
+  nestUnderPath: string[]
+  pathBaseDir: string[]
+  typeName: string
+}): void => {
+  if (!_.isEqual(pathBaseDir, nestUnderPath.slice(0, pathBaseDir.length))) {
+    log.warn(
+      'detected inconsistency between pathBaseDir and nestUnderPath for type %s, expected base dir to be %o, but received nested path: %o',
+      typeName,
+      pathBaseDir,
+      nestUnderPath,
+    )
+  }
+}
+
 export const getElemPath =
   <TCustomNameMappingOptions extends string = never>({
     def,
@@ -234,8 +245,9 @@ export const getElemPath =
     customNameMappingFunctions?: NameMappingFunctionMap<TCustomNameMappingOptions>
   }): PartsCreator =>
   ({ entry, parent, defaultName }) => {
+    const pathBaseDir = def?.baseDir ?? []
     if (singleton) {
-      return [typeID.adapter, RECORDS_PATH, SETTINGS_NESTED_PATH, pathNaclCase(typeID.typeName)]
+      return [typeID.adapter, RECORDS_PATH, ...pathBaseDir, SETTINGS_NESTED_PATH, pathNaclCase(typeID.typeName)]
     }
     const basicPathParts = def?.pathParts
       ?.map(part =>
@@ -249,11 +261,9 @@ export const getElemPath =
 
     const { adapter: adapterName, typeName } = typeID
     const lastPart = pathParts[pathParts.length - 1]
-    return [
-      adapterName,
-      RECORDS_PATH,
-      ...(nestUnderPath ?? [pathNaclCase(typeName)]),
-      ...pathParts,
-      ...(createSelfFolder && lastPart ? [lastPart] : []),
-    ]
+    const typePath = nestUnderPath ?? [...pathBaseDir, pathNaclCase(typeName)]
+    if (nestUnderPath !== undefined && !_.isEmpty(pathBaseDir)) {
+      verifyNestedPathIncludesBaseDir({ nestUnderPath, pathBaseDir, typeName })
+    }
+    return [adapterName, RECORDS_PATH, ...typePath, ...pathParts, ...(createSelfFolder && lastPart ? [lastPart] : [])]
   }

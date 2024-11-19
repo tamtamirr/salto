@@ -1,17 +1,9 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
 
 import { ObjectType, ElemID, toChange, DetailedChange } from '@salto-io/adapter-api'
@@ -88,6 +80,57 @@ describe('reverseChange', () => {
         elemIDs: { before: changeElemId, after: changeBeforeElemId },
         action: 'modify',
         data: { before: 'a', after: 'a' },
+      })
+    })
+  })
+
+  describe('reverse detailed change baseChange', () => {
+    it('should reverse addition change', () => {
+      const baseChange = toChange({ after: type })
+      const change: DetailedChange = {
+        id: type.elemID,
+        baseChange,
+        ...baseChange,
+      }
+      const reversedBaseChange = toChange({ before: type })
+      expect(reverseChange(change)).toEqual({
+        id: type.elemID,
+        baseChange: reversedBaseChange,
+        ...reversedBaseChange,
+      })
+    })
+
+    it('should reverse removal change', () => {
+      const baseChange = toChange({ before: type })
+      const change: DetailedChange = {
+        id: type.elemID,
+        baseChange,
+        ...baseChange,
+      }
+      const reversedBaseChange = toChange({ after: type })
+      expect(reverseChange(change)).toEqual({
+        id: type.elemID,
+        baseChange: reversedBaseChange,
+        ...reversedBaseChange,
+      })
+    })
+
+    it('should reverse modification change', () => {
+      const type2 = type.clone()
+      type2.annotations.test = 'test'
+      const baseChange = toChange({ before: type, after: type2 })
+      const change: DetailedChange = {
+        id: type.elemID.createNestedID('attr', 'test'),
+        action: 'add',
+        data: { after: 'test' },
+        baseChange,
+      }
+      const reversedBaseChange = toChange({ after: type, before: type2 })
+      expect(reverseChange(change)).toEqual({
+        id: type.elemID.createNestedID('attr', 'test'),
+        action: 'remove',
+        data: { before: 'test' },
+        baseChange: reversedBaseChange,
       })
     })
   })

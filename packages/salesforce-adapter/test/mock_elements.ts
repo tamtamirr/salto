@@ -1,17 +1,9 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
 import _ from 'lodash'
 import {
@@ -57,18 +49,20 @@ import {
   WORKFLOW_FIELD_UPDATE_METADATA_TYPE,
   WORKFLOW_METADATA_TYPE,
   WORKFLOW_TASK_METADATA_TYPE,
+  WORKFLOW_RULE_METADATA_TYPE,
+  CPQ_QUOTE_TERM,
+  CPQ_ADVANCED_CONDITION_FIELD,
+  SETTINGS_DIR_NAME,
+  CUSTOM_METADATA_TYPE_NAME,
+  CPQ_TERM_CONDITION,
+  CPQ_INDEX_FIELD,
 } from '../src/constants'
-import {
-  createInstanceElement,
-  createMetadataObjectType,
-  Types,
-} from '../src/transformers/transformer'
+import { createInstanceElement, createMetadataObjectType, Types } from '../src/transformers/transformer'
 import { allMissingSubTypes } from '../src/transformers/salesforce_types'
 import { API_VERSION } from '../src/client/client'
 import { WORKFLOW_FIELD_TO_TYPE } from '../src/filters/workflow'
 import { createCustomObjectType } from './utils'
 import { SORT_ORDER } from '../src/change_validators/duplicate_rules_sort_order'
-import * as constants from '../src/constants'
 
 const SBAA_APPROVAL_RULE_TYPE = createCustomObjectType(SBAA_APPROVAL_RULE, {
   fields: {
@@ -96,10 +90,10 @@ const CPQ_PRICE_RULE_TYPE = createCustomObjectType(CPQ_PRICE_RULE, {
     [OWNER_ID]: {
       refType: BuiltinTypes.STRING,
       annotations: {
-        [constants.FIELD_ANNOTATIONS.CREATABLE]: true,
-        [constants.FIELD_ANNOTATIONS.UPDATEABLE]: true,
-        [constants.FIELD_ANNOTATIONS.QUERYABLE]: true,
-        [constants.API_NAME]: OWNER_ID,
+        [FIELD_ANNOTATIONS.CREATABLE]: true,
+        [FIELD_ANNOTATIONS.UPDATEABLE]: true,
+        [FIELD_ANNOTATIONS.QUERYABLE]: true,
+        [API_NAME]: OWNER_ID,
       },
     },
   },
@@ -118,18 +112,18 @@ const CPQ_PRODUCT_RULE_TYPE = createCustomObjectType(CPQ_PRODUCT_RULE, {
     [OWNER_ID]: {
       refType: BuiltinTypes.STRING,
       annotations: {
-        [constants.FIELD_ANNOTATIONS.CREATABLE]: true,
-        [constants.FIELD_ANNOTATIONS.UPDATEABLE]: true,
-        [constants.FIELD_ANNOTATIONS.QUERYABLE]: true,
-        [constants.API_NAME]: OWNER_ID,
+        [FIELD_ANNOTATIONS.CREATABLE]: true,
+        [FIELD_ANNOTATIONS.UPDATEABLE]: true,
+        [FIELD_ANNOTATIONS.QUERYABLE]: true,
+        [API_NAME]: OWNER_ID,
       },
     },
   },
 })
 
-const CPQ_QUOTE_TERM_TYPE = createCustomObjectType(constants.CPQ_QUOTE_TERM, {
+const CPQ_QUOTE_TERM_TYPE = createCustomObjectType(CPQ_QUOTE_TERM, {
   fields: {
-    [constants.CPQ_ADVANCED_CONDITION_FIELD]: {
+    [CPQ_ADVANCED_CONDITION_FIELD]: {
       refType: BuiltinTypes.STRING,
       annotations: {
         [FIELD_ANNOTATIONS.QUERYABLE]: true,
@@ -140,10 +134,10 @@ const CPQ_QUOTE_TERM_TYPE = createCustomObjectType(constants.CPQ_QUOTE_TERM, {
     [OWNER_ID]: {
       refType: BuiltinTypes.STRING,
       annotations: {
-        [constants.FIELD_ANNOTATIONS.CREATABLE]: true,
-        [constants.FIELD_ANNOTATIONS.UPDATEABLE]: true,
-        [constants.FIELD_ANNOTATIONS.QUERYABLE]: true,
-        [constants.API_NAME]: OWNER_ID,
+        [FIELD_ANNOTATIONS.CREATABLE]: true,
+        [FIELD_ANNOTATIONS.UPDATEABLE]: true,
+        [FIELD_ANNOTATIONS.QUERYABLE]: true,
+        [API_NAME]: OWNER_ID,
       },
     },
   },
@@ -189,6 +183,9 @@ export const mockTypes = {
       suffix: 'cls',
       hasMetaFile: true,
     },
+    fields: {
+      content: { refType: BuiltinTypes.STRING },
+    },
   }),
   ApexPage: createMetadataObjectType({
     annotations: {
@@ -196,6 +193,9 @@ export const mockTypes = {
       dirName: 'pages',
       suffix: 'page',
       hasMetaFile: true,
+    },
+    fields: {
+      content: { refType: BuiltinTypes.STRING },
     },
   }),
   ApexTrigger: createMetadataObjectType({
@@ -216,6 +216,9 @@ export const mockTypes = {
       hasMetaFile: true,
       dirName: 'components',
       suffix: 'component',
+    },
+    fields: {
+      content: { refType: BuiltinTypes.STRING },
     },
   }),
   AuraDefinitionBundle: createMetadataObjectType({
@@ -246,6 +249,9 @@ export const mockTypes = {
       suffix: 'resource',
       hasMetaFile: true,
     },
+    fields: {
+      content: { refType: BuiltinTypes.STRING },
+    },
   }),
   LightningComponentBundle: createMetadataObjectType({
     annotations: {
@@ -254,9 +260,7 @@ export const mockTypes = {
     },
     fields: {
       targetConfigs: {
-        refType: allMissingSubTypes.find(
-          (t) => t.elemID.typeName === 'TargetConfigs',
-        ) as TypeElement,
+        refType: allMissingSubTypes.find(t => t.elemID.typeName === 'TargetConfigs') as TypeElement,
       },
       lwcResources: {
         refType: createMetadataObjectType({
@@ -319,10 +323,8 @@ export const mockTypes = {
       dirName: 'workflows',
       suffix: 'workflow',
     },
-    fields: _.mapValues(WORKFLOW_FIELD_TO_TYPE, (typeName) => ({
-      refType: new ListType(
-        createMetadataObjectType({ annotations: { metadataType: typeName } }),
-      ),
+    fields: _.mapValues(WORKFLOW_FIELD_TO_TYPE, typeName => ({
+      refType: new ListType(createMetadataObjectType({ annotations: { metadataType: typeName } })),
     })),
   }),
   WorkflowTask: createMetadataObjectType({
@@ -339,7 +341,25 @@ export const mockTypes = {
       suffix: 'workflow',
     },
   }),
-
+  WorkflowRule: createMetadataObjectType({
+    annotations: {
+      metadataType: WORKFLOW_RULE_METADATA_TYPE,
+      dirName: 'workflows',
+      suffix: 'workflow',
+    },
+    fields: {
+      active: {
+        refType: BuiltinTypes.BOOLEAN,
+      },
+    },
+  }),
+  Settings: createMetadataObjectType({
+    annotations: {
+      metadataType: SETTINGS_METADATA_TYPE,
+      dirName: SETTINGS_DIR_NAME,
+      suffix: 'settings',
+    },
+  }),
   TestSettings: createMetadataObjectType({
     annotations: {
       metadataType: 'TestSettings',
@@ -362,11 +382,17 @@ export const mockTypes = {
       dirName: 'territory2Models',
     },
   }),
-  CustomMetadata: createMetadataObjectType({
+  CustomMetadata: new ObjectType({
+    elemID: new ElemID(SALESFORCE, CUSTOM_METADATA_TYPE_NAME),
     annotations: {
       metadataType: 'CustomMetadata',
       dirName: 'customMetadata',
       suffix: 'md',
+    },
+    fields: {
+      [INSTANCE_FULL_NAME_FIELD]: {
+        refType: BuiltinTypes.SERVICE_ID,
+      },
     },
   }),
   EmailTemplate: createMetadataObjectType({
@@ -676,6 +702,7 @@ export const mockTypes = {
       SBQQ__Template__c: {
         refType: Types.primitiveDataTypes.MasterDetail,
         annotations: {
+          [API_NAME]: 'SBQQ__LineColumn__c.SBQQ__Template__c',
           [FIELD_ANNOTATIONS.REFERENCE_TO]: ['SBQQ__Template__c'],
           [FIELD_ANNOTATIONS.QUERYABLE]: true,
         },
@@ -737,22 +764,35 @@ export const mockTypes = {
       },
     },
   }),
-  [constants.CPQ_QUOTE_TERM]: CPQ_QUOTE_TERM_TYPE,
-  [constants.CPQ_TERM_CONDITION]: createCustomObjectType(
-    constants.CPQ_TERM_CONDITION,
-    {
-      fields: {
-        [constants.CPQ_QUOTE_TERM]: {
-          refType: Types.primitiveDataTypes.Lookup,
-          annotations: {
-            [FIELD_ANNOTATIONS.QUERYABLE]: true,
-            [FIELD_ANNOTATIONS.CREATABLE]: true,
-            [FIELD_ANNOTATIONS.UPDATEABLE]: true,
-          },
+  [CPQ_QUOTE_TERM]: CPQ_QUOTE_TERM_TYPE,
+  [CPQ_TERM_CONDITION]: createCustomObjectType(CPQ_TERM_CONDITION, {
+    fields: {
+      [CPQ_QUOTE_TERM]: {
+        refType: Types.primitiveDataTypes.Lookup,
+        annotations: {
+          [FIELD_ANNOTATIONS.QUERYABLE]: true,
+          [FIELD_ANNOTATIONS.CREATABLE]: true,
+          [FIELD_ANNOTATIONS.UPDATEABLE]: true,
+        },
+      },
+      [CPQ_INDEX_FIELD]: {
+        refType: BuiltinTypes.NUMBER,
+        annotations: {
+          [FIELD_ANNOTATIONS.QUERYABLE]: true,
+          [FIELD_ANNOTATIONS.CREATABLE]: true,
+          [FIELD_ANNOTATIONS.UPDATEABLE]: true,
         },
       },
     },
-  ),
+  }),
+  FieldInstance: createMetadataObjectType({
+    annotations: {
+      metadataType: 'FieldInstance',
+    },
+    fields: {
+      fieldItem: { refType: BuiltinTypes.STRING },
+    },
+  }),
 }
 
 export const lwcJsResourceContent =
@@ -797,13 +837,11 @@ export const mockDefaultValues = {
       lwcResource: [
         {
           source: lwcJsResourceContent,
-          filePath:
-            'lwc/testLightningComponentBundle/testLightningComponentBundle.js',
+          filePath: 'lwc/testLightningComponentBundle/testLightningComponentBundle.js',
         },
         {
           source: lwcHtmlResourceContent,
-          filePath:
-            'lwc/testLightningComponentBundle/testLightningComponentBundle.html',
+          filePath: 'lwc/testLightningComponentBundle/testLightningComponentBundle.html',
         },
       ],
     },
@@ -830,11 +868,7 @@ export const mockDefaultValues = {
       ],
     },
     targets: {
-      target: [
-        'lightning__AppPage',
-        'lightning__RecordPage',
-        'lightning__HomePage',
-      ],
+      target: ['lightning__AppPage', 'lightning__RecordPage', 'lightning__HomePage'],
     },
   },
   Profile: {
@@ -951,15 +985,9 @@ export const mockDefaultValues = {
 // eslint-disable-next-line @typescript-eslint/explicit-function-return-type
 export const mockInstances = () => ({
   ..._.mapValues(mockDefaultValues, (values, typeName) =>
-    createInstanceElement(
-      values,
-      mockTypes[typeName as keyof typeof mockDefaultValues],
-    ),
+    createInstanceElement(values, mockTypes[typeName as keyof typeof mockDefaultValues]),
   ),
-  [CHANGED_AT_SINGLETON]: new InstanceElement(
-    ElemID.CONFIG_NAME,
-    ArtificialTypes.ChangedAtSingleton,
-  ),
+  [CHANGED_AT_SINGLETON]: new InstanceElement(ElemID.CONFIG_NAME, ArtificialTypes.ChangedAtSingleton),
 })
 
 export const createFlowChange = ({

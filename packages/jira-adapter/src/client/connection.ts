@@ -1,17 +1,9 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
 import { logger } from '@salto-io/logging'
 import { AccountInfo, CredentialError } from '@salto-io/adapter-api'
@@ -22,6 +14,9 @@ import { EXPERIMENTAL_API_HEADERS, FORCE_ACCEPT_LANGUAGE_HEADERS } from './heade
 import { getProductSettings } from '../product_settings'
 
 const log = logger(module)
+
+const AUTHENTICATION_DENIED_HEADER = 'x-authentication-denied-reason'
+const CAPTCHA_CHALLENGE = 'CAPTCHA_CHALLENGE'
 
 type appInfo = {
   id: string
@@ -36,6 +31,13 @@ const isAuthorized = async (connection: clientUtils.APIConnection): Promise<bool
     if (e.response?.status === 401) {
       return false
     }
+    if (e.response?.status === 403 && e.response?.headers?.[AUTHENTICATION_DENIED_HEADER] !== undefined) {
+      log.error(`Failed to authorize connection, denied reason is: ${e.response.headers[AUTHENTICATION_DENIED_HEADER]}`)
+      if (e.response.headers[AUTHENTICATION_DENIED_HEADER].startsWith(CAPTCHA_CHALLENGE)) {
+        throw new CredentialError('Captcha challenge')
+      }
+    }
+
     throw e
   }
 }

@@ -1,17 +1,9 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
 import {
   ObjectType,
@@ -132,10 +124,7 @@ describe('deploy array fields filter', () => {
         },
       },
     }
-    filter = deployArrayFieldsFilterCreator({
-      convertError: (_elemID, err) => err,
-      ...filterParams,
-    })({
+    filter = deployArrayFieldsFilterCreator(filterParams)({
       definitions: mockDefinitions,
       elementSource: buildElementsSourceFromElements([]),
       config: {},
@@ -149,10 +138,7 @@ describe('deploy array fields filter', () => {
 
   it('should return SaltoError if the deploy definitions are missing', async () => {
     const res = await (
-      deployArrayFieldsFilterCreator({
-        convertError: (_elemID, err) => err,
-        ...filterParams,
-      })({
+      deployArrayFieldsFilterCreator(filterParams)({
         definitions: {
           ...mockDefinitions,
           deploy: undefined,
@@ -342,7 +328,7 @@ describe('deploy array fields filter', () => {
     const res = await filter.deploy(changes, { changes, groupID: 'a' })
     expect(res.deployResult.appliedChanges).toHaveLength(0)
     expect(res.deployResult.errors).toHaveLength(1)
-    expect(res.deployResult.errors[0].message).toEqual('Error: Failed to modify the top level instance')
+    expect(res.deployResult.errors[0].message).toEqual('Failed to modify the top level instance')
     expect(res.deployResult.errors[0].severity).toEqual('Error')
     expect(client.post).not.toHaveBeenCalled()
     expect(client.delete).not.toHaveBeenCalled()

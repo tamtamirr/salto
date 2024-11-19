@@ -1,19 +1,11 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
-import { definitions } from '@salto-io/adapter-components'
+import { definitions, fetch as fetchUtils } from '@salto-io/adapter-components'
 import { UserFetchConfig } from '../../config'
 import { Options } from '../types'
 import {
@@ -29,6 +21,7 @@ import {
   RESULTS,
   OS_X_CONFIGURATION_PROFILE_TYPE_NAME,
   MOBILE_DEVICE_CONFIGURATION_PROFILE_TYPE_NAME,
+  MAC_APPLICATION_TYPE_NAME,
 } from '../../constants'
 import * as transforms from './transforms'
 
@@ -37,7 +30,9 @@ const DEFAULT_ID_PARTS = [NAME_ID_FIELD]
 
 const DEFAULT_FIELD_CUSTOMIZATIONS: Record<string, definitions.fetch.ElementFieldCustomization> = {}
 
-const createCustomizations = (): Record<string, definitions.fetch.InstanceFetchApiDefinitions<Options>> => ({
+const createCustomizations = (
+  baseUrl: string,
+): Record<string, definitions.fetch.InstanceFetchApiDefinitions<Options>> => ({
   [BUILDING_TYPE_NAME]: {
     requests: [
       {
@@ -56,6 +51,10 @@ const createCustomizations = (): Record<string, definitions.fetch.InstanceFetchA
       topLevel: {
         isTopLevel: true,
         elemID: { parts: DEFAULT_ID_PARTS },
+        serviceUrl: {
+          baseUrl,
+          path: '/view/settings/network-organization/buildings/{id}',
+        },
       },
       fieldCustomizations: {
         id: {
@@ -82,6 +81,10 @@ const createCustomizations = (): Record<string, definitions.fetch.InstanceFetchA
       topLevel: {
         isTopLevel: true,
         elemID: { parts: DEFAULT_ID_PARTS },
+        serviceUrl: {
+          baseUrl,
+          path: '/view/settings/network-organization/departments/{id}',
+        },
       },
       fieldCustomizations: {
         id: {
@@ -108,6 +111,10 @@ const createCustomizations = (): Record<string, definitions.fetch.InstanceFetchA
       topLevel: {
         isTopLevel: true,
         elemID: { parts: DEFAULT_ID_PARTS },
+        serviceUrl: {
+          baseUrl,
+          path: '/categories.html?id={id}&o=r',
+        },
       },
       fieldCustomizations: {
         id: {
@@ -134,6 +141,10 @@ const createCustomizations = (): Record<string, definitions.fetch.InstanceFetchA
       topLevel: {
         isTopLevel: true,
         elemID: { parts: DEFAULT_ID_PARTS },
+        serviceUrl: {
+          baseUrl,
+          path: '/view/settings/computer-management/scripts/{id}?tab=general',
+        },
       },
       fieldCustomizations: {
         categoryName: {
@@ -165,6 +176,10 @@ const createCustomizations = (): Record<string, definitions.fetch.InstanceFetchA
         elemID: {
           parts: [{ fieldName: 'displayName' }],
         },
+        serviceUrl: {
+          baseUrl,
+          path: 'view/settings/system-settings/api-roles-and-clients/api-roles/{id}',
+        },
       },
       fieldCustomizations: {
         id: {
@@ -190,6 +205,10 @@ const createCustomizations = (): Record<string, definitions.fetch.InstanceFetchA
       topLevel: {
         isTopLevel: true,
         elemID: { parts: DEFAULT_ID_PARTS },
+        serviceUrl: {
+          baseUrl,
+          path: '/sites.html?id={id}&o=r',
+        },
       },
       fieldCustomizations: {
         id: {
@@ -251,6 +270,10 @@ const createCustomizations = (): Record<string, definitions.fetch.InstanceFetchA
       topLevel: {
         isTopLevel: true,
         elemID: { parts: DEFAULT_ID_PARTS },
+        serviceUrl: {
+          baseUrl,
+          path: '/classes.html?id={id}&o=r&nav=c',
+        },
       },
       fieldCustomizations: {
         id: {
@@ -314,6 +337,10 @@ const createCustomizations = (): Record<string, definitions.fetch.InstanceFetchA
         elemID: {
           parts: [{ fieldName: 'general.name' }],
         },
+        serviceUrl: {
+          baseUrl,
+          path: '/policies.html?id={id}&o=r',
+        },
       },
       fieldCustomizations: {
         id: {
@@ -341,6 +368,10 @@ const createCustomizations = (): Record<string, definitions.fetch.InstanceFetchA
         isTopLevel: true,
         elemID: {
           parts: [{ fieldName: 'packageName' }],
+        },
+        serviceUrl: {
+          baseUrl,
+          path: '/view/settings/computer-management/packages/{id}?tab=general',
         },
       },
       fieldCustomizations: {
@@ -375,7 +406,7 @@ const createCustomizations = (): Record<string, definitions.fetch.InstanceFetchA
         },
         transformation: {
           root: 'os_x_configuration_profile',
-          omit: ['general.uuid', 'general.payloads'],
+          omit: ['general.uuid'],
           adjust: transforms.adjustConfigurationProfile,
         },
       },
@@ -397,6 +428,10 @@ const createCustomizations = (): Record<string, definitions.fetch.InstanceFetchA
       topLevel: {
         isTopLevel: true,
         elemID: { parts: [{ fieldName: 'general.name' }] },
+        serviceUrl: {
+          baseUrl,
+          path: '/OSXConfigurationProfiles.html?id={id}&o=r&side-tabs=General',
+        },
       },
       fieldCustomizations: {
         id: {
@@ -430,7 +465,7 @@ const createCustomizations = (): Record<string, definitions.fetch.InstanceFetchA
         },
         transformation: {
           root: 'configuration_profile',
-          omit: ['general.uuid', 'general.payloads'],
+          omit: ['general.uuid'],
           adjust: transforms.adjustConfigurationProfile,
         },
       },
@@ -452,6 +487,69 @@ const createCustomizations = (): Record<string, definitions.fetch.InstanceFetchA
       topLevel: {
         isTopLevel: true,
         elemID: { parts: [{ fieldName: 'general.name' }] },
+        serviceUrl: {
+          baseUrl,
+          path: '/iOSConfigurationProfiles.html?id={id}&o=r&side-tabs=General',
+        },
+      },
+      fieldCustomizations: {
+        id: {
+          hide: true,
+        },
+      },
+    },
+  },
+  [`${MAC_APPLICATION_TYPE_NAME}_minimal`]: {
+    requests: [
+      {
+        endpoint: {
+          path: '/JSSResource/macapplications',
+          client: 'classicApi',
+        },
+        transformation: {
+          root: 'mac_applications',
+        },
+      },
+    ],
+    resource: {
+      directFetch: true,
+    },
+  },
+  [MAC_APPLICATION_TYPE_NAME]: {
+    requests: [
+      {
+        endpoint: {
+          path: '/JSSResource/macapplications/id/{id}',
+          client: 'classicApi',
+        },
+        transformation: {
+          root: MAC_APPLICATION_TYPE_NAME,
+          omit: ['scope.computer_groups', 'vpp.vpp_admin_account_id'],
+          adjust: transforms.adjustMacApplication,
+        },
+      },
+    ],
+    resource: {
+      directFetch: true,
+      context: {
+        dependsOn: {
+          id: {
+            parentTypeName: `${MAC_APPLICATION_TYPE_NAME}_minimal`,
+            transformation: {
+              root: 'id',
+            },
+          },
+        },
+      },
+    },
+    element: {
+      topLevel: {
+        isTopLevel: true,
+        elemID: { parts: [{ fieldName: 'general.name' }] },
+        serviceUrl: {
+          baseUrl,
+          path: '/macApps.html?id={id}&o=r',
+        },
       },
       fieldCustomizations: {
         id: {
@@ -464,16 +562,18 @@ const createCustomizations = (): Record<string, definitions.fetch.InstanceFetchA
 
 export const createFetchDefinitions = (
   _fetchConfig: UserFetchConfig,
+  baseUrl: string,
 ): definitions.fetch.FetchApiDefinitions<Options> => ({
   instances: {
     default: {
       resource: {
         serviceIDFields: ['id'],
+        onError: fetchUtils.errors.createGetInsufficientPermissionsErrorFunction([401, 403]),
       },
       element: {
         fieldCustomizations: DEFAULT_FIELD_CUSTOMIZATIONS,
       },
     },
-    customizations: createCustomizations(),
+    customizations: createCustomizations(baseUrl),
   },
 })

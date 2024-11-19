@@ -1,17 +1,9 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
 import { APIDefinitionsOptions, ApiDefinitions, ResolveCustomNameMappingOptionsType, UserConfig } from '../definitions'
 import { AdapterFilterCreator, FilterResult } from '../filter_utils'
@@ -29,11 +21,13 @@ import { referencedInstanceNamesFilterCreator } from './referenced_instance_name
 import { serviceUrlFilterCreator } from './service_url'
 import { addAliasFilterCreator } from './add_alias'
 import { ConvertError, defaultConvertError } from '../deployment'
+import { omitCollisionsFilterCreator } from './omit_collisions'
 
 export type FilterCreationArgs<
   Options extends APIDefinitionsOptions,
   Co extends UserConfig<ResolveCustomNameMappingOptionsType<Options>>,
 > = {
+  adapterName: string
   config: Co
   definitions: ApiDefinitions<Options>
   referenceRules?: FieldReferenceDefinition<
@@ -51,6 +45,7 @@ export const createCommonFilters = <
   Options extends APIDefinitionsOptions,
   Co extends UserConfig<ResolveCustomNameMappingOptionsType<Options>>,
 >({
+  adapterName,
   referenceRules,
   fieldReferenceResolverCreator,
   convertError = defaultConvertError,
@@ -67,6 +62,8 @@ export const createCommonFilters = <
   addAlias: addAliasFilterCreator(),
 
   query: queryFilterCreator({}),
+  // omitCollisions must run after referencedInstanceNames
+  omitCollisions: omitCollisionsFilterCreator(adapterName),
   // defaultDeploy should run after other deploy filters
   defaultDeploy: defaultDeployFilterCreator({
     convertError,

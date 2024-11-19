@@ -1,17 +1,9 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
 import wu from 'wu'
 import _ from 'lodash'
@@ -38,6 +30,8 @@ import {
   isObjectTypeChange,
   cloneDeepWithoutRefs,
   SaltoErrorType,
+  CircularDependencyChangeError,
+  isCircularDependencyChangeError,
 } from '@salto-io/adapter-api'
 import { values, collections } from '@salto-io/lowerdash'
 import { logger } from '@salto-io/logging'
@@ -45,7 +39,7 @@ import { logger } from '@salto-io/logging'
 const log = logger(module)
 const { awu } = collections.asynciterable
 
-type FilterResult = {
+export type FilterResult = {
   changeErrors: ChangeError[]
   validDiffGraph: DiffGraph<ChangeDataType>
   replacedGraph: boolean
@@ -117,6 +111,17 @@ const createDependencyErr = (causeID: ElemID, droppedID: ElemID): DependencyErro
   type: 'dependency' as SaltoErrorType,
 })
 
+export const createCircularDependencyError = (
+  droppedID: ElemID,
+  cycleIDs: ElemID[],
+): CircularDependencyChangeError => ({
+  elemID: droppedID,
+  cycleIDs,
+  severity: 'Error',
+  message: 'Skipped element due to circular dependencies',
+  detailedMessage: `Element will be skipped due to circular dependencies among the following elements: ${cycleIDs.map(id => id.getFullName()).join(', ')}. Consider splitting this into two separate deployments.`,
+})
+
 const buildValidDiffGraph = (
   diffGraph: DiffGraph<ChangeDataType>,
   invalidChanges: ChangeError[],
@@ -161,6 +166,10 @@ const buildValidDiffGraph = (
 
   const nodesToOmitWithDependents = Object.values(dependenciesMap).flatMap(nodeIds => [...nodeIds])
 
+  const circularDependencyIDs = new Set(
+    invalidChanges.filter(error => isCircularDependencyChangeError(error)).map(error => error.elemID.getFullName()),
+  )
+
   const dependencyErrors = Object.entries(dependenciesMap)
     .map(
       ([causeNodeId, nodeIds]) =>
@@ -178,7 +187,11 @@ const buildValidDiffGraph = (
           ElemID[],
         ],
     )
-    .flatMap(([causeID, elemIDs]) => elemIDs.map(elemID => createDependencyErr(causeID, elemID)))
+    .flatMap(([causeID, elemIDs]) =>
+      elemIDs
+        .filter(elemID => !circularDependencyIDs.has(elemID.getFullName())) // filter out elemIDs that already have circular dependency error to avoid duplicaitons
+        .map(elemID => createDependencyErr(causeID, elemID)),
+    )
 
   const allNodeIdsToOmit = new Set(nodesToOmitWithDependents)
   const nodesToInclude = new Set(wu(diffGraph.keys()).filter(id => !allNodeIdsToOmit.has(id)))
@@ -204,17 +217,15 @@ const buildValidDiffGraph = (
   return { validDiffGraph, dependencyErrors }
 }
 
-export const filterInvalidChanges = (
-  beforeElements: ReadOnlyElementsSource,
+export const getChangeErrors = async (
   afterElements: ReadOnlyElementsSource,
   diffGraph: DiffGraph<ChangeDataType>,
   changeValidators: Record<string, ChangeValidator>,
-): Promise<FilterResult> =>
+): Promise<ChangeError[]> =>
   log.timeDebug(
     async () => {
       if (Object.keys(changeValidators).length === 0) {
-        // Shortcut to avoid grouping all changes if there are no validators to run
-        return { changeErrors: [], validDiffGraph: diffGraph, replacedGraph: false }
+        return []
       }
 
       const changesByAdapter = collections.iterable.groupBy(
@@ -227,6 +238,21 @@ export const filterInvalidChanges = (
         .flatMap(([adapter, changes]) => changeValidators[adapter](changes, afterElements))
         .toArray()
 
+      return changeErrors
+    },
+    'getChangeErrors for %d changes with %d validators',
+    diffGraph.size,
+    Object.keys(changeValidators).length,
+  )
+
+export const filterInvalidChanges = (
+  beforeElements: ReadOnlyElementsSource,
+  afterElements: ReadOnlyElementsSource,
+  diffGraph: DiffGraph<ChangeDataType>,
+  changeErrors: ChangeError[],
+): Promise<FilterResult> =>
+  log.timeDebug(
+    async () => {
       const invalidChanges = changeErrors.filter(v => v.severity === 'Error')
       if (invalidChanges.length === 0) {
         // Shortcut to avoid replacing the graph if there are no errors
@@ -250,7 +276,7 @@ export const filterInvalidChanges = (
         replacedGraph: true,
       }
     },
-    'filterInvalidChanges for %d changes with %d validators',
+    'filterInvalidChanges for %d changes with %d change errors',
     diffGraph.size,
-    Object.keys(changeValidators).length,
+    changeErrors.length,
   )

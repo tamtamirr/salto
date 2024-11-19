@@ -1,17 +1,9 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
 import _ from 'lodash'
 import { collections, promises } from '@salto-io/lowerdash'
@@ -44,14 +36,13 @@ import {
   formatActionInProgress,
   formatActionStart,
   deployPhaseEpilogue,
-  formatStateRecencies,
   formatDeployActions,
   formatGroups,
   deployErrorsOutput,
 } from '../formatter'
 import Prompts from '../prompts'
 import { getUserBooleanInput } from '../callbacks'
-import { updateWorkspace, isValidWorkspaceForCommand, shouldRecommendFetch } from '../workspace/workspace'
+import { updateWorkspace, isValidWorkspaceForCommand } from '../workspace/workspace'
 import { ENVIRONMENT_OPTION, EnvArg, validateAndSetEnv } from './common/env'
 
 const log = logger(module)
@@ -183,7 +174,7 @@ const deployPlan = async (
   )
   outputLine(deployErrorsOutput(result.errors), output)
   outputLine(deployPhaseEpilogue(nonErroredActions.length, result.errors.length, checkOnly), output)
-  log.debug(`${result.errors.length} errors occurred:\n${result.errors.map(err => err.message).join('\n')}`)
+  log.debug(`${result.errors.length} errors occurred:\n${result.errors.map(err => err.detailedMessage).join('\n')}`)
 
   if (executingDeploy) {
     cliTelemetry.actionsSuccess(nonErroredActions.length)
@@ -240,19 +231,9 @@ export const action: WorkspaceCommandAction<DeployArgs> = async ({
   const { force, dryRun, detailedPlan, accounts, checkOnly } = input
   await validateAndSetEnv(workspace, input, output)
   const actualAccounts = getAndValidateActiveAccounts(workspace, accounts)
-  const stateRecencies = await Promise.all(actualAccounts.map(account => workspace.getStateRecency(account)))
-  // Print state recencies
-  outputLine(formatStateRecencies(stateRecencies), output)
 
   const validWorkspace = await isValidWorkspaceForCommand({ workspace, cliOutput: output, spinnerCreator, force })
   if (!validWorkspace) {
-    return CliExitCode.AppError
-  }
-
-  // Validate state recencies
-  const stateSaltoVersion = await workspace.state().getStateSaltoVersion()
-  const invalidRecencies = stateRecencies.filter(recency => recency.status !== 'Valid')
-  if (!force && (await shouldRecommendFetch(stateSaltoVersion, invalidRecencies, output))) {
     return CliExitCode.AppError
   }
 

@@ -1,17 +1,9 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
 import _, { isArray } from 'lodash'
 import { v4 as uuidv4 } from 'uuid'
@@ -50,11 +42,12 @@ import {
   naclCase,
 } from '@salto-io/adapter-utils'
 import { logger } from '@salto-io/logging'
-import { config as configUtils, elements as elementUtils } from '@salto-io/adapter-components'
+import { config as configUtils, elements as elementUtils, fetch as fetchUtils } from '@salto-io/adapter-components'
 import { collections, values } from '@salto-io/lowerdash'
 import { CredsLease } from '@salto-io/e2e-credentials-store'
 import * as fs from 'fs'
 import * as path from 'path'
+import { parserUtils } from '@salto-io/parser'
 import { resolve } from '../../workspace/src/expressions'
 import {
   API_DEFINITIONS_CONFIG,
@@ -94,12 +87,15 @@ import {
   USER_FIELD_CUSTOM_FIELD_OPTIONS,
   USER_SEGMENT_TYPE_NAME,
   ZENDESK,
+  GROUP_TYPE_NAME,
+  TRANSLATIONS_FIELD,
 } from '../src/constants'
 import { Credentials } from '../src/auth'
 import { getChangeGroupIds } from '../src/group_change'
 import { credsLease, realAdapter, Reals } from './adapter'
 import { mockDefaultValues } from './mock_elements'
 import { ThemeDirectory, unzipFolderToElements } from '../src/filters/guide_theme'
+import { shortElemIdHash } from '../src/filters/utils'
 
 const { awu } = collections.asynciterable
 const { replaceInstanceTypeForDeploy } = elementUtils.ducktype
@@ -154,14 +150,20 @@ const createInstanceElement = ({
     ...mockDefaultValues[type],
     ...valuesOverride,
   }
-  const transformationConfig = configUtils.getConfigWithDefault(
+  const { idFields, nameMapping } = configUtils.getConfigWithDefault(
     DEFAULT_CONFIG[API_DEFINITIONS_CONFIG].types[type].transformation ?? {},
     DEFAULT_CONFIG[API_DEFINITIONS_CONFIG].typeDefaults.transformation,
   )
 
-  const nameParts = transformationConfig.idFields.map(field => _.get(instValues, field))
+  const nameWithMapping = fetchUtils.element.getNameMapping({
+    name: idFields
+      .map(field => _.get(instValues, field))
+      .map(String)
+      .join('_'),
+    nameMapping,
+  })
   return new InstanceElement(
-    name ?? naclCase(nameParts.map(String).join('_')),
+    name ?? naclCase(nameWithMapping),
     new ObjectType({ elemID: new ElemID(ZENDESK, type), fields }),
     instValues,
     undefined,
@@ -346,7 +348,7 @@ describe('Zendesk adapter E2E', () => {
       const root = await unzipFolderToElements({
         buffer,
         currentBrandName: brand.value.name,
-        name,
+        folderName: name,
         idsToElements: {},
         matchBrandSubdomain: (url: string) => (url === brand.value.brand_url ? brand : undefined),
         config: {
@@ -395,7 +397,11 @@ describe('Zendesk adapter E2E', () => {
         .filter(isInstanceElement)
         .find(e => e.elemID.name === HELP_CENTER_BRAND_NAME)
       expect(brandInstanceE2eHelpCenter).toBeDefined()
-      if (brandInstanceE2eHelpCenter === undefined) {
+      const defaultGroup = firstFetchResult.elements
+        .filter(isInstanceElement)
+        .find(e => e.elemID.typeName === GROUP_TYPE_NAME && e.value.default === true)
+      expect(defaultGroup).toBeDefined()
+      if (brandInstanceE2eHelpCenter === undefined || defaultGroup === undefined) {
         return
       }
       adapterAttr = realAdapter(
@@ -439,6 +445,13 @@ describe('Zendesk adapter E2E', () => {
       const groupInstance = createInstanceElement({
         type: 'group',
         valuesOverride: { name: createName('group') },
+      })
+      const queueInstance = createInstanceElement({
+        type: 'queue',
+        valuesOverride: {
+          name: createName('queue'),
+          primary_groups_id: [new ReferenceExpression(defaultGroup.elemID, defaultGroup)],
+        },
       })
       const macroInstance = createInstanceElement({
         type: 'macro',
@@ -547,6 +560,22 @@ describe('Zendesk adapter E2E', () => {
       const userSegmentInstance = createInstanceElement({
         type: 'user_segment',
         valuesOverride: { name: createName('user_segment'), user_type: 'signed_in_users', built_in: false },
+      })
+
+      // Adding explicitly the `name` here as layout isn't in the old infra, so the transformation isn't in the config.
+      const layoutInstance = createInstanceElement({
+        type: 'layout',
+        valuesOverride: { title: createName('layout') },
+        name: createName('layout'),
+      })
+
+      const workspaceInstance = createInstanceElement({
+        type: 'workspace',
+        valuesOverride: {
+          title: createName('workspace'),
+          // This doesn't currently work in the test suite, revisit after the new infra is in place
+          // layout_uuid: new ReferenceExpression(layoutInstance.elemID, layoutInstance),
+        },
       })
 
       const customObjName = createName('custom_object')
@@ -867,7 +896,6 @@ describe('Zendesk adapter E2E', () => {
       const articleInstance = createInstanceElement({
         type: ARTICLE_TYPE_NAME,
         valuesOverride: {
-          draft: true,
           promoted: false,
           section_id: new ReferenceExpression(sectionInstance.elemID, sectionInstance),
           source_locale: new ReferenceExpression(guideLanguageSettingsEn.elemID, guideLanguageSettingsEn),
@@ -887,15 +915,15 @@ describe('Zendesk adapter E2E', () => {
         valuesOverride: {
           file_name: fileName,
           content_type: 'image/png',
-          content: new StaticFile({
-            filepath: `${ZENDESK}/${ARTICLE_ATTACHMENTS_FIELD}/${GUIDE}/brands/${HELP_CENTER_BRAND_NAME}/categories/${categoryName}/sections/${sectionName}/articles/${articleName}/article_attachment/${fileName}/80f6f478ed_${fileName}`,
-            content: fs.readFileSync(path.resolve(`${__dirname}/../e2e_test/images/nacl.png`)),
-          }),
           inline: false,
           brand: new ReferenceExpression(brandInstanceE2eHelpCenter.elemID, brandInstanceE2eHelpCenter),
         },
         parent: articleInstance,
         name: `${articleName}_${sectionName}_${categoryName}_${HELP_CENTER_BRAND_NAME}__${fileName}_false`,
+      })
+      articleAttachment.value.content = new StaticFile({
+        filepath: `${ZENDESK}/${ARTICLE_ATTACHMENTS_FIELD}/${GUIDE}/brands/${HELP_CENTER_BRAND_NAME}/categories/${categoryName}/sections/${sectionName}/articles/${articleName}/article_attachment/${fileName}/${shortElemIdHash(articleAttachment.elemID)}_80f6f478ed_${fileName}`,
+        content: fs.readFileSync(path.resolve(`${__dirname}/../e2e_test/images/nacl.png`)),
       })
       const inlineFileName = `naclTwo${attachmentName}`
       const articleInlineAttachment = createInstanceElement({
@@ -903,17 +931,16 @@ describe('Zendesk adapter E2E', () => {
         valuesOverride: {
           file_name: inlineFileName,
           content_type: 'image/png',
-          content: new StaticFile({
-            filepath: `${ZENDESK}/${ARTICLE_ATTACHMENTS_FIELD}/${GUIDE}/brands/${HELP_CENTER_BRAND_NAME}/categories/${categoryName}/sections/${sectionName}/articles/${articleName}/article_attachment/${inlineFileName}/80f6f478ed_${inlineFileName}`,
-            content: fs.readFileSync(path.resolve(`${__dirname}/../e2e_test/images/nacl.png`)),
-          }),
           inline: true,
           brand: new ReferenceExpression(brandInstanceE2eHelpCenter.elemID, brandInstanceE2eHelpCenter),
         },
         parent: articleInstance,
         name: `${articleName}_${sectionName}_${categoryName}_${HELP_CENTER_BRAND_NAME}__${inlineFileName}_true`,
       })
-
+      articleInlineAttachment.value.content = new StaticFile({
+        filepath: `${ZENDESK}/${ARTICLE_ATTACHMENTS_FIELD}/${GUIDE}/brands/${HELP_CENTER_BRAND_NAME}/categories/${categoryName}/sections/${sectionName}/articles/${articleName}/article_attachment/${inlineFileName}/${shortElemIdHash(articleInlineAttachment.elemID)}_80f6f478ed_${inlineFileName}`,
+        content: fs.readFileSync(path.resolve(`${__dirname}/../e2e_test/images/nacl.png`)),
+      })
       articleInstance.value.attachments = [
         new ReferenceExpression(articleInlineAttachment.elemID, articleInlineAttachment),
         new ReferenceExpression(articleAttachment.elemID, articleAttachment),
@@ -930,15 +957,6 @@ describe('Zendesk adapter E2E', () => {
         valuesOverride: {
           draft: true,
           title: `${articleName}`,
-          body: new TemplateExpression({
-            parts: [
-              '<p>this is a test <img src="',
-              new ReferenceExpression(brandInstanceE2eHelpCenter.elemID, brandInstanceE2eHelpCenter),
-              '/hc/article_attachments/',
-              new ReferenceExpression(articleInlineAttachment.elemID, articleInlineAttachment),
-              `" alt="${inlineFileName}.png"></p><p></p>`,
-            ],
-          }),
           locale: new ReferenceExpression(guideLanguageSettingsEn.elemID, guideLanguageSettingsEn),
           outdated: false,
           brand: new ReferenceExpression(brandInstanceE2eHelpCenter.elemID, brandInstanceE2eHelpCenter),
@@ -946,12 +964,24 @@ describe('Zendesk adapter E2E', () => {
         parent: articleInstance,
         name: `${articleName}_${sectionName}_${categoryName}_${HELP_CENTER_BRAND_NAME}__${HELP_CENTER_BRAND_NAME}_en_us_ub@uuuuuuum`,
       })
+      articleTranslationEn.value.body = parserUtils.templateExpressionToStaticFile(
+        new TemplateExpression({
+          parts: [
+            '<p>this is a test <img src="',
+            new ReferenceExpression(brandInstanceE2eHelpCenter.elemID, brandInstanceE2eHelpCenter),
+            '/hc/article_attachments/',
+            new ReferenceExpression(articleInlineAttachment.elemID, articleInlineAttachment),
+            `" alt="${inlineFileName}.png"></p><p></p>`,
+          ],
+        }),
+        `${ZENDESK}/${TRANSLATIONS_FIELD}/${GUIDE}/brands/${HELP_CENTER_BRAND_NAME}/categories/${categoryName}/sections/${sectionName}/articles/${articleName}/translations/${shortElemIdHash(articleTranslationEn.elemID)}_${articleTranslationEn.value.title}`,
+      )
+
       const articleTranslationHe = createInstanceElement({
         type: ARTICLE_TRANSLATION_TYPE_NAME,
         valuesOverride: {
           draft: true,
           title: `${articleName}_he`,
-          body: 'זאת בדיקה בעברית',
           locale: new ReferenceExpression(guideLanguageSettingsHe.elemID, guideLanguageSettingsHe),
           outdated: false,
           brand: new ReferenceExpression(brandInstanceE2eHelpCenter.elemID, brandInstanceE2eHelpCenter),
@@ -959,7 +989,10 @@ describe('Zendesk adapter E2E', () => {
         parent: articleInstance,
         name: `${articleName}_${sectionName}_${categoryName}_${HELP_CENTER_BRAND_NAME}__${HELP_CENTER_BRAND_NAME}_he`,
       })
-
+      articleTranslationHe.value.body = new StaticFile({
+        content: Buffer.from('זאת בדיקה בעברית'),
+        filepath: `${ZENDESK}/${TRANSLATIONS_FIELD}/${GUIDE}/brands/${HELP_CENTER_BRAND_NAME}/categories/${categoryName}/sections/${sectionName}/articles/${articleName}/translations/${shortElemIdHash(articleTranslationHe.elemID)}_${articleTranslationHe.value.title}`,
+      })
       articleInstance.value.translations = [
         new ReferenceExpression(articleTranslationEn.elemID, articleTranslationEn),
         new ReferenceExpression(articleTranslationHe.elemID, articleTranslationHe),
@@ -969,7 +1002,6 @@ describe('Zendesk adapter E2E', () => {
       const article2Instance = createInstanceElement({
         type: ARTICLE_TYPE_NAME,
         valuesOverride: {
-          draft: true,
           promoted: false,
           section_id: new ReferenceExpression(sectionInstance.elemID, sectionInstance),
           source_locale: new ReferenceExpression(guideLanguageSettingsEn.elemID, guideLanguageSettingsEn),
@@ -987,13 +1019,16 @@ describe('Zendesk adapter E2E', () => {
         valuesOverride: {
           draft: true,
           title: `${article2Name}`,
-          body: 'this is a test',
           locale: new ReferenceExpression(guideLanguageSettingsEn.elemID, guideLanguageSettingsEn),
           outdated: false,
           brand: new ReferenceExpression(brandInstanceE2eHelpCenter.elemID, brandInstanceE2eHelpCenter),
         },
         parent: article2Instance,
         name: `${article2Name}_${sectionName}_${categoryName}_${HELP_CENTER_BRAND_NAME}__${HELP_CENTER_BRAND_NAME}_en_us_ub@uuuuuuum`,
+      })
+      article2TranslationEn.value.body = new StaticFile({
+        content: Buffer.from('this is a test'),
+        filepath: `${ZENDESK}/${TRANSLATIONS_FIELD}/${GUIDE}/brands/${HELP_CENTER_BRAND_NAME}/categories/${categoryName}/sections/${sectionName}/articles/${article2Name}/translations/${shortElemIdHash(article2TranslationEn.elemID)}_${article2TranslationEn.value.title}`,
       })
 
       article2Instance.value.translations = [
@@ -1004,7 +1039,6 @@ describe('Zendesk adapter E2E', () => {
       const article3Instance = createInstanceElement({
         type: ARTICLE_TYPE_NAME,
         valuesOverride: {
-          draft: true,
           promoted: false,
           section_id: new ReferenceExpression(sectionInstance.elemID, sectionInstance),
           source_locale: new ReferenceExpression(guideLanguageSettingsEn.elemID, guideLanguageSettingsEn),
@@ -1022,13 +1056,16 @@ describe('Zendesk adapter E2E', () => {
         valuesOverride: {
           draft: true,
           title: `${article3Name}`,
-          body: 'this is a test',
           locale: new ReferenceExpression(guideLanguageSettingsEn.elemID, guideLanguageSettingsEn),
           outdated: false,
           brand: new ReferenceExpression(brandInstanceE2eHelpCenter.elemID, brandInstanceE2eHelpCenter),
         },
         parent: article3Instance,
         name: `${article3Name}_${sectionName}_${categoryName}_${HELP_CENTER_BRAND_NAME}__${HELP_CENTER_BRAND_NAME}_en_us_ub@uuuuuuum`,
+      })
+      article3TranslationEn.value.body = new StaticFile({
+        content: Buffer.from('this is a test'),
+        filepath: `${ZENDESK}/${TRANSLATIONS_FIELD}/${GUIDE}/brands/${HELP_CENTER_BRAND_NAME}/categories/${categoryName}/sections/${sectionName}/articles/${article3Name}/translations/${shortElemIdHash(article3TranslationEn.elemID)}_${article3TranslationEn.value.title}`,
       })
 
       article3Instance.value.translations = [
@@ -1144,11 +1181,14 @@ describe('Zendesk adapter E2E', () => {
         scheduleInstance,
         customRoleInstance,
         groupInstance,
+        queueInstance,
         macroInstance,
         slaPolicyInstance,
         viewInstance,
         brandInstanceToAdd,
         userSegmentInstance,
+        layoutInstance,
+        workspaceInstance,
         ...customObjectInstances,
         // guide elements
         ...guideInstances,
@@ -1200,6 +1240,7 @@ describe('Zendesk adapter E2E', () => {
         'custom_role',
         'dynamic_content_item',
         'group',
+        'layout',
         'locale',
         'macro_categories',
         'macro',
@@ -1207,6 +1248,7 @@ describe('Zendesk adapter E2E', () => {
         'oauth_global_client',
         'organization',
         'organization_field',
+        'queue',
         'routing_attribute',
         'sharing_agreement',
         'sla_policy',
@@ -1237,6 +1279,7 @@ describe('Zendesk adapter E2E', () => {
         'organization_field_order',
         'ticket_form_order',
         'sla_policy_order',
+        'queue_order',
       ]
       const orderElementsElemIDs = orderElements.map(name => ({
         type: new ElemID(ZENDESK, name),

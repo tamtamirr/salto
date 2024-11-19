@@ -1,24 +1,15 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
 import * as errors from './src/errors'
 import * as nacl from './src/workspace/nacl_files'
 import {
   Workspace,
   SourceLocation,
-  StateRecency,
   loadWorkspace,
   isValidEnvName,
   EnvironmentsSources,
@@ -52,6 +43,7 @@ import * as merger from './src/merger'
 import * as expressions from './src/expressions'
 import * as serialization from './src/serializer/elements'
 import * as pathIndex from './src/workspace/path_index'
+import * as flags from './src/flags'
 import { Author } from './src/workspace/changed_by_index'
 import {
   createElementSelector,
@@ -90,6 +82,7 @@ export {
   expressions,
   nacl,
   pathIndex,
+  flags,
   elementSource,
   remoteMap,
   WorkspaceConfig,
@@ -100,7 +93,6 @@ export {
   // Workspace exports
   Workspace,
   SourceLocation,
-  StateRecency,
   loadWorkspace,
   EnvironmentSource,
   EnvironmentsSources,

@@ -1,17 +1,9 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
 import { adjustPolicy } from '../../../../src/definitions/fetch/transforms'
 
@@ -51,19 +43,22 @@ describe('adjust policy', () => {
       })
     })
   })
-  describe('adjustScriptsObjectArrayToScriptsIds', () => {
+  describe('removeIdsForScriptsObjectArray', () => {
     it('should convert scripts object array to scripts ids', async () => {
       const value = {
         a: 'a',
         general: {},
-        scripts: [{ id: 'script-id' }, { id: 'script-id2' }],
+        scripts: [
+          { id: 'script-id', anotherField: 'yay' },
+          { id: 'script-id2', anotherField: 'hopa' },
+        ],
         b: 'b',
       }
       await expect(adjustPolicy({ value, context: {}, typeName: 'policy' })).resolves.toEqual({
         value: {
           a: 'a',
           general: {},
-          scripts: ['script-id', 'script-id2'],
+          scripts: [{ anotherField: 'yay' }, { anotherField: 'hopa' }],
           b: 'b',
         },
       })

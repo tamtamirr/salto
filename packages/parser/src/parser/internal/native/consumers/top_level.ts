@@ -1,17 +1,9 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
 import {
   Element,
@@ -37,6 +29,7 @@ import {
   missingBlockOpen,
   invalidDefinition,
   invalidMetaTypeError,
+  primitiveSettingsError,
 } from '../errors'
 import {
   primitiveType,
@@ -63,6 +56,7 @@ const consumeType = (
   // * type <name>
   // * settings <name>
   // * type <name> is <type category>
+  // * settings <name> is <type category>
   const isSettings = labels.value[0] === Keywords.SETTINGS_DEFINITION
   const typeName = labels.value[1]
   const baseType = labels.value[3] ?? Keywords.TYPE_OBJECT
@@ -94,6 +88,10 @@ const consumeType = (
       ),
       range: consumedBlock.range,
     }
+  }
+
+  if (isSettings) {
+    context.errors.push(primitiveSettingsError(range))
   }
 
   let primitive = primitiveType(baseType)
@@ -207,14 +205,15 @@ export const consumeVariableBlock = (context: ParseContext): ConsumerReturnType<
   }
 }
 
+const isTypeDefKeyword = (keyword: string): boolean =>
+  keyword === Keywords.TYPE_DEFINITION || keyword === Keywords.SETTINGS_DEFINITION
+const areTypeDefLabels = (labels: string[]): boolean =>
+  labels.length === 1 || (labels.length === 3 && labels[1] === Keywords.TYPE_INHERITANCE_SEPARATOR)
+
 // Type or settings.
-// Settings can only have a name, types can also be of the form "type <name> is <meta type>".
+// Always have a name and can be of the form "type/settings <name> is <meta type>".
 const isTypeDef = (elementType: string, elementLabels: string[]): boolean =>
-  (elementType === Keywords.SETTINGS_DEFINITION && elementLabels.length === 1) ||
-  (elementType === Keywords.TYPE_DEFINITION && elementLabels.length === 1) ||
-  (elementType === Keywords.TYPE_DEFINITION &&
-    elementLabels.length === 3 &&
-    elementLabels[1] === Keywords.TYPE_INHERITANCE_SEPARATOR)
+  isTypeDefKeyword(elementType) && areTypeDefLabels(elementLabels)
 
 // No labels is allowed to support config instances
 const isInstanceTypeDef = (elementType: string, elementLabels: string[]): boolean =>

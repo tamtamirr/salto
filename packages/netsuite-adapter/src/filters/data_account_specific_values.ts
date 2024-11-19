@@ -1,17 +1,9 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
 import _ from 'lodash'
 import { logger } from '@salto-io/logging'
@@ -47,7 +39,6 @@ import {
 } from '../constants'
 import { TYPE_ID } from '../client/suiteapp_client/constants'
 import { RemoteFilterCreator } from '../filter'
-import { INTERNAL_ID_TO_TYPES } from '../data_elements/types'
 import {
   SUITEQL_TABLE,
   getSuiteQLTableInternalIdsMap,
@@ -250,9 +241,11 @@ const setOriginalFieldType = (field: Field): void => {
 }
 
 const getSuiteQLTableInstance = (
+  path: ElemID,
   field: Field | undefined,
   typeId: string | undefined,
   suiteQLTablesMap: Record<string, InstanceElement>,
+  internalIdToTypes: Record<string, string[]>,
 ): InstanceElement | undefined => {
   if (
     field !== undefined &&
@@ -265,14 +258,34 @@ const getSuiteQLTableInstance = (
   if (fieldType !== undefined && suiteQLTablesMap[fieldType.elemID.name] !== undefined) {
     return suiteQLTablesMap[fieldType.elemID.name]
   }
-  return (typeId !== undefined ? INTERNAL_ID_TO_TYPES[typeId] ?? [] : [])
+  if (typeId === undefined) {
+    log.debug('value in %s has no typeId', path.getFullName())
+    return undefined
+  }
+  const potentialTypes = internalIdToTypes[typeId]
+  if (potentialTypes === undefined) {
+    log.warn('missing internalId to type mapping for typeId %s in %s', typeId, path.getFullName())
+    return undefined
+  }
+  const suiteQLTableInstance = potentialTypes
     .map(typeName => suiteQLTablesMap[typeName])
     .find(instance => instance !== undefined)
+  if (suiteQLTableInstance === undefined) {
+    log.warn(
+      'missing suiteql table instance for types: %s (typeId: %s) in %s',
+      potentialTypes,
+      typeId,
+      path.getFullName(),
+    )
+    return undefined
+  }
+  return suiteQLTableInstance
 }
 
 const getAccountSpecificValuesToTransform = (
   instance: InstanceElement,
   suiteQLTablesMap: Record<string, InstanceElement>,
+  internalIdToTypes: Record<string, string[]>,
 ): AccountSpecificValueToTransform[] => {
   const result: AccountSpecificValueToTransform[] = []
 
@@ -301,7 +314,7 @@ const getAccountSpecificValuesToTransform = (
       path,
       internalId,
       fallbackName,
-      suiteQLTableInstance: getSuiteQLTableInstance(field, typeId, suiteQLTablesMap),
+      suiteQLTableInstance: getSuiteQLTableInstance(path, field, typeId, suiteQLTablesMap, internalIdToTypes),
     })
 
     return value
@@ -427,6 +440,7 @@ const resolveAccountSpecificValues = ({
 const filterCreator: RemoteFilterCreator = ({
   client,
   config,
+  internalIdToTypes,
   elementsSource,
   isPartial,
   suiteQLNameToInternalIdsMap = {},
@@ -448,7 +462,7 @@ const filterCreator: RemoteFilterCreator = ({
 
     const accountSpecificValuesToTransform = instances
       .filter(instance => isDataObjectType(instance.getTypeSync()))
-      .flatMap(instance => getAccountSpecificValuesToTransform(instance, suiteQLTablesMap))
+      .flatMap(instance => getAccountSpecificValuesToTransform(instance, suiteQLTablesMap, internalIdToTypes))
 
     const internalIdsToQuery = accountSpecificValuesToTransform.flatMap(({ suiteQLTableInstance, internalId }) =>
       suiteQLTableInstance !== undefined &&
@@ -459,6 +473,7 @@ const filterCreator: RemoteFilterCreator = ({
 
     await updateSuiteQLTableInstances({
       client,
+      config,
       queryBy: 'internalId',
       itemsToQuery: internalIdsToQuery,
       suiteQLTablesMap,

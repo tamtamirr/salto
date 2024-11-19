@@ -1,17 +1,9 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
 import {
   Change,
@@ -25,13 +17,16 @@ import {
   isTemplateExpression,
   isObjectTypeChange,
   ReferenceInfo,
-  TemplateExpression,
   StaticFile,
   isStaticFile,
   ReferenceType,
   REFERENCE_TYPES,
   REFERENCE_SOURCE_SCOPES,
   ReferenceSourceScope,
+  isObjectType,
+  isField,
+  TypeReference,
+  GLOBAL_ADAPTER,
 } from '@salto-io/adapter-api'
 import { walkOnElement, WALK_NEXT_STEP } from '@salto-io/adapter-utils'
 import { logger } from '@salto-io/logging'
@@ -45,7 +40,7 @@ import { RemoteMap, RemoteMapEntry } from './remote_map'
 const log = logger(module)
 const { awu } = collections.asynciterable
 
-export const REFERENCE_INDEXES_VERSION = 11
+export const REFERENCE_INDEXES_VERSION = 12
 export const REFERENCE_INDEXES_KEY = 'reference_indexes'
 
 type ChangeReferences = {
@@ -79,26 +74,76 @@ export type ReferenceIndexesGetCustomReferencesFunc = (elements: Element[]) => P
 const getReferenceDetailsIdentifier = (referenceDetails: ReferenceInfo): string =>
   `${referenceDetails.target.getFullName()} - ${referenceDetails.source.getFullName()}`
 
-const getReferences = async (element: Element, customReferences: ReferenceInfo[]): Promise<ReferenceInfo[]> => {
-  const references: Record<string, ReferenceInfo> = {}
-  const templateStaticFiles: { value: StaticFile; source: ElemID }[] = []
-  const getReferencesFromTemplateExpression = (source: ElemID, template?: TemplateExpression): void => {
-    template?.parts.forEach(part => {
-      if (isReferenceExpression(part)) {
-        const refInfo = { source, target: part.elemID, type: 'strong' as const }
-        references[getReferenceDetailsIdentifier(refInfo)] = refInfo
-      }
-    })
+const toRefTypeReference = ({
+  elemID,
+  refType,
+}: {
+  elemID: ElemID
+  refType: TypeReference
+}): ReferenceInfo | undefined => {
+  const target = ElemID.getTypeOrContainerTypeID(refType.elemID)
+  if (target.adapter !== GLOBAL_ADAPTER) {
+    return { source: elemID, target, type: 'strong' }
   }
+  return undefined
+}
+
+const getReferencesFromFieldRefTypes = (element: Element): ReferenceInfo[] => {
+  if (isField(element)) {
+    const reference = toRefTypeReference(element)
+    return reference !== undefined ? [reference] : []
+  }
+  if (isObjectType(element)) {
+    return Object.values(element.fields).flatMap(field => toRefTypeReference(field) ?? [])
+  }
+  return []
+}
+
+const getReferencesFromAnnotationRefTypes = (element: Element): ReferenceInfo[] =>
+  Object.entries(element.annotationRefTypes).flatMap(
+    ([annoName, refType]) =>
+      toRefTypeReference({
+        elemID: element.elemID.createNestedID('annotation', annoName),
+        refType,
+      }) ?? [],
+  )
+
+const getReferenceFromMetaType = (element: Element): ReferenceInfo | undefined => {
+  if (isObjectType(element) && element.metaType !== undefined) {
+    return toRefTypeReference({ elemID: element.elemID, refType: element.metaType })
+  }
+  return undefined
+}
+
+const getReferencesFromTemplateStaticFile = async ({
+  value,
+  source,
+}: {
+  value: StaticFile
+  source: ElemID
+}): Promise<ReferenceInfo[]> => {
+  const templateExpression = await parserUtils.staticFileToTemplateExpression(value)
+  if (templateExpression !== undefined) {
+    return templateExpression.parts
+      .filter(isReferenceExpression)
+      .map(ref => ({ source, target: ref.elemID, type: 'strong' }))
+  }
+  return []
+}
+
+const getReferences = async (element: Element, customReferences: ReferenceInfo[]): Promise<ReferenceInfo[]> => {
+  const referenceInfos: ReferenceInfo[] = []
+  const templateStaticFiles: { value: StaticFile; source: ElemID }[] = []
   walkOnElement({
     element,
     func: ({ value, path: source }) => {
       if (isReferenceExpression(value)) {
-        const refInfo = { source, target: value.elemID, type: 'strong' as const }
-        references[getReferenceDetailsIdentifier(refInfo)] = refInfo
+        referenceInfos.push({ source, target: value.elemID, type: 'strong' })
       }
       if (isTemplateExpression(value)) {
-        getReferencesFromTemplateExpression(source, value)
+        value.parts.filter(isReferenceExpression).forEach(ref => {
+          referenceInfos.push({ source, target: ref.elemID, type: 'strong' })
+        })
       }
       if (isStaticFile(value) && value.isTemplate) {
         templateStaticFiles.push({ value, source })
@@ -107,20 +152,23 @@ const getReferences = async (element: Element, customReferences: ReferenceInfo[]
     },
   })
 
-  customReferences.forEach(refInfo => {
-    references[getReferenceDetailsIdentifier(refInfo)] = refInfo
-  })
-  const templateExpressions = await Promise.all(
-    templateStaticFiles.map(async fileObj => {
-      const expression = await parserUtils.staticFileToTemplateExpression(fileObj.value)
-      return { expression, source: fileObj.source }
-    }),
-  )
-  templateExpressions.forEach(fileObj => {
-    getReferencesFromTemplateExpression(fileObj.source, fileObj.expression)
-  })
+  const templateExpressionReferences = await Promise.all(templateStaticFiles.map(getReferencesFromTemplateStaticFile))
 
-  return Object.values(references)
+  const fieldRefTypesReferences = getReferencesFromFieldRefTypes(element)
+  const annotationRefTypesReferences = getReferencesFromAnnotationRefTypes(element)
+  const metaTypeRefTypeReference = getReferenceFromMetaType(element) ?? []
+
+  return _.uniqBy(
+    // `customReferences` should be the first on this list, so in case that a referenceInfo appears more than
+    // once we'll take it from `customReferences` (uniqBy keeps the first occurrence of each unique item).
+    customReferences
+      .concat(templateExpressionReferences.flat())
+      .concat(referenceInfos)
+      .concat(fieldRefTypesReferences)
+      .concat(annotationRefTypesReferences)
+      .concat(metaTypeRefTypeReference),
+    getReferenceDetailsIdentifier,
+  )
 }
 
 const getReferencesFromChange = async (
@@ -245,7 +293,7 @@ const getReferenceSourcesMap = (references: ReferenceInfo[]): Record<string, Ref
       if (referenceSourcesChanges[topLevelId] === undefined) {
         referenceSourcesChanges[topLevelId] = []
       }
-      referenceSourcesChanges[topLevelId].push(...sourceIds)
+      referenceSourcesChanges[topLevelId] = referenceSourcesChanges[topLevelId].concat(sourceIds)
     }
   })
   return referenceSourcesChanges

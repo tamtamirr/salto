@@ -1,17 +1,9 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
 import { InstanceElement } from '@salto-io/adapter-api'
 import { getFieldInstanceTypes } from '../../src/data_elements/custom_fields'
@@ -24,7 +16,7 @@ describe('getFieldInstanceTypes', () => {
   it('Should return matching types for other custom field', () => {
     const otherCustomFieldInstance = new InstanceElement('test', othercustomfieldType().type, { rectype: '-112' })
 
-    const relevantTypes = getFieldInstanceTypes(otherCustomFieldInstance)
+    const relevantTypes = getFieldInstanceTypes(otherCustomFieldInstance, { '-112': ['account'] })
     expect(relevantTypes).toEqual(['account'])
   })
 
@@ -37,7 +29,7 @@ describe('getFieldInstanceTypes', () => {
       appliestovendor: false,
       appliestopricelist: false,
     })
-    const relevantTypes = getFieldInstanceTypes(entityCustomFieldInstance)
+    const relevantTypes = getFieldInstanceTypes(entityCustomFieldInstance, {})
     expect(relevantTypes).toEqual(['contact', 'customer', 'partner'])
   })
 
@@ -50,7 +42,7 @@ describe('getFieldInstanceTypes', () => {
       appliestononinventory: true,
       appliestoothercharge: true,
     })
-    const relevantTypes = getFieldInstanceTypes(itemCustomFieldInstance)
+    const relevantTypes = getFieldInstanceTypes(itemCustomFieldInstance, {})
     expect(relevantTypes).toEqual([
       'inventoryItem',
       'assemblyItem',
@@ -71,7 +63,7 @@ describe('getFieldInstanceTypes', () => {
       appliestosolution: true,
       appliestotask: false,
     })
-    const relevantTypes = getFieldInstanceTypes(crmCustomFieldInstance)
+    const relevantTypes = getFieldInstanceTypes(crmCustomFieldInstance, {})
     expect(relevantTypes).toEqual(['campaign', 'projectTask', 'phoneCall', 'solution'])
   })
 })

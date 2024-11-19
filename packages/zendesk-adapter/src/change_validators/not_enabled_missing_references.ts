@@ -1,17 +1,9 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
 import {
   ChangeError,
@@ -29,24 +21,24 @@ import { isResolvedReferenceExpression, WALK_NEXT_STEP, walkOnElement } from '@s
 import { collections, values as lowerDashValues } from '@salto-io/lowerdash'
 import { references } from '@salto-io/adapter-components'
 import _ from 'lodash'
-import { sideConversationsOnFetch as sideConversationsFilter } from '../filters/side_conversation'
-import { fieldReferencesOnFetch as fieldReferencesFilter } from '../filters/field_references'
-import { listValuesMissingReferencesOnFetch as listValuesMissingReferencesFilter } from '../filters/references/list_values_missing_references'
-import { handleTemplateExpressionsOnFetch as handleTemplateExpressionFilter } from '../filters/handle_template_expressions'
-import { DynamicContentReferencesOnFetch as dynamicContentReferencesFilter } from '../filters/dynamic_content_references'
-import { articleBodyOnFetch as articleBodyFilter } from '../filters/article/article_body'
+import { sideConversationsOnFetch } from '../filters/side_conversation'
+import { fieldReferencesOnFetch } from '../filters/field_references'
+import { listValuesMissingReferencesOnFetch } from '../filters/references/list_values_missing_references'
+import { handleTemplateExpressionsOnFetch } from '../filters/handle_template_expressions'
+import { dynamicContentReferencesOnFetch } from '../filters/dynamic_content_references'
+import { articleBodyOnFetch, templateExpressionIdentity } from '../filters/article/article_body'
 import { FETCH_CONFIG, ZendeskConfig } from '../config'
 
 const { isDefined } = lowerDashValues
 const { awu } = collections.asynciterable
 
-const MISSING_REFERENCE_FILTERS: ((elements: Element[], config: ZendeskConfig) => void)[] = [
-  sideConversationsFilter,
-  fieldReferencesFilter,
-  listValuesMissingReferencesFilter,
-  dynamicContentReferencesFilter,
-  articleBodyFilter,
-  handleTemplateExpressionFilter,
+const MISSING_REFERENCE_FETCH_FILTERS: ((elements: Element[], config: ZendeskConfig) => void)[] = [
+  sideConversationsOnFetch,
+  fieldReferencesOnFetch,
+  listValuesMissingReferencesOnFetch,
+  dynamicContentReferencesOnFetch,
+  articleBodyOnFetch(templateExpressionIdentity), // We want the templateExpression to retain the annotations.
+  handleTemplateExpressionsOnFetch,
 ]
 
 const createMissingRefString = (path: ElemID, value: ReferenceExpression): string => {
@@ -74,7 +66,7 @@ export const notEnabledMissingReferencesValidator =
     const filtersConfig = _.cloneDeep(config)
     filtersConfig[FETCH_CONFIG].enableMissingReferences = true
     // Run the filters one by one, to make sure they are run in order
-    await awu(MISSING_REFERENCE_FILTERS.map(filter => filter(clonedRelevantInstances, filtersConfig))).toArray()
+    await awu(MISSING_REFERENCE_FETCH_FILTERS.map(filter => filter(clonedRelevantInstances, filtersConfig))).toArray()
 
     const errors = clonedRelevantInstances
       .map((instance): ChangeError | undefined => {

@@ -1,19 +1,11 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
-import axios, { AxiosError, AxiosResponse } from 'axios'
+import axios, { AxiosError, AxiosResponse, AxiosHeaders } from 'axios'
 import MockAdapter from 'axios-mock-adapter'
 import { RetryOptions } from '../../src/client/http_connection'
 import { validateCredentials, axiosConnection, UnauthorizedError, createRetryOptions } from '../../src/client'
@@ -90,7 +82,65 @@ describe('client_http_connection', () => {
               }),
           },
         ),
-      ).rejects.toThrow(new Error('Login failed with error: Error: aaa'))
+      ).rejects.toThrow(new Error('Login failed with error: aaa'))
+    })
+  })
+  describe('axiosConnection with timeout', () => {
+    let retryOptions: RetryOptions
+    beforeEach(() => {
+      retryOptions = createRetryOptions(
+        {
+          maxAttempts: 3,
+          retryDelay: 100,
+          additionalStatusCodesToRetry: [],
+        },
+        {
+          retryOnTimeout: true,
+          lastRetryNoTimeout: true,
+        },
+      )
+    })
+    it('should set timeout to 0 for POST request', async () => {
+      const connection = axiosConnection({
+        retryOptions,
+        authParamsFunc: async () => ({}),
+        baseURLFunc: async () => BASE_URL,
+        credValidateFunc: async () => ({ accountId: '1' }),
+        timeout: 5000,
+      })
+
+      const mockCredentials = { username: 'test', password: 'test' }
+
+      const httpClient = await connection.login(mockCredentials)
+
+      // Mock a POST request
+      mockAxiosAdapter.onPost('/test').reply(200, { data: 'success' })
+
+      // Make a POST request
+      const response = (await httpClient.post('/test', {})) as AxiosResponse
+
+      expect(response.config.timeout).toBe(0)
+    })
+    it('should not change timeout for GET request', async () => {
+      const connection = axiosConnection({
+        retryOptions,
+        authParamsFunc: async () => ({}),
+        baseURLFunc: async () => BASE_URL,
+        credValidateFunc: async () => ({ accountId: '1' }),
+        timeout: 5000,
+      })
+
+      const mockCredentials = { username: 'test', password: 'test' }
+
+      const httpClient = await connection.login(mockCredentials)
+
+      // Mock a GET request
+      mockAxiosAdapter.onGet('/test').reply(200, { data: 'success' })
+
+      // Make a POST request
+      const response = (await httpClient.get('/test')) as AxiosResponse
+
+      expect(response.config.timeout).toBe(5000)
     })
   })
   describe('createRetryOptions', () => {
@@ -99,14 +149,14 @@ describe('client_http_connection', () => {
     const mockAxiosError = (args: Partial<AxiosError>): AxiosError => ({
       name: 'MockAxiosError',
       message: 'mock axios error message',
-      config: {},
+      config: { headers: new AxiosHeaders() },
       isAxiosError: true,
       toJSON: () => args,
       ...args,
     })
 
     const mockAxiosResponse = (args: Partial<AxiosResponse>): AxiosResponse => ({
-      config: {},
+      config: { headers: new AxiosHeaders() },
       data: null,
       headers: {},
       status: 200,
@@ -183,6 +233,7 @@ describe('client_http_connection', () => {
             }),
             code: 'code',
             config: {
+              headers: new AxiosHeaders(),
               url: 'url',
             },
           }),
@@ -201,6 +252,7 @@ describe('client_http_connection', () => {
             }),
             code: 'code',
             config: {
+              headers: new AxiosHeaders(),
               url: 'url',
             },
           }),
@@ -218,6 +270,7 @@ describe('client_http_connection', () => {
             }),
             code: 'code',
             config: {
+              headers: new AxiosHeaders(),
               url: 'url',
             },
           }),
@@ -252,6 +305,7 @@ describe('client_http_connection', () => {
             }),
             code: 'code',
             config: {
+              headers: new AxiosHeaders(),
               url: 'url',
             },
           }),

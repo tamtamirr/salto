@@ -1,23 +1,15 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
 import { ActionName, Values } from '@salto-io/adapter-api'
 import { ArgsWithCustomizer, DefaultWithCustomizations, TransformDefinition } from '../shared'
 import { DeployRequestDefinition } from './request'
 import { ChangeIdFunction } from '../../../deployment/grouping'
-import { ChangeAndContext } from './types'
+import { ChangeAndContext, ChangeAndExtendedContext } from './types'
 
 export type ValueReferenceResolver = (args: { value: Values }) => Values
 
@@ -30,7 +22,7 @@ export type DeployRequestCondition = ArgsWithCustomizer<
     // transformation to use on before and after of the change when comparing the values
     transformForCheck?: TransformDefinition<ChangeAndContext>
   },
-  ChangeAndContext
+  ChangeAndExtendedContext
 >
 
 export type DeployableRequestDefinition<ClientOptions extends string> = {
@@ -46,10 +38,10 @@ export type DeployableRequestDefinition<ClientOptions extends string> = {
     // note: if the request's transformation defines nestUnderField, it is used as the root when extracting service ids
     updateServiceIDs?: boolean
     // default: nothing
-    additional?: TransformDefinition<ChangeAndContext>
+    additional?: TransformDefinition<ChangeAndExtendedContext>
     // values that should be available as extra context to other requests within the deployment
     // default: nothing
-    toSharedContext?: TransformDefinition<ChangeAndContext> & {
+    toSharedContext?: TransformDefinition<ChangeAndExtendedContext> & {
       // when true, the transformation result will be stored under a path based on the elem id, to avoid unintentional overlaps
       // default: true
       nestUnderElemID?: boolean
@@ -67,7 +59,7 @@ export type ChangeDependency<AdditionalAction extends string> = {
   second: ChangeIdentifier<ActionName | AdditionalAction>
 }
 
-type ActionDependency<AdditionalAction extends string> = {
+export type ActionDependency<AdditionalAction extends string> = {
   first: ActionName | AdditionalAction
   second: ActionName | AdditionalAction
 }
@@ -107,6 +99,10 @@ export type InstanceDeployApiDefinitions<AdditionalAction extends string, Client
   }
 
   changeGroupId?: ChangeIdFunction
+
+  // fail if the change already has (error-level) errors from previous actions
+  // default: true
+  failIfChangeHasErrors?: boolean
 }
 
 export type DeployApiDefinitions<AdditionalAction extends string, ClientOptions extends string> = {

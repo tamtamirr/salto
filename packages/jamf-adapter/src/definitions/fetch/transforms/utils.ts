@@ -1,17 +1,9 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
 import { values } from '@salto-io/lowerdash'
 import _ from 'lodash'
@@ -45,10 +37,10 @@ export const adjustCategoryObjectToCategoryId = (value: Record<string, unknown>)
 /*
  * Convert scripts object array to scripts ids to make reference
  */
-export const adjustScriptsObjectArrayToScriptsIds = (value: Record<string, unknown>): void => {
+export const removeIdsForScriptsObjectArray = (value: Record<string, unknown>): void => {
   const { scripts } = value
   if (Array.isArray(scripts) && scripts.every(isWithIdType)) {
-    value.scripts = scripts.map(({ id }) => id)
+    value.scripts = scripts.map(script => _.omit(script, 'id'))
   }
 }
 
@@ -63,4 +55,27 @@ export const adjustServiceIdToTopLevel = (value: Record<string, unknown>): void 
   const id = _.get(general, 'id')
   _.set(general, 'id', undefined)
   value.id = id
+}
+
+/*
+ * Remove self_service_icon from self_service object
+ */
+export const removeSelfServiceIcon = (value: Record<string, unknown>): void => {
+  const { self_service: selfService } = value
+  if (values.isPlainRecord(selfService)) {
+    delete selfService.self_service_icon
+  }
+}
+
+/*
+ * Remove security.password from self_service object as its a secret
+ */
+export const removeSelfServiceSecurityPassword = (value: Record<string, unknown>): void => {
+  const { self_service: selfService } = value
+  if (values.isPlainRecord(selfService)) {
+    const { security } = selfService
+    if (values.isPlainRecord(security)) {
+      delete security.password
+    }
+  }
 }

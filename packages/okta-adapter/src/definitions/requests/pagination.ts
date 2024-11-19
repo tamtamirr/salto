@@ -1,28 +1,33 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
 import { definitions, fetch as fetchUtils } from '@salto-io/adapter-components'
-import { ClientOptions, PaginationOptions } from '../types'
+import { OktaOptions } from '../types'
+import { OktaUserConfig } from '../../user_config'
 
-const { cursorPagination, defaultPathChecker, cursorHeaderPagination } = fetchUtils.request.pagination
+const { cursorPagination, defaultPathChecker, cursorHeaderPagination, getPaginationWithLimitedResults } =
+  fetchUtils.request.pagination
 
-export const PAGINATION: Record<PaginationOptions, definitions.PaginationDefinitions<ClientOptions>> = {
+const DEFAULT_MAX_ALLOWED_RESULTS = 200000
+
+export const createPaginationDefinitions = (
+  config: OktaUserConfig,
+): definitions.ApiDefinitions<OktaOptions>['pagination'] => ({
   cursorHeader: {
     funcCreator: () => cursorHeaderPagination({ pathChecker: defaultPathChecker }),
   },
   cursor: {
     funcCreator: () => cursorPagination({ paginationField: 'nextMappingsPageUrl', pathChecker: defaultPathChecker }),
   },
-}
+  usersCursorHeader: {
+    funcCreator: () =>
+      getPaginationWithLimitedResults({
+        maxResultsNumber: config.fetch.maxUsersResults ?? DEFAULT_MAX_ALLOWED_RESULTS,
+        paginationFunc: cursorHeaderPagination({ pathChecker: defaultPathChecker }),
+      }),
+  },
+})

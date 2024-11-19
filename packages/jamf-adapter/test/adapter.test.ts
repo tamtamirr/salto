@@ -1,17 +1,9 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
 import _ from 'lodash'
 import axios from 'axios'
@@ -87,7 +79,9 @@ describe('adapter', () => {
 
   beforeEach(async () => {
     mockAxiosAdapter = new MockAdapter(axios, { delayResponse: 1, onNoMatch: 'throwException' })
-    mockAxiosAdapter.onPost('baseUrl/api/oauth/token').reply(200, { access_token: 'mock_token', token_type: 'Bearer' })
+    mockAxiosAdapter
+      .onPost('https://baseUrl.com/api/oauth/token')
+      .reply(200, { access_token: 'mock_token', token_type: 'Bearer' })
     ;([...fetchMockReplies, ...deployMockReplies] as MockReply[]).forEach(({ url, method, params, response }) => {
       const mock = getMockFunction(method, mockAxiosAdapter).bind(mockAxiosAdapter)
       const handler = mock(url, !_.isEmpty(params) ? { params } : undefined)
@@ -111,7 +105,7 @@ describe('adapter', () => {
         const { elements } = await adapter
           .operations({
             credentials: new InstanceElement('config', credentialsType, {
-              baseUrl: 'baseUrl',
+              baseUrl: 'https://baseUrl.com',
               clientId: 'clientId',
               clientSecret: 'clientSecret',
             }),
@@ -151,6 +145,9 @@ describe('adapter', () => {
           'jamf.department',
           'jamf.department.instance.farkash_first_department2@s',
           'jamf.department.instance.farkash_first_department@s',
+          'jamf.mac_application',
+          'jamf.mobile_device_configuration_profile',
+          'jamf.os_x_configuration_profile',
           'jamf.package',
           'jamf.package.instance.AdOps_CC_2020_v1_Install_pkg@sssuv',
           'jamf.package.instance.AdobeAcrobatPro11CC_2014_08_06_pkg@ubbv',
@@ -202,6 +199,7 @@ describe('adapter', () => {
           'jamf.policy__scope__exclusions',
           'jamf.policy__scope__limit_to_users',
           'jamf.policy__scope__limitations',
+          'jamf.policy__scripts',
           'jamf.policy__self_service',
           'jamf.policy__user_interaction',
           'jamf.script',
@@ -253,6 +251,8 @@ describe('adapter', () => {
     let buildingToModify: InstanceElement
     let classToAdd: InstanceElement
     let policyToRemove: InstanceElement
+    let policyToModify: InstanceElement
+    let policyToAdd: InstanceElement
 
     beforeEach(() => {
       buildingType = new ObjectType({ elemID: new ElemID(ADAPTER_NAME, BUILDING_TYPE_NAME) })
@@ -275,9 +275,22 @@ describe('adapter', () => {
         site: '-1',
       })
       policyToRemove = new InstanceElement('policyToRemove', policyType, { id: 19 })
+      policyToAdd = new InstanceElement('policyToAdd', policyType, {
+        general: {
+          name: 'policyToAdd',
+        },
+        scripts: [],
+      })
+      policyToModify = new InstanceElement('policyToModify', policyType, {
+        id: 25,
+        general: {
+          name: 'policyToModify',
+        },
+        scripts: [],
+      })
       operations = adapter.operations({
         credentials: new InstanceElement('config', credentialsType, {
-          baseUrl: 'baseUrl',
+          baseUrl: 'https://baseUrl.com',
           clientId: 'clientId',
           clientSecret: 'clientSecret',
         }),
@@ -288,6 +301,8 @@ describe('adapter', () => {
           policyType,
           buildingToModify,
           policyToRemove,
+          policyToAdd,
+          policyToModify,
         ]),
       })
     })
@@ -325,11 +340,33 @@ describe('adapter', () => {
           progressReporter: nullProgressReporter,
         }),
       )
+      const policyToModifyAfter = policyToModify.clone()
+      policyToModifyAfter.value.name = 'This is a new name'
+      results.push(
+        await operations.deploy({
+          changeGroup: {
+            groupID: 'policy',
+            changes: [toChange({ before: policyToModify, after: policyToModifyAfter })],
+          },
+          progressReporter: nullProgressReporter,
+        }),
+      )
+      results.push(
+        await operations.deploy({
+          changeGroup: {
+            groupID: 'policy',
+            changes: [toChange({ after: policyToAdd })],
+          },
+          progressReporter: nullProgressReporter,
+        }),
+      )
 
-      expect(results.map(res => res.appliedChanges.length)).toEqual([1, 1, 1])
-      expect(results.map(res => res.errors.length)).toEqual([0, 0, 0])
-      const addRes = results[0].appliedChanges[0] as Change<InstanceElement>
-      expect(getChangeData(addRes).value.id).toEqual('20')
+      expect(results.map(res => res.appliedChanges.length)).toEqual([1, 1, 1, 1, 1])
+      expect(results.map(res => res.errors.length)).toEqual([0, 0, 0, 0, 0])
+      const classAddRes = results[0].appliedChanges[0] as Change<InstanceElement>
+      expect(getChangeData(classAddRes).value.id).toEqual(20)
+      const policyAddRes = results[4].appliedChanges[0] as Change<InstanceElement>
+      expect(getChangeData(policyAddRes).value.id).toEqual(43)
     })
   })
 })

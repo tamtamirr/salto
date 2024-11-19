@@ -1,17 +1,9 @@
 /*
- *                      Copyright 2024 Salto Labs Ltd.
+ * Copyright 2024 Salto Labs Ltd.
+ * Licensed under the Salto Terms of Use (the "License");
+ * You may not use this file except in compliance with the License.  You may obtain a copy of the License at https://www.salto.io/terms-of-use
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * CERTAIN THIRD PARTY SOFTWARE MAY BE CONTAINED IN PORTIONS OF THE SOFTWARE. See NOTICE FILE AT https://github.com/salto-io/salto/blob/main/NOTICES
  */
 import {
   Element,
@@ -51,7 +43,9 @@ import {
   ARTICLE_ATTACHMENTS_FIELD,
   GUIDE_THEME_TYPE_NAME,
   THEME_SETTINGS_TYPE_NAME,
+  TRANSLATIONS_FIELD,
 } from '../constants'
+import { shortElemIdHash } from './utils'
 
 const { RECORDS_PATH } = elementsUtils
 const log = logger(module)
@@ -335,29 +329,57 @@ const filterCreator: FilterCreator = () => ({
         })
       })
 
-    await awu(guideGrouped[ARTICLE_ATTACHMENT_TYPE_NAME] ?? []).forEach(async attachment => {
-      const staticFile = attachment.value.content
-      if (!isStaticFile(staticFile)) {
-        return
-      }
-      const content = await staticFile.getContent()
-      if (content === undefined) {
-        log.warn(`content is undefined for attachment ${attachment.elemID.getFullName()}`)
-        return
-      }
-      const path = attachment.path ?? []
-      // path = [zendesk, records, guide, brand, brandName ... ]
-      const staticFilePath = [
-        ZENDESK,
-        ARTICLE_ATTACHMENTS_FIELD,
-        ...path.slice(2, -1),
-        normalizeFilePathPart(attachment.value.file_name.split('.')[0]), // file name
-        normalizeFilePathPart(`${staticFile.hash.slice(0, 10)}_${attachment.value.file_name}`), // <hash>_file_name
-      ]
-      attachment.value.content = new StaticFile({
-        filepath: staticFilePath.join('/'),
-        content,
+    const arrangeStaticFiles = async ({
+      instances,
+      field,
+      pathPrefix,
+      fileNameGenerator,
+    }: {
+      instances: InstanceElement[]
+      field: string
+      pathPrefix: string
+      fileNameGenerator: (instance: InstanceElement, staticFile: StaticFile) => string[]
+    }): Promise<void> => {
+      await awu(instances ?? []).forEach(async instance => {
+        const staticFile = instance.value[field]
+        if (!isStaticFile(staticFile)) {
+          return
+        }
+        const content = await staticFile.getContent()
+        if (content === undefined) {
+          log.warn(`content is undefined for ${field} ${instance.elemID.getFullName()}`)
+          return
+        }
+        const path = instance.path ?? []
+        const staticFilePath = [ZENDESK, pathPrefix, ...path.slice(2, -1), ...fileNameGenerator(instance, staticFile)]
+        instance.value[field] = new StaticFile({
+          filepath: staticFilePath.join('/'),
+          content,
+          isTemplate: staticFile.isTemplate,
+          encoding: staticFile.encoding,
+        })
       })
+    }
+
+    await arrangeStaticFiles({
+      instances: guideGrouped[ARTICLE_ATTACHMENT_TYPE_NAME],
+      field: 'content',
+      pathPrefix: ARTICLE_ATTACHMENTS_FIELD,
+      fileNameGenerator: (attachment, staticFile) => [
+        normalizeFilePathPart(attachment.value.file_name.split('.')[0]), // file name
+        normalizeFilePathPart(
+          `${shortElemIdHash(attachment.elemID)}_${staticFile.hash.slice(0, 10)}_${attachment.value.file_name}`,
+        ), // <elemId-hash>_<file-hash>_file_name,
+      ],
+    })
+
+    await arrangeStaticFiles({
+      instances: guideGrouped[ARTICLE_TRANSLATION_TYPE_NAME],
+      field: 'body',
+      pathPrefix: TRANSLATIONS_FIELD,
+      fileNameGenerator: instance => [
+        normalizeFilePathPart(`${shortElemIdHash(instance.elemID)}_${pathNaclCase(naclCase(instance.value.title))}`), // <elemId-hash>_<title>
+      ],
     })
   },
 })
