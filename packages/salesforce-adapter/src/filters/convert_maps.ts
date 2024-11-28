@@ -52,6 +52,7 @@ import {
   MUTING_PERMISSION_SET_METADATA_TYPE,
   SHARING_RULES_TYPE,
   INSTANCE_FULL_NAME_FIELD,
+  ORDERED_MAP_PREFIX,
 } from '../constants'
 import { metadataType } from '../transformers/transformer'
 import { GLOBAL_VALUE_SET } from './global_value_sets'
@@ -94,7 +95,7 @@ export const ORDERED_MAP_ORDER_FIELD = 'order'
 
 export const createOrderedMapType = <T extends TypeElement>(innerType: T): ObjectType =>
   new ObjectType({
-    elemID: new ElemID('salesforce', `OrderedMapOf${innerType.elemID.name}`),
+    elemID: new ElemID('salesforce', `${ORDERED_MAP_PREFIX}${innerType.elemID.name}`),
     fields: {
       [ORDERED_MAP_VALUES_FIELD]: {
         refType: new MapType(innerType),
